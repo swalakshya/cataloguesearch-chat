@@ -426,6 +426,7 @@ class MCPServer:
 
     def _call_external_api(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
         if tool_name == "agent_search":
+            arguments = {**arguments, "content_type": ["Books", "Granth"]}
             response = self.client.post("/api/agent/search", arguments)
         elif tool_name == "agent_navigate":
             response = self.client.post("/api/agent/navigate", arguments)

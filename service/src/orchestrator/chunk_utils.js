@@ -6,6 +6,7 @@ export function cleanChunk(raw) {
     page_number: raw.page_number ?? null,
     gatha: raw.gatha ?? null,
     granth: raw.granth || "",
+    author: raw.author || "",
     category: raw.category || "",
     text_content: raw.text_content || "",
   };

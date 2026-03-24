@@ -1,0 +1,14 @@
+{
+  "name": "cataloguesearch-chat-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file=.env.local src/server.js"
+  },
+  "dependencies": {
+    "@google/genai": "^0.14.0",
+    "cors": "^2.8.5",
+    "express": "^4.19.2"
+  }
+}

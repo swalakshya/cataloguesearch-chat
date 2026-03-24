@@ -111,13 +111,13 @@ pip install -r requirements.txt
 ### Using the production API
 
 ```bash
-CATALOGUESEARCH_BASE_URL=https://swalakshya.me python mcp_server.py
+EXTERNAL_API_BASE_URL=https://swalakshya.me python mcp_server.py
 ```
 
 ### Using a local backend
 
 ```bash
-CATALOGUESEARCH_BASE_URL=http://localhost:8000 python mcp_server.py
+EXTERNAL_API_BASE_URL=http://localhost:8000 python mcp_server.py
 ```
 
 ### Claude Desktop configuration
@@ -131,7 +131,7 @@ Add to your `claude_desktop_config.json`:
       "command": "python",
       "args": ["/path/to/cataloguesearch-chat/mcp/mcp_server.py"],
       "env": {
-        "CATALOGUESEARCH_BASE_URL": "https://swalakshya.me"
+        "EXTERNAL_API_BASE_URL": "https://swalakshya.me"
       }
     }
   }

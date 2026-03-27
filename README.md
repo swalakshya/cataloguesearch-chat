@@ -20,6 +20,11 @@ Both components call the CatalogueSearch backend API (`/api/agent/`) and require
 
 ## Chat Service (`service/`)
 
+The service starts on port `8012` and exposes:
+- `POST /v1/chat/sessions` — create a session
+- `POST /v1/chat/sessions/:id/messages` — send a message
+- `GET  /v1/health` — health check
+
 ### Prerequisites
 - Node.js 20+
 - An OpenAI or Gemini API key
@@ -34,11 +39,6 @@ cp .env.local.example .env.local
 npm install
 npm start
 ```
-
-The service starts on port `8012` and exposes:
-- `POST /v1/chat/sessions` — create a session
-- `POST /v1/chat/sessions/:id/messages` — send a message
-- `GET  /v1/health` — health check
 
 ### Using the production API (swalakshya.me)
 
@@ -70,11 +70,18 @@ LLM_MODEL=gpt-4o
 OPENAI_API_KEY=your-openai-key-here
 ```
 
-### Docker
+### Run locally
+```
+cd service
+npm install
+npm start
+```
+
+### Docker (preferred)
 
 ```bash
 cp service/.env.local.example service/.env.local
-# fill in your keys
+# Edit service/.env.local with your API key and backend URL
 docker compose up
 ```
 
@@ -108,13 +115,13 @@ cd mcp
 pip install -r requirements.txt
 ```
 
-### Using the production API
+#### Run locally using the production API
 
 ```bash
 EXTERNAL_API_BASE_URL=https://swalakshya.me python mcp_server.py
 ```
 
-### Using a local backend
+#### Run locally using a local backend
 
 ```bash
 EXTERNAL_API_BASE_URL=http://localhost:8000 python mcp_server.py
@@ -128,6 +135,9 @@ Add to your `claude_desktop_config.json`:
 {
   "mcpServers": {
     "cataloguesearch": {
+      "disabled": false,
+      "timeout": 600,
+      "type": "stdio",
       "command": "python",
       "args": ["/path/to/cataloguesearch-chat/mcp/mcp_server.py"],
       "env": {
@@ -137,6 +147,53 @@ Add to your `claude_desktop_config.json`:
   }
 }
 ```
+
+### Cline:
+Add to your `cline_mcp_settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "cataloguesearch": {
+      "disabled": false,
+      "timeout": 600,
+      "type": "stdio",
+      "command": "python",
+      "args": ["/path/to/cataloguesearch-chat/mcp/mcp_server.py"],
+      "env": {
+        "EXTERNAL_API_BASE_URL": "https://swalakshya.me"
+      }
+    }
+  }
+}
+```
+
+#### Notes on Claude/Cline compatibility
+
+Claude/Cline’s MCP server runner does **not** expand `~` in `args`. Use an **absolute path** to `mcp_external_api_server.py` in your Cline MCP settings.
+
+
+### OpenAI Codex (MCP stdio)
+Add to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.cataloguesearch]
+type = "stdio"
+command = "python"
+startup_timeout_sec = 60
+args = [
+  "/path/to/cataloguesearch-chat/mcp/mcp_server.py"
+]
+
+[mcp_servers.cataloguesearch.env]
+EXTERNAL_API_BASE_URL = "https://swalakshya.me"
+EXTERNAL_API_VERIFY_TLS = "false"
+```
+
+## Environment Variables
+- `EXTERNAL_API_BASE_URL`: API base URL (default `http://localhost:8000`)
+- `EXTERNAL_API_VERIFY_TLS`: `true` or `false` to override TLS verification
+- `EXTERNAL_API_TIMEOUT`: HTTP timeout in seconds (default `120`)
 
 ---
 

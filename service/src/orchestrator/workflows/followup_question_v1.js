@@ -17,27 +17,28 @@ export async function runFollowupQuestion({ externalApi, params, requestId, tool
     rerank: true,
   });
 
-  const extraSearch = params.followup_keywords && params.followup_keywords.length ? 1 : 0;
-  ensureBudget(toolBudget, 1 + extraSearch + (params.expand_chunk_ids?.length || 0));
+  const followupKeywordSets = normalizeFollowupKeywordSets(params.followup_keywords);
+  const extraSearches = followupKeywordSets.length;
+  ensureBudget(toolBudget, 1 + extraSearches + (params.expand_chunk_ids?.length || 0));
 
   toolBudget.consume();
   await safePush(results, () => externalApi.search(searchPayload(params.keywords), requestId), requestId);
 
-  if (params.followup_keywords && params.followup_keywords.length) {
+  for (const keywordSet of followupKeywordSets) {
     toolBudget.consume();
     await safePush(
       results,
-      () => externalApi.search(searchPayload(params.followup_keywords), requestId),
+      () => externalApi.search(searchPayload(keywordSet), requestId),
       requestId
     );
   }
 
-  const expandIds = Array.isArray(params.expand_chunk_ids) ? params.expand_chunk_ids : [];
+  const expandIds = Array.isArray(params.expand_chunk_ids) ? params.expand_chunk_ids.slice(0, 15) : [];
   for (const chunkId of expandIds) {
     toolBudget.consume();
     await safePush(
       results,
-      () => externalApi.navigate({ chunk_id: chunkId, direction: "both", steps: 3 }, requestId),
+      () => externalApi.navigate({ chunk_id: chunkId, direction: "both", steps: 3, language: "hi" }, requestId),
       requestId
     );
   }
@@ -50,6 +51,19 @@ function buildQuery(keywords) {
     return keywords.join(" ");
   }
   return String(keywords || "").trim();
+}
+
+function normalizeFollowupKeywordSets(followupKeywords) {
+  if (!Array.isArray(followupKeywords)) return [];
+  if (!followupKeywords.length) return [];
+  if (typeof followupKeywords[0] === "string") return [followupKeywords];
+  const sets = [];
+  for (const entry of followupKeywords) {
+    if (entry && Array.isArray(entry.keywords) && entry.keywords.length) {
+      sets.push(entry.keywords);
+    }
+  }
+  return sets;
 }
 
 function ensureBudget(toolBudget, needed) {

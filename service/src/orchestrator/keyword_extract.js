@@ -1,5 +1,8 @@
-import { getKeywordPrompt, getWorkflowCatalog } from "./prompts.js";
+import { getKeywordPrompt } from "./prompts.js";
 import { KEYWORD_EXTRACTION_SCHEMA } from "./keyword_schema.js";
+import { formatConversationHistory } from "./conversation_history.js";
+import { parseJsonStrict } from "../utils/json.js";
+import { estimateTokens } from "../utils/token.js";
 import { log } from "../utils/log.js";
 
 export async function runKeywordExtraction({
@@ -8,9 +11,12 @@ export async function runKeywordExtraction({
   sessionContext,
   requestId,
 }) {
-  const workflowCatalog = getWorkflowCatalog();
-  const extraContext = buildExtraContext(sessionContext);
-  const prompt = getKeywordPrompt(question, workflowCatalog, extraContext);
+  const history = formatConversationHistory(sessionContext?.conversationHistory);
+  const prompt = getKeywordPrompt(question, history);
+  log.info("keyword_extract_prompt_tokens", {
+    requestId,
+    tokens: estimateTokens(prompt),
+  });
 
   const messages = [
     { role: "system", content: "You are a precise JSON-only extractor." },
@@ -33,36 +39,4 @@ export async function runKeywordExtraction({
   const parsed = parseJsonStrict(raw);
   log.debug("keyword_extract_parsed", { requestId, workflow: parsed.workflow });
   return parsed;
-}
-
-function buildExtraContext(sessionContext) {
-  if (!sessionContext) return "";
-  const parts = [];
-  if (sessionContext.previousQuestion) {
-    parts.push(`Previous question: ${sessionContext.previousQuestion}`);
-  }
-  if (Array.isArray(sessionContext.previousChunkIds) && sessionContext.previousChunkIds.length) {
-    parts.push(`Previous retrieved chunk_ids: ${sessionContext.previousChunkIds.join(", ")}`);
-  }
-  return parts.join("\n");
-}
-
-function parseJsonStrict(raw) {
-  if (!raw) throw new Error("Empty JSON response");
-  const trimmed = raw.trim();
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const extracted = extractJsonBlock(trimmed);
-    return JSON.parse(extracted);
-  }
-}
-
-function extractJsonBlock(text) {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) {
-    throw new Error("Unable to locate JSON object in response");
-  }
-  return text.slice(start, end + 1);
 }

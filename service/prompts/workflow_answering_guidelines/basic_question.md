@@ -1,9 +1,12 @@
-# Workflow: basic_question_v1
+# Specific Answering Guidelines
+
+## Workflow: basic_question_v1
 
 Used for simple definitional/comparative questions.
 
 Answer must include:
-- Simple Definition (2-3 lines)
-- Highlight keywords in bold
-- Short explanation (2-3 lines with 1-2 citations in between)
-- References at the end (1-2 max)
+- Simple definition (2-3 lines).
+- Highlight key terms in bold.
+- Short explanation (2-3 lines) with 1-2 inline citations
+- Followup section (atleast 3 questions)
+- References section with 1-2 items max.

@@ -55,6 +55,25 @@ export function extractReferences(text) {
     }
   }
 
+  if (references.length === 0) {
+    const fallback = parseReferencesFromLines(lines);
+    for (const ref of fallback) {
+      if (!seenRefs.has(ref)) {
+        references.push(ref);
+        seenRefs.add(ref);
+        const citation = parseReferenceLine(ref);
+        if (citation) {
+          const key = `${citation.granth || ""}|${citation.category || ""}|${citation.page_number || ""}|${citation.file_url || ""}`;
+          if (!seenCitations.has(key)) {
+            citations.push(citation);
+            seenCitations.add(key);
+          }
+        }
+      }
+      if (references.length >= MAX_REFERENCES || citations.length >= MAX_CITATIONS) break;
+    }
+  }
+
   return { answer: answerLines.join("\n").trim(), references, citations };
 }
 
@@ -76,7 +95,11 @@ export function isReferenceLine(line) {
 }
 
 export function normalizeReferenceLine(line) {
-  return line.replace(/^\s*[-*]\s+/, "").replace(/^\s*\d+\.\s+/, "").trim();
+  return line
+    .replace(/^\s*[-*]\s+/, "")
+    .replace(/^\s*\d+\.\s+/, "")
+    .replace(/\*\*/g, "")
+    .trim();
 }
 
 function parseReferenceLine(line) {
@@ -103,6 +126,16 @@ function parseReferenceLine(line) {
     page_number: extractPage(prefix),
     file_url,
   };
+}
+
+function parseReferencesFromLines(lines) {
+  const refs = [];
+  for (const line of lines) {
+    if (!isReferenceLine(line)) continue;
+    const ref = normalizeReferenceLine(line);
+    if (ref) refs.push(ref);
+  }
+  return refs;
 }
 
 function parsePage(text) {

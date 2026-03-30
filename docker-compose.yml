@@ -6,6 +6,8 @@ services:
     container_name: cataloguesearch-chat-service
     env_file:
       - ./service/.env.local
+    volumes:
+      - ./service/.env.local:/app/.env.local:ro
     ports:
       - "${CHAT_SERVICE_PORT:-8012}:8012"
     restart: ${RESTART_POLICY:-no}

@@ -18,10 +18,6 @@ This document proposes a non‑agentic **llm_direct_service** that calls LLM pro
 ---
 
 ## Key References
-- External API implementation: `backend/api/external_api.py`
-- External API contract: `backend/api/external_api_README.md`
-- Tool schema for external API: `tools/external_api_openapi.yaml` / `tools/external_api_openapi.json`
-- Tool usage guidance: `tools/cataloguesearch_tools.md`
 - Workflow implementation guidelines: `docs/workflow_implementation_guidelines.md`
 
 ---
@@ -106,7 +102,7 @@ Provider selection is done per request or via `LLM_PROVIDER` + model config.
 The service uses two prompt templates:
 
 1) **Keyword extraction prompt** (JSON output)
-   - Input: user question
+   - Input: user question + conversation history (all prior question/answer/chunk_ids sets)
    - Output:
     ```json
     {
@@ -116,16 +112,14 @@ The service uses two prompt templates:
       "filters": {
         "granth": "Samaysaar"
       }
-      "<other params>" : "<refer step1_keyword_extract_and_classification>"
+      "<other params>" : "<refer step1_keyword_extract_and_classification.md>"
     }
     ```
 
 2) **Answer synthesis prompt**
-   - Input: user question + retrieved chunks (in an organized format)
-   - Must follow:
-     - `mcp/backend/guidelines/cataloguesearch_answering_guidelines.md`
-     - `tools/cataloguesearch_tools.md` (format and citation rules)
-   - Must follow **workflow‑specific answer rules** (defined below).
+   - Input: user question + retrieved chunks (in an organized format) + conversation history (all prior question/answer/chunk_ids sets)
+   - Output: strict JSON `{ answer, scoring }` where `scoring` lists `{ chunk_id, score }` for chunks used in the answer.
+   - Must follow **workflow‑specific answer rules**
 
 Composition rule:
 - Always include `step_2_answer_synthesis.md`
@@ -135,7 +129,6 @@ Prompts are stored as versioned files under:
 ```
 llm_direct_service/prompts/
   step_1_keyword_extract_and_classification.md
-  workflow_catalog.md
   step_2_answer_synthesis.md
   workflows/
     basic_question.md
@@ -146,102 +139,16 @@ llm_direct_service/prompts/
 
 The keyword extraction prompt includes the **workflow catalog** so the model can select the best one at runtime.
 
-### Workflow‑Specific Answer Rules
-The answer synthesis prompt must enforce the rules for the **selected workflow**:
-
-#### Workflow: `basic_question_v1`
-Use for simple definitional/comparative questions (e.g., “Jeev kise kehte hain?”).
-
-Answer must include:
-- Simple definition
-- 2–3 line explanation
-- One scripture reference
-
-Structure:
-1. Definition
-2. Short explanation
-3. Reference
-
-Total length: 3–5 lines maximum.
-
-#### Workflow: `followup_question_v1`
-Use when the user requests more detail (e.g., “Aur batao”, “Detail me”, “Granth reference”, “More explanation”).
-
-Answer must include:
-- Deeper explanation
-- Concept breakdown
-- Multiple scripture references
-
-Structure:
-1. Explanation
-2. Bullet points
-3. Multiple references
-
-#### Workflow: `advanced_distinct_questions_v1`
-Use when the user asks **multiple distinct questions** in one request.
-
-Retrieval guidance (distinct questions):
-1. Decompose the user question into multiple queries.
-2. For each query, call `external_search` first (use 2–5 key terms; add synonyms only when essential).
-3. After initial context, expand each query using one of:
-   - `external_navigate` (preferred), or
-   - `external_get_pravachan` (rare; only when a Pravachan number is known).
-4. If more context is still needed, run one additional `external_search` for important key terms found in the retrieved context.
-
-Answer must include:
-- Separate sections per question
-- 2–4 references overall (at least one per question)
-- Short summary at the end
-
-#### Workflow: `advanced_nested_questions_v1`
-Use when the user asks **related/nested questions** (philosophical/comparative).
-
-Retrieval guidance (related/nested questions):
-1. Create one main query plus 1–3 sub-queries as needed.
-2. For the main query, call `external_search` first (use 2–5 key terms; add synonyms only when essential).
-3. After initial context, expand sub-questions using one of:
-   - `external_navigate` (preferred), or
-   - `external_get_pravachan` (rare; only when a Pravachan number is known).
-4. If more context is still needed, run one additional `external_search` for a sub-question, building it from:
-   - the sub-question, and
-   - key terms found in the retrieved context.
-5. Repeat step 3 for the new context if needed.
-
-Answer may include:
-- Concept explanation
-- Examples
-- 3–4 references
-- Short summary
-
-#### “Ask More” Suggestions
-After answers add:
-“You may also ask:”
-- Jeev ke prakar
-- Ajiv kya hai
-- Karma kya hai
-
-#### Handling Unknown Questions
-If the bot is unsure:
-Response format:
-"Not able to answer the question either due to insufficient references found or multiple interpretations. Try again with expanding the filter range if possible OR
-To avoid incorrect guidance, we recommend consulting a knowledgeable Acharya or scholar."
-
----
-
 ## External API Usage (Direct HTTP)
 Tools are **plain HTTP calls** to the External API. Names mirror the MCP tools.
 
 | Tool Name | Endpoint | Purpose |
 | --- | --- | --- |
-| `external_search` | `POST /api/external/search` | primary retrieval |
-| `external_navigate` | `POST /api/external/navigate` | surrounding context |
-| `external_find_similar` | `POST /api/external/find_similar` | related passages |
-| `external_get_filter_options` | `POST /api/external/get_filter_options` | optional filter discovery |
-| `external_get_pravachan` | `POST /api/external/get_pravachan` | full discourse |
-
-Authoritative schemas live in:
-- `tools/external_api_openapi.yaml`
-- `tools/external_api_openapi.json`
+| `external_search` | `POST /api/agent/search` | primary retrieval |
+| `external_navigate` | `POST /api/agent/navigate` | surrounding context |
+| `external_find_similar` | `POST /api/agent/find_similar` | related passages |
+| `external_get_filter_options` | `POST /api/agent/get_filter_options` | optional filter discovery |
+| `external_get_pravachan` | `POST /api/agent/get_pravachan` | full discourse |
 
 ---
 
@@ -259,6 +166,7 @@ Session‑only (drop‑in for existing FE). Same as `llm_service_node`:
   - provider account/model selection
   - provider SDK session id (or equivalent handle)
   - message history (for auditing and optional context)
+  - conversation history sets: `{ id: "set_1", question, answer, chunk_ids, chunk_scores }`
 - Provider session is created on `POST /v1/chat/sessions` and **reused** for all messages until idle expiry or explicit delete.
 - Idle expiry closes the provider session and releases resources.
 
@@ -344,7 +252,7 @@ llm_direct_service/
         followup_question_v1.ts
         advanced_distinct_questions_v1.ts
         advanced_nested_questions_v1.ts
-      keyword_extract.ts     # includes workflow catalog in prompt
+      keyword_extract.ts     
       answer_synthesis.ts
       chunk_utils.ts         # merge + citation extraction
     external_api/
@@ -359,15 +267,8 @@ llm_direct_service/
 
 ---
 
-## Why This Solves the Current Issue
-- Removes MCP + agent loop from the critical path.
-- Uses **direct provider SDKs** with explicit concurrency/rate‑limit handling.
-- Keeps the workflow deterministic and debuggable, aligned with CatalogueSearch guidelines.
-
----
-
 ## Implementation Notes (First Pass)
-- Start with a single provider (OpenAI or Gemini) and add others via adapter interface.
-- Use JSON‑schema output for keyword extraction to avoid parsing errors.
-- Keep the External API client minimal and generated from `tools/external_api_openapi.yaml`.
-- Add a **search budget** guardrail to prevent accidental repeated searches.
+- Started with only two providers (OpenAI and Gemini), can others via adapter interface.
+- Used JSON‑schema output for keyword extraction to avoid parsing errors.
+- Kept the External API client minimal.
+- Added a **search budget** guardrail to prevent accidental repeated searches.

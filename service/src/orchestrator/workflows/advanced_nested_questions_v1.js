@@ -19,33 +19,22 @@ export async function runAdvancedNestedQuestions({ externalApi, params, requestI
     rerank: true,
   });
 
-  const estimatedCalls = 1 + subQueries.length;
+  const estimatedCalls = subQueries.length || 1;
   ensureBudget(toolBudget, estimatedCalls);
 
-  toolBudget.consume();
-  const mainResults = await safeFetch(
-    () => externalApi.search(searchPayload(mainQuery.keywords, 10), requestId),
-    requestId
-  );
-  if (Array.isArray(mainResults)) {
-    results.push(...mainResults);
-  }
-
-  for (const chunk of Array.isArray(mainResults) ? mainResults : []) {
-    if (!chunk?.chunk_id) continue;
-    if (toolBudget.remaining() <= 0) break;
+  const mainKeywords = Array.isArray(mainQuery.keywords) ? mainQuery.keywords : [];
+  if (subQueries.length === 0) {
     toolBudget.consume();
-    await safePush(
-      results,
-      () => externalApi.navigate({ chunk_id: chunk.chunk_id, direction: "both", steps: 3 }, requestId),
-      requestId
-    );
+    await safePush(results, () => externalApi.search(searchPayload(mainKeywords, 10), requestId), requestId);
+    return results;
   }
 
   for (const query of subQueries) {
     if (toolBudget.remaining() <= 0) break;
+    const subKeywords = Array.isArray(query.keywords) ? query.keywords : [];
+    const combined = [...mainKeywords, ...subKeywords].filter(Boolean);
     toolBudget.consume();
-    await safePush(results, () => externalApi.search(searchPayload(query.keywords, 10), requestId), requestId);
+    await safePush(results, () => externalApi.search(searchPayload(combined, 10), requestId), requestId);
   }
 
   return results;

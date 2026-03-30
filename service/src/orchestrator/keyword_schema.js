@@ -30,7 +30,18 @@ export const KEYWORD_EXTRACTION_SCHEMA = {
     is_followup: { type: "boolean" },
     followup_keywords: {
       type: "array",
-      items: { type: "string" },
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          keywords: {
+            type: "array",
+            items: { type: "string" },
+          },
+        },
+        required: ["id", "keywords"],
+        additionalProperties: false,
+      },
     },
     expand_chunk_ids: {
       type: "array",

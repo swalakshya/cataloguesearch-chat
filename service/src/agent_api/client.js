@@ -28,15 +28,16 @@ export class ExternalApiClient {
 
   async #post(path, payload, requestId) {
     const url = `${this.baseUrl}${path}`;
+    const normalizedPayload = normalizeLanguage(payload);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
       const startedAt = Date.now();
-      log.info("external_api_request", { requestId, path, payload });
+      log.info("external_api_request", { requestId, path, payload: normalizedPayload });
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(normalizedPayload),
         signal: controller.signal,
       });
       const text = await res.text();
@@ -68,4 +69,11 @@ export class ExternalApiClient {
       clearTimeout(timeout);
     }
   }
+}
+
+function normalizeLanguage(payload) {
+  if (!payload || typeof payload !== "object") return payload;
+  const lang = String(payload.language || "").toLowerCase();
+  if (lang === "hi" || lang === "gu") return payload;
+  return { ...payload, language: "hi" };
 }

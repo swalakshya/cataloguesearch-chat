@@ -95,3 +95,28 @@ Response:
 - Workflow prompts live under `llm_direct_service/prompts/`.
 - External API schemas live under `tools/external_api_openapi.*`.
 - This service uses deterministic retrieval workflows defined in `llm_direct_service/docs/workflow_implementation_details.md`.
+
+## Session Token Limits
+To preserve answer accuracy, the messages API rejects requests once a session reaches 80% of its token limit.
+
+Response on limit hit:
+```json
+{
+  "detail": "Token Limit Exhausted for the session. Please initiate a new session.",
+  "customer_message": "Please start a new chat for better answer accuracy."
+}
+```
+
+Configuration order:
+1. `LLM_SESSION_TOKEN_LIMIT` (explicit override)
+2. `LLM_TOKEN_LIMITS_JSON` (provider/model mapping)
+3. Defaults in `src/config/token_limits.js`
+
+Example `LLM_TOKEN_LIMITS_JSON`:
+```json
+{
+  "openai": { "gpt-4o": 128000, "*": 120000 },
+  "gemini": { "gemini-2.5-pro": 1048576, "gemini-2.5-flash": 1048576 },
+  "default": { "*": 120000 }
+}
+```

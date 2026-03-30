@@ -1,10 +1,13 @@
-# Workflow: followup_question_v1
+# Specific Answering Guidelines
 
-Used when the user asks for more detail (e.g., “Aur batao”, “Detail me”, “Granth reference”, “More explanation”).
+## Workflow: followup_question_v1
 
-Answer must include:
-- Deeper explanation
-- Concept breakdown (with 4-5 citations in between)
-- Multiple scripture references at the end (5-10)
-- Short summary section - summary in bullet points
+Used when the user asks for more detail (e.g., “Aur batao”, “Detail me”, “Granth reference”, “More explanation”, "Summarize the above answers").
 
+Answer may include:
+- Deeper explanation (if asked by the user)
+- Concept breakdown with 4-5 inline citations. (if asked by the user)
+- Highlight key terms in bold.
+- Summary section as bullet points. Should start with the heading - "Summary".
+- Followup section (atleast 3 questions)
+- References section with 1-10 items.

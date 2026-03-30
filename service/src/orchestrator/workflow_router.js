@@ -71,7 +71,7 @@ async function resolveFilters({ externalApi, filters, language, requestId, allow
 
   for (const ct of typesToFetch) {
     optionSets.push(
-      await safeFetchFilterOptions(externalApi, { language, content_type: ct }, requestId, allowFailure)
+      await safeFetchFilterOptions(externalApi, { language: "hi", content_type: ct }, requestId, allowFailure)
     );
   }
 

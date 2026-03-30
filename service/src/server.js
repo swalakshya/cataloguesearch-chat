@@ -11,6 +11,7 @@ import { runWorkflow } from "./orchestrator/workflow_router.js";
 import { runAnswerSynthesis } from "./orchestrator/answer_synthesis.js";
 import { buildContext, cleanChunks, extractChunkIds } from "./orchestrator/chunk_utils.js";
 import { extractReferences, sanitizeCitations, sanitizeReferences, stripCitations } from "./utils/answer.js";
+import { estimateTokens, shouldRejectForTokenLimit, getSessionTokenLimit } from "./utils/token.js";
 import { log } from "./utils/log.js";
 
 const app = express();
@@ -25,6 +26,8 @@ const MODEL = process.env.LLM_MODEL || "gpt-4o";
 
 const EXTERNAL_API_BASE_URL = process.env.EXTERNAL_API_BASE_URL || "http://localhost:8000";
 const EXTERNAL_API_TIMEOUT_MS = Number(process.env.EXTERNAL_API_TIMEOUT_SEC || 60) * 1000;
+const SESSION_TOKEN_LIMIT = resolveSessionTokenLimit();
+const SESSION_TOKEN_LIMIT_THRESHOLD = Number(process.env.LLM_SESSION_TOKEN_LIMIT_THRESHOLD || 0.8);
 
 const provider = initProvider(PROVIDER_ID);
 const externalApi = new ExternalApiClient({
@@ -65,8 +68,8 @@ app.post("/v1/chat/sessions", async (req, res) => {
       createdAt: Date.now(),
       lastActivityAt: Date.now(),
       messages: [],
-      previousQuestion: null,
-      previousChunkIds: [],
+      tokenCount: 0,
+      conversationHistory: [],
       busy: false,
     });
 
@@ -104,9 +107,25 @@ app.post("/v1/chat/sessions/:sessionId/messages", async (req, res) => {
     return res.status(400).json({ detail: "invalid_message" });
   }
 
+  if (
+    shouldRejectForTokenLimit({
+      currentTokens: session.tokenCount || 0,
+      incomingText: content,
+      limit: SESSION_TOKEN_LIMIT,
+      threshold: SESSION_TOKEN_LIMIT_THRESHOLD,
+    })
+  ) {
+    log.warn("session_token_limit_reached", { sessionId: session.sessionId, tokenCount: session.tokenCount });
+    return res.status(429).json({
+      detail: "Token Limit Exhausted for the session. Please initiate a new session.",
+      customer_message: "Please start a new chat for better answer accuracy.",
+    });
+  }
+
   session.busy = true;
   session.lastActivityAt = Date.now();
   session.messages.push({ role: "user", content });
+  session.tokenCount = (session.tokenCount || 0) + estimateTokens(content);
 
   const requestId = crypto.randomUUID();
 
@@ -115,8 +134,7 @@ app.post("/v1/chat/sessions/:sessionId/messages", async (req, res) => {
       provider,
       question: content,
       sessionContext: {
-        previousQuestion: session.previousQuestion,
-        previousChunkIds: session.previousChunkIds,
+        conversationHistory: session.conversationHistory,
       },
       requestId,
     });
@@ -151,14 +169,16 @@ app.post("/v1/chat/sessions/:sessionId/messages", async (req, res) => {
       warnings.push("no_context_found");
     }
 
-    const answerRaw = await runAnswerSynthesis({
+    const answerPayload = await runAnswerSynthesis({
       provider,
       question: content,
       workflowName,
       context,
+      conversationHistory: session.conversationHistory,
       requestId,
     });
 
+    const answerRaw = String(answerPayload?.answer || "");
     const cleaned = stripCitations(answerRaw);
     const { answer, references, citations } = extractReferences(cleaned);
     const safeReferences = sanitizeReferences(references);
@@ -171,10 +191,21 @@ app.post("/v1/chat/sessions/:sessionId/messages", async (req, res) => {
       citationsCount: safeCitations.length,
     });
 
+    const chunkIds = extractChunkIds(cleanedChunks);
+    const scoring = Array.isArray(answerPayload?.scoring) ? answerPayload.scoring : [];
+    const scoredChunks = buildScoredChunks(scoring, chunkIds);
+
     session.messages.push({ role: "assistant", content: answer });
+    session.tokenCount = (session.tokenCount || 0) + estimateTokens(answer);
     session.lastActivityAt = Date.now();
-    session.previousQuestion = content;
-    session.previousChunkIds = extractChunkIds(cleanedChunks);
+    const nextSetId = `set_${session.conversationHistory.length + 1}`;
+    session.conversationHistory.push({
+      id: nextSetId,
+      question: content,
+      answer,
+      chunk_ids: scoredChunks.length ? scoredChunks.map((entry) => entry.chunk_id) : chunkIds,
+      chunk_scores: scoredChunks,
+    });
     session.busy = false;
 
     res.json({
@@ -232,6 +263,18 @@ app.listen(PORT, () => {
   log.info("server_listen", { port: PORT, provider: PROVIDER_ID, model: MODEL });
 });
 
+function resolveSessionTokenLimit() {
+  const raw = process.env.LLM_SESSION_TOKEN_LIMIT;
+  if (raw !== undefined && raw !== null && String(raw).trim() !== "") {
+    const value = Number(raw);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  const configured = getSessionTokenLimit(PROVIDER_ID, MODEL);
+  if (Number.isFinite(configured) && configured > 0) return configured;
+  log.warn("session_token_limit_unset", { provider: PROVIDER_ID, model: MODEL });
+  return 0;
+}
+
 function initProvider(providerId) {
   if (providerId === "openai") {
     const provider = OpenAIProvider.fromEnv();
@@ -286,4 +329,20 @@ function sanitizeContentType(value) {
   }
   if (typeof value === "string" && valid.includes(value)) return [value];
   return undefined;
+}
+
+function buildScoredChunks(scoring, allowedChunkIds) {
+  const allowed = new Set(allowedChunkIds);
+  const scored = [];
+  for (const entry of scoring) {
+    if (!entry || typeof entry !== "object") continue;
+    const chunkId = String(entry.chunk_id || "").trim();
+    if (!chunkId || !allowed.has(chunkId)) continue;
+    const score = Number(entry.score);
+    if (!Number.isFinite(score)) continue;
+    const normalizedScore = Math.max(1, Math.min(100, Math.trunc(score)));
+    scored.push({ chunk_id: chunkId, score: normalizedScore });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return scored;
 }

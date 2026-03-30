@@ -28,14 +28,11 @@ This document summarizes the cleanup and formatting behaviors applied in the UI 
 - Curly-quoted and straight-quoted segments are rendered in italics.
 - Italics are applied after HTML escaping to avoid rendering artifacts.
 
-## Scroll Behavior
+## Scroll Behavior or Message Splitting
 - The answer display area uses a fixed-height scrollable container.
 - This prevents long answers from truncating and keeps the page layout stable.
-
-## Chat vs Search Mode
-- In chat mode, the Search action is hidden and only the chat-based answer flow is shown.
-- Advanced Search filters are hidden in chat mode, but the remaining filters are applied to LLM calls.
+- Or a message can be splitted as required.
 
 ## Known Non-Goals
-- The UI does not attempt to reconstruct missing references; it only formats and displays what the service returns.
+- The UI should not attempt to reconstruct missing references; it only formats and displays what the service returns.
 - No automatic reordering of answer content beyond citation cleanup and heading detection.

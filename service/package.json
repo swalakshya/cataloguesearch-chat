@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node --env-file=.env.local src/server.js"
+    "start": "node --env-file=.env.local src/server.js",
+    "test": "node --test",
+    "test:docker": "sh scripts/run-tests-docker.sh"
   },
   "dependencies": {
     "@google/genai": "^0.14.0",

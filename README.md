@@ -97,6 +97,9 @@ docker compose up
 | `LLM_SERVICE_PORT` | `8012` | Port the service listens on |
 | `LLM_SESSION_IDLE_TIMEOUT_SEC` | `900` | Session idle timeout (seconds) |
 | `WORKFLOW_TOOL_CALL_BUDGET` | `25` | Max API calls per request |
+| `LLM_SESSION_TOKEN_LIMIT` | — | Explicit per-session token limit (overrides mapping) |
+| `LLM_SESSION_TOKEN_LIMIT_THRESHOLD` | `0.8` | % of limit after which requests are rejected |
+| `LLM_TOKEN_LIMITS_JSON` | — | JSON map of token limits by provider/model |
 
 ---
 

@@ -22,6 +22,12 @@ Prefer page 1 results for `external_search`.
 **Cleaning up context**
 - Cleanup all the unnecessary params from the reponses of the external API calls when passing to LLM. Only keep - file_url, chunk_id, page_number, gatha, granth, category, text_content
 
+**Conversation history (Step 1 + Step 2)**
+- Always pass full conversation history to both LLM calls as a JSON array of sets.
+- Each set includes: `{ id: "set_N", question, answer (text only), chunk_ids }`.
+- Only pass `chunk_ids` (not full chunk data) in history.
+- Include `chunk_scores` for each set to reflect chunk relevance from Step 2 scoring.
+
 ---
 
 ## Workflow 1: `basic_question_v1`
@@ -46,8 +52,9 @@ Prefer page 1 results for `external_search`.
 **Steps:**
 1. `is_followup` must be true.
 2. Use the `keywords` returned by the LLM to call `external_search` (page 1, page_size=15, rerank=true).
-3. Use the `followup_keywords` returned by the LLM to call `external_search` (page 1, page_size=15, rerank=true).
+3. For each entry in `followup_keywords` returned by the LLM, call `external_search` separately using that entry's `keywords` (page 1, page_size=15, rerank=true). Do not merge keyword sets.
 4. Expand `expand_chunk_ids` returned by LLM using `external_navigate` (direction="both", steps=2–4) before proceeding.
+   - `expand_chunk_ids` must be at most 15 and should be the top-scoring chunks from the conversation history.
 5. Pass all retrieved results as context to the LLM for answer synthesis step.
 
 ---
@@ -74,9 +81,7 @@ Prefer page 1 results for `external_search`.
 
 **Steps:**
 1. Gather `main_query` + `sub_queries` returned by the LLM.
-2. Run `external_search` for the main_query `keywords` returned by the LLM (page 1, page_size=10, rerank=true).
-3. For each chunk_id in the response of the above external_search response:
-   - Expand with `external_navigate` (direction="both", steps=2–4)
-4. For each sub_query returned by the LLM:
-   - Call `external_search` using the `keywords` returned by the LLM (page 1, page_size=10, rerank=true).
-5. Pass all retrieved results as context to the LLM for answer synthesis step.
+2. If `sub_queries` exists:
+   - For each sub_query, call `external_search` using **combined keywords**: `main_query.keywords + sub_query.keywords` (page 1, page_size=10, rerank=true).
+3. If no `sub_queries`, call `external_search` using `main_query.keywords` only.
+4. Pass all retrieved results as context to the LLM for answer synthesis step.

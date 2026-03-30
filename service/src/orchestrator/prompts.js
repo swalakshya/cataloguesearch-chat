@@ -21,27 +21,21 @@ function readPrompt(relPath) {
   }
 }
 
-export function getKeywordPrompt(question, workflowCatalog, extraContext) {
+export function getKeywordPrompt(question, conversationHistory) {
   const template = readPrompt("step_1_keyword_extract_and_classification.md");
-  let filled = template
+  return template
     .replace("<QUESTION_HERE>", question)
-    .replace("<WORKFLOW_CATALOG>", workflowCatalog || "");
-  if (extraContext) {
-    filled = `${filled}\n\nAdditional context:\n${extraContext}`;
-  }
-  return filled.trim();
+    .replace("<CONVERSATION_HISTORY_HERE>", conversationHistory || "[]")
+    .trim();
 }
 
-export function getAnswerPrompt(question, context, workflowGuidelines) {
+export function getAnswerPrompt(question, context, workflowGuidelines, conversationHistory) {
   const base = readPrompt("step_2_answer_synthesis.md");
   const composed = [base, workflowGuidelines].filter(Boolean).join("\n\n");
   return composed
     .replace("<QUESTION_HERE>", question)
+    .replace("<CONVERSATION_HISTORY_HERE>", conversationHistory || "[]")
     .replace("<CONTEXT_HERE>", context || "");
-}
-
-export function getWorkflowCatalog() {
-  return readPrompt("workflow_catalog.md");
 }
 
 export function getWorkflowGuidelines(workflowName) {

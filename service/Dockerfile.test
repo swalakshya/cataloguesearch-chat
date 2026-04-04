@@ -3,10 +3,11 @@ FROM node:20-slim
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 
 COPY src ./src
 COPY prompts ./prompts
+COPY prompts_v2 ./prompts_v2
 COPY test ./test
 
 ENV NODE_ENV=test

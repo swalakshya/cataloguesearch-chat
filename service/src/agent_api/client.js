@@ -22,6 +22,10 @@ export class ExternalApiClient {
     return this.#post("/api/agent/get_filter_options", payload, requestId);
   }
 
+  async getMetadataOptions(payload, requestId) {
+    return this.#post("/api/agent/get_metadata_options", payload, requestId);
+  }
+
   async getPravachan(payload, requestId) {
     return this.#post("/api/agent/get_pravachan", payload, requestId);
   }

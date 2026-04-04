@@ -26,17 +26,33 @@ test("formatConversationHistory normalizes entries and assigns ids", () => {
   const parsed = JSON.parse(formatConversationHistory(history));
   assert.equal(parsed.length, 2);
   assert.deepEqual(parsed[0], {
-    id: "set_1",
-    question: "Q1",
-    answer: "A1",
-    chunk_ids: ["c1", "c2"],
-    chunk_scores: [{ chunk_id: "c1", score: 9 }],
+    i: "set_1",
+    q: "Q1",
+    a: "A1",
+    s: [{ id: "c1", v: 9 }],
   });
   assert.deepEqual(parsed[1], {
-    id: "set_9",
-    question: "Q2",
-    answer: "A2",
-    chunk_ids: [],
-    chunk_scores: [],
+    i: "set_9",
+    q: "Q2",
+    a: "A2",
+    s: [],
+  });
+});
+
+test("formatConversationHistory can omit chunk_scores", () => {
+  const history = [
+    {
+      question: "Q1",
+      answer: "A1",
+      chunk_ids: ["c1"],
+      chunk_scores: [{ chunk_id: "c1", score: 9 }],
+    },
+  ];
+
+  const parsed = JSON.parse(formatConversationHistory(history, { includeChunkScores: false }));
+  assert.deepEqual(parsed[0], {
+    i: "set_1",
+    q: "Q1",
+    a: "A1",
   });
 });

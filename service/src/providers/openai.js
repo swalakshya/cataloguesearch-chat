@@ -1,5 +1,5 @@
 import { LLMProvider } from "./base.js";
-import { log, maskKey, summarize } from "../utils/log.js";
+import { log, summarize } from "../utils/log.js";
 
 export class OpenAIProvider extends LLMProvider {
   constructor({ apiKey, model, baseUrl, timeoutMs, jsonMode }) {
@@ -111,7 +111,6 @@ export class OpenAIProvider extends LLMProvider {
       model,
       baseUrl: baseUrl || "https://api.openai.com/v1",
       timeoutMs,
-      apiKey: maskKey(apiKey),
       jsonMode,
     });
 

@@ -1,16 +1,17 @@
 import { GoogleGenAI } from "@google/genai";
 import { LLMProvider } from "./base.js";
-import { log, maskKey } from "../utils/log.js";
+import { log } from "../utils/log.js";
 
 export class GeminiProvider extends LLMProvider {
-  constructor({ apiKey, model, timeoutMs, jsonMode, responseMimeType }) {
+  constructor({ apiKey, model, timeoutMs, jsonMode, responseMimeType, keyManager, clientFactory }) {
     super();
     this.apiKey = apiKey;
     this.model = model;
     this.timeoutMs = timeoutMs;
     this.jsonMode = jsonMode;
     this.responseMimeType = responseMimeType;
-    this.client = new GoogleGenAI({ apiKey });
+    this.keyManager = keyManager || null;
+    this.clientFactory = clientFactory || (({ apiKey }) => new GoogleGenAI({ apiKey }));
   }
 
   name() {
@@ -33,10 +34,6 @@ export class GeminiProvider extends LLMProvider {
   }
 
   async #generate({ messages, temperature, maxTokens, requestId, jsonMode, responseJsonSchema }) {
-    if (!this.apiKey) {
-      throw new Error("GEMINI_API_KEY is required");
-    }
-
     const { contents, systemInstruction } = normalizeMessages(messages);
     const config = {};
     if (typeof temperature === "number") config.temperature = temperature;
@@ -59,49 +56,78 @@ export class GeminiProvider extends LLMProvider {
       responseMimeType: config.responseMimeType || null,
     });
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const runOnce = async (apiKey) => {
+      if (!apiKey) {
+        throw new Error("GEMINI_API_KEY is required");
+      }
+      const client = this.clientFactory({ apiKey });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+      try {
+        const response = await client.models.generateContent({
+          model: this.model,
+          contents,
+          config,
+          signal: controller.signal,
+        });
+        const text = response?.text;
+        if (!text) {
+          throw new Error("Gemini response missing text");
+        }
+        return String(text).trim();
+      } finally {
+        clearTimeout(timeout);
+      }
+    };
+
+    const primaryKey = this.keyManager ? this.keyManager.getKey() : this.apiKey;
 
     try {
-      const response = await this.client.models.generateContent({
-        model: this.model,
-        contents,
-        config,
-        signal: controller.signal,
-      });
-
-      const text = response?.text;
-      if (!text) {
-        throw new Error("Gemini response missing text");
-      }
-      return String(text).trim();
+      return await runOnce(primaryKey);
     } catch (err) {
       const message = err?.message || String(err);
       log.warn("gemini_request_failed", { requestId, message });
+      if (this.keyManager && isAuthError(err)) {
+        await this.keyManager.refresh();
+        return await runOnce(this.keyManager.getKey());
+      }
       throw err;
-    } finally {
-      clearTimeout(timeout);
     }
   }
 
-  static fromEnv() {
+  static fromEnv({ keyManager } = {}) {
     const apiKey =
       process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.LLM_API_KEY || "";
     const model = process.env.LLM_MODEL || "gemini-2.0-flash";
     const timeoutMs = Number(process.env.LLM_REQUEST_TIMEOUT_SEC || 120) * 1000;
     const jsonMode = (process.env.LLM_JSON_MODE || "true").toLowerCase() !== "false";
     const responseMimeType = process.env.GEMINI_RESPONSE_MIME_TYPE || "";
+    const keySource = apiKey ? "env" : "secret_manager";
 
     log.info("gemini_provider_init", {
       model,
       timeoutMs,
-      apiKey: maskKey(apiKey),
       jsonMode,
       responseMimeType: responseMimeType || null,
+      keySource,
     });
 
-    return new GeminiProvider({ apiKey, model, timeoutMs, jsonMode, responseMimeType });
+    return new GeminiProvider({
+      apiKey,
+      model,
+      timeoutMs,
+      jsonMode,
+      responseMimeType,
+      keyManager: apiKey ? null : keyManager,
+    });
   }
+}
+
+function isAuthError(err) {
+  const status = err?.status ?? err?.code ?? err?.response?.status;
+  if (status === 401) return true;
+  const message = String(err?.message || "").toLowerCase();
+  return message.includes("401") || message.includes("unauthorized");
 }
 
 function normalizeMessages(messages) {

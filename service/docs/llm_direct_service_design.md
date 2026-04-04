@@ -75,6 +75,8 @@ Default workflows (initial implementation):
 - `followup_question_v1`
 - `advanced_distinct_questions_v1`
 - `advanced_nested_questions_v1`
+- `greeting_message_v1`
+- `metadata_question_v1`
 
 ---
 
@@ -169,6 +171,39 @@ Session‑only (drop‑in for existing FE). Same as `llm_service_node`:
   - conversation history sets: `{ id: "set_1", question, answer, chunk_ids, chunk_scores }`
 - Provider session is created on `POST /v1/chat/sessions` and **reused** for all messages until idle expiry or explicit delete.
 - Idle expiry closes the provider session and releases resources.
+
+### Conversation History Trimming (Step1)
+The conversation history used for step1 follows a reset-on-non-followup rule:
+- Step1 receives the current `session.conversationHistory` (may be empty).
+- After step1 returns:
+  - If `is_followup=true`, keep `session.conversationHistory` as-is.
+  - If `is_followup=false`, trim `session.conversationHistory` to `[]` before continuing.
+- Step2 receives history only when `is_followup=true`.
+- After answer synthesis, append the current Q/A set into `session.conversationHistory`.
+
+```
+User Message N
+   |
+   v
+Step1 Prompt (uses current session.conversationHistory)
+   |
+   v
+Step1 Output (is_followup?)
+   |\
+   | \-- if false: session.conversationHistory = []
+   |
+   v
+Workflow + Retrieval
+   |
+   v
+Step2 Prompt (history only if is_followup=true)
+   |
+   v
+Answer + Scoring
+   |
+   v
+Append current Q/A set to session.conversationHistory
+```
 
 ---
 

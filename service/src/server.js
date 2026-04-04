@@ -5,12 +5,27 @@ import crypto from "crypto";
 import { SessionRegistry } from "./sessions/registry.js";
 import { OpenAIProvider } from "./providers/openai.js";
 import { GeminiProvider } from "./providers/gemini.js";
+import { buildSecretAccessor, logSecretManagerInit } from "./secrets/gcp_secret_manager.js";
+import { GeminiKeyManager } from "./secrets/gemini_key_manager.js";
 import { ExternalApiClient } from "./agent_api/client.js";
 import { runKeywordExtraction } from "./orchestrator/keyword_extract.js";
 import { runWorkflow } from "./orchestrator/workflow_router.js";
 import { runAnswerSynthesis } from "./orchestrator/answer_synthesis.js";
 import { buildContext, cleanChunks, extractChunkIds } from "./orchestrator/chunk_utils.js";
-import { extractReferences, sanitizeCitations, sanitizeReferences, stripCitations } from "./utils/answer.js";
+import { trimConversationHistoryForFollowup } from "./sessions/conversation_history.js";
+import {
+  extractReferences,
+  sanitizeCitations,
+  sanitizeReferences,
+  stripCitations,
+  normalizeAnswerTextForParsing,
+  normalizeAnswerTextForOutput,
+  cleanAnswerText,
+} from "./utils/answer.js";
+import { buildNoContextAnswer } from "./utils/no_context.js";
+import { buildGreetingAnswer } from "./utils/greeting.js";
+import { buildHashedChunks, mapHashedIdsToReal } from "./utils/chunk_hash.js";
+import { buildScoredChunks } from "./utils/scoring.js";
 import { estimateTokens, shouldRejectForTokenLimit, getSessionTokenLimit } from "./utils/token.js";
 import { log } from "./utils/log.js";
 
@@ -29,7 +44,7 @@ const EXTERNAL_API_TIMEOUT_MS = Number(process.env.EXTERNAL_API_TIMEOUT_SEC || 6
 const SESSION_TOKEN_LIMIT = resolveSessionTokenLimit();
 const SESSION_TOKEN_LIMIT_THRESHOLD = Number(process.env.LLM_SESSION_TOKEN_LIMIT_THRESHOLD || 0.8);
 
-const provider = initProvider(PROVIDER_ID);
+const provider = await initProvider(PROVIDER_ID);
 const externalApi = new ExternalApiClient({
   baseUrl: EXTERNAL_API_BASE_URL,
   timeoutMs: EXTERNAL_API_TIMEOUT_MS,
@@ -69,6 +84,9 @@ app.post("/v1/chat/sessions", async (req, res) => {
       lastActivityAt: Date.now(),
       messages: [],
       tokenCount: 0,
+      chunkIdMap: {},
+      chunkIdReverseMap: {},
+      chunkIdCounter: 0,
       conversationHistory: [],
       busy: false,
     });
@@ -151,22 +169,123 @@ app.post("/v1/chat/sessions/:sessionId/messages", async (req, res) => {
       isFollowup: keywordResult.is_followup,
     });
 
+    session.conversationHistory = trimConversationHistoryForFollowup(
+      session.conversationHistory,
+      keywordResult.is_followup
+    );
+
+    if (keywordResult.is_followup && Array.isArray(keywordResult.expand_chunk_ids)) {
+      keywordResult.expand_chunk_ids = mapHashedIdsToReal(keywordResult.expand_chunk_ids, session);
+    }
+
+    if (keywordResult.workflow === "greeting_message_v1") {
+      const greeting = buildGreetingAnswer({
+        script: keywordResult.script,
+        email: process.env.GREETING_CONTACT_EMAIL,
+      });
+
+      session.messages.push({ role: "assistant", content: greeting });
+      session.tokenCount = (session.tokenCount || 0) + estimateTokens(greeting);
+      session.lastActivityAt = Date.now();
+      const nextSetId = `set_${session.conversationHistory.length + 1}`;
+      session.conversationHistory.push({
+        id: nextSetId,
+        question: content,
+        answer: greeting,
+        chunk_ids: [],
+        chunk_scores: [],
+      });
+      session.busy = false;
+
+      return res.json({
+        answer: greeting,
+        references: [],
+        citations: [],
+        provider: session.provider,
+        tool_trace_id: requestId,
+        warnings: null,
+      });
+    }
+
     const { workflowName, chunks } = await runWorkflow({
       externalApi,
       keywordResult,
       requestId,
+      provider,
     });
 
-    const cleanedChunks = cleanChunks(chunks);
+    const isMetadataWorkflow = workflowName === "metadata_question_v1";
+    const cleanedChunks = isMetadataWorkflow ? (Array.isArray(chunks) ? chunks : []) : cleanChunks(chunks);
     log.info("context_prepared", {
       requestId,
       sessionId: session.sessionId,
       chunks: cleanedChunks.length,
     });
-    const context = buildContext(cleanedChunks);
+    const emptyTextCount = cleanedChunks.filter(
+      (chunk) => !String(chunk?.t || "").trim()
+    ).length;
+    log.info("context_sample", {
+      requestId,
+      sessionId: session.sessionId,
+      chunks_total: cleanedChunks.length,
+      chunks_empty_text: emptyTextCount,
+      sample: cleanedChunks.slice(0, 2).map((chunk) => ({
+        id: chunk?.id,
+        t: String(chunk?.t || "").slice(0, 200),
+      })),
+    });
+    const hashedChunks = isMetadataWorkflow ? cleanedChunks : buildHashedChunks(cleanedChunks, session);
+    const context = buildContext(hashedChunks);
     const warnings = [];
     if (!cleanedChunks.length) {
       warnings.push("no_context_found");
+      const fallback = buildNoContextAnswer({
+        language: keywordResult.language,
+        script: keywordResult.script,
+      });
+      const answerForOutput = normalizeAnswerTextForOutput(stripCitations(fallback));
+
+      session.messages.push({ role: "assistant", content: answerForOutput });
+      session.tokenCount = (session.tokenCount || 0) + estimateTokens(answerForOutput);
+      session.lastActivityAt = Date.now();
+      const nextSetId = `set_${session.conversationHistory.length + 1}`;
+      session.conversationHistory.push({
+        id: nextSetId,
+        question: content,
+        answer: answerForOutput,
+        chunk_ids: [],
+        chunk_scores: [],
+      });
+      log.info("answer_parsed", {
+        requestId,
+        sessionId: session.sessionId,
+        answerLength: answerForOutput.length,
+        referencesCount: 0,
+        citationsCount: 0,
+      });
+      log.info("conversation_history_ids", {
+        requestId,
+        sessionId: session.sessionId,
+        conversationHistoryIds: session.conversationHistory.map((entry) => entry?.id).filter(Boolean),
+      });
+      session.busy = false;
+
+      return res.json({
+        answer: answerForOutput,
+        references: [],
+        citations: [],
+        provider: session.provider,
+        tool_trace_id: requestId,
+        warnings,
+      });
+    }
+    if (isMetadataWorkflow) {
+      log.info("metadata_context_for_llm", {
+        requestId,
+        sessionId: session.sessionId,
+        asked_info: keywordResult.asked_info || [],
+        context,
+      });
     }
 
     const answerPayload = await runAnswerSynthesis({
@@ -174,42 +293,60 @@ app.post("/v1/chat/sessions/:sessionId/messages", async (req, res) => {
       question: content,
       workflowName,
       context,
-      conversationHistory: session.conversationHistory,
+      conversationHistory: keywordResult.is_followup ? session.conversationHistory : [],
+      followupSetIds:
+        keywordResult.is_followup && Array.isArray(keywordResult.followup_keywords)
+          ? keywordResult.followup_keywords.map((item) => item?.id).filter(Boolean)
+          : null,
+      language: keywordResult.language,
+      script: keywordResult.script,
       requestId,
     });
 
     const answerRaw = String(answerPayload?.answer || "");
-    const cleaned = stripCitations(answerRaw);
+    const cleanedRaw = cleanAnswerText({
+      text: answerRaw,
+      language: keywordResult.language,
+      script: keywordResult.script,
+    });
+    const normalizedForParsing = normalizeAnswerTextForParsing(cleanedRaw);
+    const cleaned = stripCitations(normalizedForParsing);
     const { answer, references, citations } = extractReferences(cleaned);
-    const safeReferences = sanitizeReferences(references);
+    const answerForOutput = normalizeAnswerTextForOutput(stripCitations(cleanedRaw));
     const safeCitations = sanitizeCitations(citations);
     log.info("answer_parsed", {
       requestId,
       sessionId: session.sessionId,
       answerLength: answer.length,
-      referencesCount: safeReferences.length,
+      referencesCount: references.length,
       citationsCount: safeCitations.length,
     });
 
-    const chunkIds = extractChunkIds(cleanedChunks);
+    const hashedChunkIds = extractChunkIds(hashedChunks);
     const scoring = Array.isArray(answerPayload?.scoring) ? answerPayload.scoring : [];
-    const scoredChunks = buildScoredChunks(scoring, chunkIds);
+    const scoredChunks = buildScoredChunks(scoring, hashedChunkIds);
 
-    session.messages.push({ role: "assistant", content: answer });
-    session.tokenCount = (session.tokenCount || 0) + estimateTokens(answer);
+    session.messages.push({ role: "assistant", content: answerForOutput });
+    session.tokenCount = (session.tokenCount || 0) + estimateTokens(answerForOutput);
     session.lastActivityAt = Date.now();
     const nextSetId = `set_${session.conversationHistory.length + 1}`;
     session.conversationHistory.push({
       id: nextSetId,
       question: content,
-      answer,
-      chunk_ids: scoredChunks.length ? scoredChunks.map((entry) => entry.chunk_id) : chunkIds,
+      answer: answerForOutput,
+      chunk_ids: scoredChunks.length ? scoredChunks.map((entry) => entry.chunk_id) : hashedChunkIds,
       chunk_scores: scoredChunks,
+    });
+    log.info("conversation_history_ids", {
+      requestId,
+      sessionId: session.sessionId,
+      conversationHistoryIds: session.conversationHistory.map((entry) => entry?.id).filter(Boolean),
     });
     session.busy = false;
 
+    const safeReferences = sanitizeReferences(references);
     res.json({
-      answer,
+      answer: answerForOutput,
       references: safeReferences,
       citations: safeCitations,
       provider: session.provider,
@@ -231,6 +368,13 @@ app.post("/v1/chat/sessions/:sessionId/messages", async (req, res) => {
     }
     if (message.includes("OpenAI")) {
       return res.status(503).json({ detail: "provider_unavailable" });
+    }
+    if (
+      message.includes("Service Unavailable") ||
+      message.includes("UNAVAILABLE") ||
+      message.includes("model is currently experiencing high demand")
+    ) {
+      return res.status(503).json({ detail: "model_temporarily_unavailable" });
     }
     if (message.includes("tool_call_budget_exceeded")) {
       return res.status(429).json({ detail: "tool_call_budget_exceeded" });
@@ -275,13 +419,37 @@ function resolveSessionTokenLimit() {
   return 0;
 }
 
-function initProvider(providerId) {
+async function initProvider(providerId) {
   if (providerId === "openai") {
     const provider = OpenAIProvider.fromEnv();
     return provider;
   }
   if (providerId === "gemini") {
-    return GeminiProvider.fromEnv();
+    const envKey =
+      process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.LLM_API_KEY || "";
+    if (envKey) {
+      return GeminiProvider.fromEnv();
+    }
+
+    const projectId = process.env.GCP_PROJECT_ID || "";
+    const secretName = process.env.GCP_SECRET_NAME || "";
+    const secretVersion = process.env.GCP_SECRET_VERSION || "latest";
+    const keyFilename = process.env.GCP_SA_KEY_PATH || "";
+
+    if (!projectId || !secretName || !keyFilename) {
+      throw new Error("GCSM config missing for Gemini provider");
+    }
+
+    logSecretManagerInit({ projectId, secretName, secretVersion });
+    const fetcher = buildSecretAccessor({
+      projectId,
+      secretName,
+      secretVersion,
+      keyFilename,
+    });
+    const keyManager = await GeminiKeyManager.create({ fetcher });
+
+    return GeminiProvider.fromEnv({ keyManager });
   }
   log.warn("provider_not_supported", { providerId });
   throw new Error(`Provider not supported: ${providerId}`);
@@ -293,9 +461,7 @@ function normalizeUiFilters(filters) {
     granth: sanitizeString(filters.granth),
     anuyog: sanitizeString(filters.anuyog),
     contributor: sanitizeString(filters.contributor),
-    content_type: sanitizeContentType(filters.content_type),
-    year_from: sanitizeNumber(filters.year_from),
-    year_to: sanitizeNumber(filters.year_to),
+    content_type: sanitizeContentType(filters.content_type)
   };
   const hasAny = Object.values(cleaned).some((value) => value !== undefined && value !== null && value !== "");
   return hasAny ? cleaned : null;
@@ -322,7 +488,7 @@ function sanitizeNumber(value) {
 }
 
 function sanitizeContentType(value) {
-  const valid = ["Pravachan", "Granth", "Books"];
+  const valid = ["Granth", "Books"];
   if (Array.isArray(value)) {
     const filtered = value.filter((v) => valid.includes(v));
     return filtered.length ? filtered : undefined;
@@ -331,18 +497,14 @@ function sanitizeContentType(value) {
   return undefined;
 }
 
-function buildScoredChunks(scoring, allowedChunkIds) {
-  const allowed = new Set(allowedChunkIds);
-  const scored = [];
-  for (const entry of scoring) {
-    if (!entry || typeof entry !== "object") continue;
-    const chunkId = String(entry.chunk_id || "").trim();
-    if (!chunkId || !allowed.has(chunkId)) continue;
-    const score = Number(entry.score);
-    if (!Number.isFinite(score)) continue;
-    const normalizedScore = Math.max(1, Math.min(100, Math.trunc(score)));
-    scored.push({ chunk_id: chunkId, score: normalizedScore });
-  }
-  scored.sort((a, b) => b.score - a.score);
-  return scored;
+export function buildHashedChunksForTest(chunks, session) {
+  return buildHashedChunks(chunks, session);
+}
+
+export function getChunkHashForTest(session, realId) {
+  return getChunkHash(session, realId);
+}
+
+export function mapHashedIdsToRealForTest(ids, session) {
+  return mapHashedIdsToReal(ids, session);
 }

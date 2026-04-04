@@ -1,6 +1,8 @@
-# Specific Answering Guidelines
 
-## Workflow: advanced_distinct_questions_v1
+---
+## Specific Answering Guidelines
+
+### Workflow: advanced_distinct_questions_v1
 
 Used when the user asks multiple distinct questions in one request.
 

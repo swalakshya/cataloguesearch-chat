@@ -50,6 +50,17 @@ LLM_MODEL=gemini-2.5-flash
 GEMINI_API_KEY=your-gemini-key-here
 ```
 
+### Gemini API key via Google Secret Manager (optional)
+If `GEMINI_API_KEY` (or `GOOGLE_API_KEY` / `LLM_API_KEY`) is **not** set, the service will fetch the Gemini key from Google Cloud Secret Manager.
+
+Required env vars:
+- `GCP_PROJECT_ID`
+- `GCP_SECRET_NAME`
+- `GCP_SA_KEY_PATH`
+- `GCP_SECRET_VERSION` (optional, default: `latest`)
+
+Mount the service account JSON key file read-only into the container.
+
 ### Using a local backend
 
 ```env
@@ -94,12 +105,32 @@ docker compose up
 | `LLM_MODEL` | `gpt-4o` | Model name |
 | `OPENAI_API_KEY` | — | Required if using OpenAI |
 | `GEMINI_API_KEY` | — | Required if using Gemini |
+| `GCP_PROJECT_ID` | — | Google Cloud project id (Secret Manager) |
+| `GCP_SECRET_NAME` | — | Secret name storing Gemini API key |
+| `GCP_SECRET_VERSION` | `latest` | Secret version |
+| `GCP_SA_KEY_PATH` | — | Service account JSON key path (container) |
 | `LLM_SERVICE_PORT` | `8012` | Port the service listens on |
 | `LLM_SESSION_IDLE_TIMEOUT_SEC` | `900` | Session idle timeout (seconds) |
 | `WORKFLOW_TOOL_CALL_BUDGET` | `25` | Max API calls per request |
 | `LLM_SESSION_TOKEN_LIMIT` | — | Explicit per-session token limit (overrides mapping) |
 | `LLM_SESSION_TOKEN_LIMIT_THRESHOLD` | `0.8` | % of limit after which requests are rejected |
 | `LLM_TOKEN_LIMITS_JSON` | — | JSON map of token limits by provider/model |
+| `GREETING_CONTACT_EMAIL` | `projectjinam@gmail.com` | Email shown in greeting response |
+| `WF_BASIC_PAGE` | `1` | basic workflow search page |
+| `WF_BASIC_PAGE_SIZE` | `15` | basic workflow page size |
+| `WF_BASIC_RERANK` | `true` | basic workflow rerank |
+| `WF_FOLLOWUP_PAGE` | `1` | followup workflow search page |
+| `WF_FOLLOWUP_PAGE_SIZE` | `10` | followup workflow page size |
+| `WF_FOLLOWUP_RERANK` | `true` | followup workflow rerank |
+| `WF_FOLLOWUP_NAVIGATE_STEPS` | `3` | followup workflow navigate steps |
+| `WF_FOLLOWUP_NAVIGATE_DIRECTION` | `both` | followup workflow navigate direction |
+| `WF_FOLLOWUP_EXPAND_LIMIT` | `10` | followup workflow expand cap |
+| `WF_ADV_DISTINCT_PAGE` | `1` | advanced distinct workflow search page |
+| `WF_ADV_DISTINCT_PAGE_SIZE` | `10` | advanced distinct workflow page size |
+| `WF_ADV_DISTINCT_RERANK` | `true` | advanced distinct workflow rerank |
+| `WF_ADV_NESTED_PAGE` | `1` | advanced nested workflow search page |
+| `WF_ADV_NESTED_PAGE_SIZE` | `10` | advanced nested workflow page size |
+| `WF_ADV_NESTED_RERANK` | `true` | advanced nested workflow rerank |
 
 ---
 

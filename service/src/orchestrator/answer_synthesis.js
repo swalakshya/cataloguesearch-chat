@@ -1,7 +1,7 @@
-import { getAnswerPrompt, getWorkflowGuidelines } from "./prompts.js";
+import { getAnswerPrompt, getWorkflowGuidelines, isPromptV2 } from "./prompts.js";
 import { formatConversationHistory } from "./conversation_history.js";
 import { ANSWER_SCHEMA } from "./answer_schema.js";
-import { parseJsonStrict } from "../utils/json.js";
+import { parseJsonStrict, normalizeJsonLike, extractAnswerFallback } from "../utils/json.js";
 import { estimateTokens } from "../utils/token.js";
 import { log } from "../utils/log.js";
 
@@ -11,18 +11,42 @@ export async function runAnswerSynthesis({
   workflowName,
   context,
   conversationHistory,
+  followupSetIds,
+  language,
+  script,
   requestId,
 }) {
   const guidelines = getWorkflowGuidelines(workflowName);
-  const history = formatConversationHistory(conversationHistory);
-  const prompt = getAnswerPrompt(question, context, guidelines, history);
+  const useV2 = isPromptV2();
+  const filteredHistory =
+    Array.isArray(followupSetIds) && followupSetIds.length
+      ? (conversationHistory || []).filter((entry) => followupSetIds.includes(entry?.id))
+      : conversationHistory;
+  const historyText =
+    Array.isArray(filteredHistory) && filteredHistory.length
+      ? formatConversationHistory(filteredHistory, {
+          includeChunkScores: false,
+          includeAnswers: true,
+          compact: useV2,
+        })
+      : null;
+  const history = historyText || "";
+  const prompt = getAnswerPrompt(
+    question,
+    context,
+    guidelines,
+    history,
+    workflowName,
+    language,
+    script
+  );
   log.info("answer_synthesis_prompt_tokens", {
     requestId,
     tokens: estimateTokens(prompt),
   });
 
   const messages = [
-    { role: "system", content: "You are a Jain texts scholar." },
+    { role: "system", content: "You are a Jain texts scholar. You task is to answer a user question/request." },
     { role: "user", content: prompt },
   ];
 
@@ -39,6 +63,10 @@ export async function runAnswerSynthesis({
     requestId,
     length: raw?.length || 0,
     preview: String(raw || "").slice(0, 500),
+  });
+  log.info("answer_synthesis_output_tokens", {
+    requestId,
+    tokens: estimateTokens(raw),
   });
 
   const parsed = await parseOrRepairJson({
@@ -72,18 +100,38 @@ async function parseOrRepairJson({ raw, provider, requestId }) {
     },
   ];
 
-  const repairedRaw = await provider.completeJson({
-    messages: repairMessages,
-    temperature: 0,
-    requestId,
-    responseJsonSchema: ANSWER_SCHEMA,
-  });
+  try {
+    const repairedRaw = await provider.completeJson({
+      messages: repairMessages,
+      temperature: 0,
+      requestId,
+      responseJsonSchema: ANSWER_SCHEMA,
+    });
 
-  log.info("answer_synthesis_llm_repair_response", {
-    requestId,
-    length: repairedRaw?.length || 0,
-    preview: String(repairedRaw || "").slice(0, 500),
-  });
+    log.info("answer_synthesis_llm_repair_response", {
+      requestId,
+      length: repairedRaw?.length || 0,
+      preview: String(repairedRaw || "").slice(0, 500),
+    });
 
-  return parseJsonStrict(repairedRaw);
+    try {
+      return parseJsonStrict(repairedRaw);
+    } catch (err) {
+      log.warn("answer_synthesis_json_repair_parse_failed", {
+        requestId,
+        message: err?.message || String(err),
+        preview: String(repairedRaw || "").slice(0, 500),
+      });
+      const sanitized = normalizeJsonLike(repairedRaw);
+      return parseJsonStrict(sanitized);
+    }
+  } catch (err) {
+    log.warn("answer_synthesis_json_repair_failed", {
+      requestId,
+      message: err?.message || String(err),
+    });
+  }
+
+  const fallbackAnswer = extractAnswerFallback(raw);
+  return { answer: fallbackAnswer, scoring: [] };
 }

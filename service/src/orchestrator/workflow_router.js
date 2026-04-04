@@ -16,7 +16,7 @@ export class ToolBudget {
   }
 }
 
-export async function runWorkflow({ externalApi, keywordResult, requestId }) {
+export async function runWorkflow({ externalApi, keywordResult, requestId, provider = null }) {
   const workflowName = keywordResult.workflow || "basic_question_v1";
   const runner = workflowRegistry[workflowName];
   if (!runner) {
@@ -25,13 +25,17 @@ export async function runWorkflow({ externalApi, keywordResult, requestId }) {
 
   log.info("workflow_start", { requestId, workflow: workflowName });
 
-  const resolvedFilters = await resolveFilters({
-    externalApi,
-    filters: keywordResult.filters || {},
-    language: keywordResult.language || "hi",
-    requestId,
-    allowFailure: workflowName !== "basic_question_v1",
-  });
+  const isMetadataWorkflow = workflowName === "metadata_question_v1";
+  const resolvedFilters = isMetadataWorkflow
+    ? keywordResult.filters || {}
+    : await resolveFilters({
+      externalApi,
+      filters: keywordResult.filters || {},
+      language: keywordResult.language || "hi",
+      requestId,
+      allowFailure: workflowName !== "basic_question_v1",
+      provider,
+    });
 
   const params = {
     ...keywordResult,
@@ -54,19 +58,29 @@ export async function runWorkflow({ externalApi, keywordResult, requestId }) {
   return { workflowName, chunks };
 }
 
-async function resolveFilters({ externalApi, filters, language, requestId, allowFailure }) {
+async function resolveFilters({ externalApi, filters, language, requestId, allowFailure, provider }) {
   if (!filters || typeof filters !== "object") return {};
-  const hasAnyFilter = Boolean(
+  const hasExplicitFilter = Boolean(
     filters.granth ||
       filters.anuyog ||
-      filters.contributor ||
-      filters.content_type ||
-      filters.year_from ||
-      filters.year_to
+      filters.contributor
   );
-  if (!hasAnyFilter) return {};
 
-  const typesToFetch = normalizeContentTypes(filters.content_type);
+  const normalizedContentTypes = normalizeContentTypes(filters.content_type);
+  const isDefaultContentTypes =
+    Array.isArray(normalizedContentTypes) &&
+    normalizedContentTypes.length === 2 &&
+    normalizedContentTypes.includes("Granth") &&
+    normalizedContentTypes.includes("Books");
+
+  if (!hasExplicitFilter) {
+    if (filters.content_type && !isDefaultContentTypes) {
+      return { content_type: normalizedContentTypes };
+    }
+    return {};
+  }
+
+  const typesToFetch = ["Granth", "Books"];
   const optionSets = [];
 
   for (const ct of typesToFetch) {
@@ -76,14 +90,43 @@ async function resolveFilters({ externalApi, filters, language, requestId, allow
   }
 
   const merged = mergeFilterOptions(optionSets);
-  const resolved = {
+  const granthMatch = resolveMatchWithFlag(filters.granth, merged.granths);
+  const anuyogMatch = resolveMatchWithFlag(filters.anuyog, merged.anuyogs);
+  const contributorMatch = resolveMatchWithFlag(filters.contributor, merged.contributors);
+  let resolved = {
     content_type: filters.content_type || undefined,
-    granth: resolveMatch(filters.granth, merged.granths),
-    anuyog: resolveMatch(filters.anuyog, merged.anuyogs),
-    contributor: resolveMatch(filters.contributor, merged.contributors),
-    year_from: parseYear(filters.year_from),
-    year_to: parseYear(filters.year_to),
+    granth: granthMatch.value,
+    anuyog: anuyogMatch.value,
+    contributor: contributorMatch.value,
   };
+
+  const shouldMap =
+    provider &&
+    hasExplicitFilter &&
+    (granthMatch.matched === false ||
+      anuyogMatch.matched === false ||
+      contributorMatch.matched === false);
+
+  if (shouldMap) {
+    const mapped = await mapFiltersWithLlm({
+      provider,
+      requestId,
+      original: {
+        granth: filters.granth || "",
+        anuyog: filters.anuyog || "",
+        contributor: filters.contributor || "",
+      },
+      options: merged,
+    });
+    resolved = {
+      ...resolved,
+      granth: granthMatch.matched === false && mapped.granth ? mapped.granth : resolved.granth,
+      anuyog: anuyogMatch.matched === false && mapped.anuyog ? mapped.anuyog : resolved.anuyog,
+      contributor:
+        contributorMatch.matched === false && mapped.contributor ? mapped.contributor : resolved.contributor,
+    };
+    log.info("filters_llm_mapped", { requestId, input: filters, mapped, resolved });
+  }
 
   log.debug("filters_resolved", { requestId, input: filters, resolved });
   return stripEmpty(resolved);
@@ -91,7 +134,9 @@ async function resolveFilters({ externalApi, filters, language, requestId, allow
 
 async function safeFetchFilterOptions(externalApi, payload, requestId, allowFailure) {
   try {
-    return await externalApi.getFilterOptions(payload, requestId);
+    const response = await externalApi.getFilterOptions(payload, requestId);
+    log.info("filter_options_response", { requestId, payload, response });
+    return response;
   } catch (err) {
     if (!allowFailure) throw err;
     log.warn("filter_options_failed", {
@@ -139,11 +184,64 @@ function resolveMatch(value, options) {
   return contains || value;
 }
 
+function resolveMatchWithFlag(value, options) {
+  if (!value) return { value: undefined, matched: null };
+  if (!Array.isArray(options) || options.length === 0) return { value, matched: null };
+  const normalized = normalize(value);
+  const exact = options.find((opt) => normalize(opt) === normalized);
+  if (exact) return { value: exact, matched: true };
+  const contains = options.find((opt) => normalize(opt).includes(normalized));
+  if (contains) return { value: contains, matched: true };
+  return { value, matched: false };
+}
+
+async function mapFiltersWithLlm({ provider, requestId, original, options }) {
+  const system = "You map filter values to the closest valid option. Output JSON only.";
+  const user = [
+    "Map each provided filter to the best matching option from the lists.",
+    "If no good match, return empty string for that field.",
+    "",
+    `Original filters: ${JSON.stringify(original)}`,
+    `Options: ${JSON.stringify(options)}`,
+    "",
+    "Output JSON schema:",
+    '{\"granth\":\"<string>\",\"anuyog\":\"<string>\",\"contributor\":\"<string>\"}',
+  ].join("\\n");
+
+  const schema = {
+    type: "object",
+    properties: {
+      granth: { type: "string" },
+      anuyog: { type: "string" },
+      contributor: { type: "string" },
+    },
+    required: ["granth", "anuyog", "contributor"],
+    additionalProperties: false,
+  };
+
+  const raw = await provider.completeJson({
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
+    temperature: 0,
+    requestId,
+    responseJsonSchema: schema,
+  });
+
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    log.warn("filters_llm_map_parse_failed", { requestId, error: err?.message || String(err) });
+    return { granth: "", anuyog: "", contributor: "" };
+  }
+}
+
 function normalize(value) {
   return String(value || "").trim().toLowerCase();
 }
 
-const _ALL_CONTENT_TYPES = ["Pravachan", "Granth", "Books"];
+const _ALL_CONTENT_TYPES = ["Granth", "Books"];
 
 function normalizeContentTypes(value) {
   if (!value || (Array.isArray(value) && value.length === 0)) return _ALL_CONTENT_TYPES;

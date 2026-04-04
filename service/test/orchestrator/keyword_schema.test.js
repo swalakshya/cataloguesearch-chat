@@ -14,3 +14,15 @@ test("keyword schema includes required fields and followup keyword objects", () 
   assert.ok(followup.items.required.includes("id"));
   assert.ok(followup.items.required.includes("keywords"));
 });
+
+test("keyword schema includes greeting workflow", () => {
+  assert.ok(KEYWORD_EXTRACTION_SCHEMA.properties.workflow.enum.includes("greeting_message_v1"));
+});
+
+test("keyword schema accepts metadata_question_v1 with asked_info", () => {
+  const askedInfo = KEYWORD_EXTRACTION_SCHEMA.properties.asked_info;
+  assert.equal(askedInfo.type, "array");
+  assert.equal(askedInfo.items.type, "string");
+  assert.deepEqual(askedInfo.items.enum, ["granth", "anuyog", "author", "link"]);
+  assert.ok(KEYWORD_EXTRACTION_SCHEMA.properties.workflow.enum.includes("metadata_question_v1"));
+});

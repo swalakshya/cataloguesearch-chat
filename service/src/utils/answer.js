@@ -6,6 +6,61 @@ export function stripCitations(text) {
   return text.replace(/cite[^]+/g, "").trim();
 }
 
+export function normalizeAnswerTextForParsing(text) {
+  if (!text) return "";
+  return String(text)
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, "\t")
+    .replace(/\\<sub\\>/gi, "<sub>")
+    .replace(/\\<\/sub\\>/gi, "</sub>")
+    .replace(/&lt;sub&gt;/gi, "<sub>")
+    .replace(/&lt;\/sub&gt;/gi, "</sub>")
+    .replace(/\u2028/g, "\n")
+    .replace(/\u2029/g, "\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+}
+
+export function cleanAnswerText({ text, language, script }) {
+  if (!text) return "";
+  let output = String(text);
+
+  // Convert **word** to *word*
+  output = output.replace(/\*\*([^*]+)\*\*/g, "*$1*");
+
+  // Remove chunk id markers like (c13) or (c1, c6, c15)
+  output = output.replace(/\(\s*c\d+(?:\s*,\s*c\d+)*\s*\)/gi, "");
+
+  if (String(language || "").toLowerCase() === "hi") {
+    const normalizedScript = String(script || "").toLowerCase();
+    if (normalizedScript === "latin" || normalizedScript === "devanagari") {
+      output = output
+        .replace(/Summary/g, "सारांश")
+        .replace(/References/g, "संदर्भ")
+        .replace(
+          /If you want I can answer this in detail or I can also answer/g,
+          "अगर आप चाहें तो मैं और विस्तार से उत्तर दे सकता हूँ अथवा मैं इन सवालों के जवाब भी दे सकता हूँ"
+        )
+        .replace(
+          /This question cannot be answered at this time due to insufficient scriptural citations or multiple interpretations\. To avoid incorrect guidance, we recommend consulting a knowledgeable acharya or scholar or please try rephrasing the question\./g,
+          "अपर्याप्त ग्रंथ उद्धरणों के कारण या अनेक व्याख्याओं के कारण इस समय प्रश्न का उत्तर देना संभव नहीं है। गलत मार्गदर्शन से बचने के लिए, हम किसी ज्ञानी आचार्य या विद्वान से परामर्श करने की सलाह देते हैं अथवा प्रश्न को अलग शब्दों में कहने का प्रयास करें।।"
+        )
+        .replace(
+          /This question cannot be answered at this time due to insufficient scriptural citations\. To avoid incorrect guidance, we recommend consulting a knowledgeable acharya or scholar\./g,
+          "अपर्याप्त ग्रंथ उद्धरणों के कारण इस समय प्रश्न का उत्तर देना संभव नहीं है। गलत मार्गदर्शन से बचने के लिए, हम किसी ज्ञानी आचार्य या विद्वान से परामर्श करने की सलाह देते हैं।"
+        );
+    }
+  }
+
+  return output;
+}
+
+export function normalizeAnswerTextForOutput(text) {
+  if (!text) return "";
+  return String(text);
+}
+
 export function extractReferences(text) {
   const lines = text.split(/\r?\n/).map((line) => line.trim());
   let inRefs = false;
@@ -99,6 +154,8 @@ export function normalizeReferenceLine(line) {
     .replace(/^\s*[-*]\s+/, "")
     .replace(/^\s*\d+\.\s+/, "")
     .replace(/\*\*/g, "")
+    .replace(/\bgranth\s*:\s*/gi, "")
+    .replace(/\bpage_number\s*:\s*/gi, "")
     .trim();
 }
 

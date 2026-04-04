@@ -42,7 +42,7 @@ test("followup workflow runs separate searches per followup keyword set", async 
   assert.deepEqual(calls, ["मुख्य", "पहला", "दूसरा सेट"]);
 });
 
-test("followup workflow caps expand_chunk_ids to 15", async () => {
+test("followup workflow caps expand_chunk_ids to config limit", async () => {
   const navigated = [];
   const externalApi = {
     search: async () => [],
@@ -67,6 +67,61 @@ test("followup workflow caps expand_chunk_ids to 15", async () => {
   const toolBudget = createToolBudget(30);
   await runFollowupQuestion({ externalApi, params, requestId: "r1", toolBudget });
 
-  assert.equal(navigated.length, 15);
-  assert.deepEqual(navigated, expandIds.slice(0, 15));
+  assert.equal(navigated.length, 10);
+  assert.deepEqual(navigated, expandIds.slice(0, 10));
+});
+
+test("followup workflow handles distinct followup queries", async () => {
+  const calls = [];
+  const externalApi = {
+    search: async (payload) => {
+      calls.push(payload.query);
+      return [];
+    },
+    navigate: async () => [],
+  };
+
+  const params = {
+    language: "hi",
+    filters: {},
+    queries: [
+      { id: "q1", keywords: ["पहला"] },
+      { id: "q2", keywords: ["दूसरा", "प्रश्न"] },
+    ],
+    followup_keywords: [],
+    expand_chunk_ids: [],
+  };
+
+  const toolBudget = createToolBudget(5);
+  await runFollowupQuestion({ externalApi, params, requestId: "r1", toolBudget });
+
+  assert.deepEqual(calls, ["पहला", "दूसरा प्रश्न"]);
+});
+
+test("followup workflow handles nested followup queries", async () => {
+  const calls = [];
+  const externalApi = {
+    search: async (payload) => {
+      calls.push(payload.query);
+      return [];
+    },
+    navigate: async () => [],
+  };
+
+  const params = {
+    language: "hi",
+    filters: {},
+    main_query: { keywords: ["मुख्य"] },
+    sub_queries: [
+      { id: "s1", keywords: ["उप", "एक"] },
+      { id: "s2", keywords: ["उप", "दो"] },
+    ],
+    followup_keywords: [],
+    expand_chunk_ids: [],
+  };
+
+  const toolBudget = createToolBudget(5);
+  await runFollowupQuestion({ externalApi, params, requestId: "r1", toolBudget });
+
+  assert.deepEqual(calls, ["मुख्य उप एक", "मुख्य उप दो"]);
 });

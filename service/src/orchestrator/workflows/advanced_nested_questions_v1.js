@@ -1,9 +1,12 @@
+import { WORKFLOW_CONFIG } from "../../config/workflow_config.js";
+
 export async function runAdvancedNestedQuestions({ externalApi, params, requestId, toolBudget }) {
   const results = [];
   const language = params.language || "hi";
   const filters = params.filters || {};
   const mainQuery = params.main_query || {};
   const subQueries = Array.isArray(params.sub_queries) ? params.sub_queries : [];
+  const config = WORKFLOW_CONFIG.advanced_nested;
 
   const searchPayload = (keywords, pageSize) => ({
     query: buildQuery(keywords),
@@ -12,11 +15,9 @@ export async function runAdvancedNestedQuestions({ externalApi, params, requestI
     anuyog: filters.anuyog || null,
     granth: filters.granth || null,
     contributor: filters.contributor || null,
-    year_from: filters.year_from || null,
-    year_to: filters.year_to || null,
-    page: 1,
+    page: config.page,
     page_size: pageSize,
-    rerank: true,
+    rerank: config.rerank,
   });
 
   const estimatedCalls = subQueries.length || 1;
@@ -25,7 +26,7 @@ export async function runAdvancedNestedQuestions({ externalApi, params, requestI
   const mainKeywords = Array.isArray(mainQuery.keywords) ? mainQuery.keywords : [];
   if (subQueries.length === 0) {
     toolBudget.consume();
-    await safePush(results, () => externalApi.search(searchPayload(mainKeywords, 10), requestId), requestId);
+    await safePush(results, () => externalApi.search(searchPayload(mainKeywords, config.page_size), requestId), requestId);
     return results;
   }
 
@@ -34,7 +35,7 @@ export async function runAdvancedNestedQuestions({ externalApi, params, requestI
     const subKeywords = Array.isArray(query.keywords) ? query.keywords : [];
     const combined = [...mainKeywords, ...subKeywords].filter(Boolean);
     toolBudget.consume();
-    await safePush(results, () => externalApi.search(searchPayload(combined, 10), requestId), requestId);
+    await safePush(results, () => externalApi.search(searchPayload(combined, config.page_size), requestId), requestId);
   }
 
   return results;

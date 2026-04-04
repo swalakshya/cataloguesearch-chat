@@ -1,0 +1,270 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "CatalogueSearch agent API",
+    "version": "1.0.0",
+    "description": "agent API endpoints for CatalogueSearch (search, navigation, filters)."
+  },
+  "servers": [
+    {"url": "http://localhost:8000", "description": "Local Docker"},
+    {"url": "http://<swalakshya-domain>", "description": "Production VM"}
+  ],
+  "paths": {
+    "/api/agent/search": {
+      "post": {
+        "operationId": "agent_search",
+        "summary": "Search catalogue chunks with filters",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/agentSearchRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Ordered list of chunks",
+            "content": {
+              "application/json": {
+                "schema": {"type": "array", "items": {"$ref": "#/components/schemas/Chunk"}}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/navigate": {
+      "post": {
+        "operationId": "agent_navigate",
+        "summary": "Navigate paragraphs around a chunk",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/agentNavigateRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Ordered list of chunks",
+            "content": {
+              "application/json": {
+                "schema": {"type": "array", "items": {"$ref": "#/components/schemas/Chunk"}}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/find_similar": {
+      "post": {
+        "operationId": "agent_find_similar",
+        "summary": "Find semantically similar chunks",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/agentFindSimilarRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Top similar chunks",
+            "content": {
+              "application/json": {
+                "schema": {"type": "array", "items": {"$ref": "#/components/schemas/Chunk"}}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/get_filter_options": {
+      "post": {
+        "operationId": "agent_get_filter_options",
+        "summary": "Get available filter values",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/agentFilterOptionsRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Filter options",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/agentFilterOptionsResponse"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/get_metadata_options": {
+      "post": {
+        "operationId": "agent_get_metadata_options",
+        "summary": "Get metadata tuples (granth, author, anuyog)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/agentMetadataOptionsRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Metadata tuples",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {"$ref": "#/components/schemas/agentMetadataOptionsItem"}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/get_pravachan": {
+      "post": {
+        "operationId": "agent_get_pravachan",
+        "summary": "Fetch all chunks of a Pravachan",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/agentGetPravachanRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Ordered list of chunks",
+            "content": {
+              "application/json": {
+                "schema": {"type": "array", "items": {"$ref": "#/components/schemas/Chunk"}}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "agentSearchRequest": {
+        "type": "object",
+        "required": ["query", "language"],
+        "properties": {
+          "query": {"type": "string"},
+          "language": {"type": "string", "enum": ["hi", "gu"]},
+          "content_type": {"type": "string", "enum": ["Pravachan", "Granth", "both"], "default": "both"},
+          "anuyog": {"type": "string", "nullable": true},
+          "granth": {"type": "string", "nullable": true},
+          "contributor": {"type": "string", "nullable": true},
+          "year_from": {"type": "integer", "nullable": true},
+          "year_to": {"type": "integer", "nullable": true},
+          "page_size": {"type": "integer", "default": 10, "minimum": 1, "maximum": 50},
+          "page": {"type": "integer", "default": 1, "minimum": 1},
+          "rerank": {"type": "boolean", "default": true}
+        }
+      },
+      "agentNavigateRequest": {
+        "type": "object",
+        "required": ["chunk_id"],
+        "properties": {
+          "chunk_id": {"type": "string"},
+          "direction": {"type": "string", "enum": ["next", "prev", "both"], "default": "both"},
+          "steps": {"type": "integer", "default": 1, "minimum": 1, "maximum": 20}
+        }
+      },
+      "agentFindSimilarRequest": {
+        "type": "object",
+        "required": ["chunk_id"],
+        "properties": {
+          "chunk_id": {"type": "string"}
+        }
+      },
+      "agentFilterOptionsRequest": {
+        "type": "object",
+        "required": ["language", "content_type"],
+        "properties": {
+          "language": {"type": "string", "enum": ["hi", "gu"]},
+          "content_type": {"type": "string", "enum": ["Pravachan", "Granth"]}
+        }
+      },
+      "agentFilterOptionsResponse": {
+        "type": "object",
+        "properties": {
+          "granths": {"type": "array", "items": {"type": "string"}},
+          "anuyogs": {"type": "array", "items": {"type": "string"}},
+          "contributors": {"type": "array", "items": {"type": "string"}},
+          "date_ranges": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "start": {"type": "string", "nullable": true},
+                  "end": {"type": "string", "nullable": true}
+                }
+              }
+            }
+          }
+        }
+      },
+      "agentMetadataOptionsRequest": {
+        "type": "object",
+        "required": ["language", "content_type"],
+        "properties": {
+          "language": {"type": "string", "enum": ["hi", "gu"]},
+          "content_type": {"type": "string", "enum": ["Pravachan", "Granth", "Books"]}
+        }
+      },
+      "agentMetadataOptionsItem": {
+        "type": "object",
+        "properties": {
+          "granth": {"type": "string"},
+          "author": {"type": "string", "nullable": true},
+          "anuyog": {"type": "string", "nullable": true},
+          "url": {"type": "string"}
+        }
+      },
+      "agentGetPravachanRequest": {
+        "type": "object",
+        "required": ["granth", "pravachan_number", "language"],
+        "properties": {
+          "granth": {"type": "string"},
+          "pravachan_number": {"type": "string"},
+          "language": {"type": "string", "enum": ["hi", "gu"]}
+        }
+      },
+      "Chunk": {
+        "type": "object",
+        "properties": {
+          "chunk_id": {"type": "string"},
+          "text_content": {"type": "string"},
+          "category": {"type": "string"},
+          "granth": {"type": "string"},
+          "anuyog": {"type": "string"},
+          "language": {"type": "string"},
+          "date": {"type": "string", "nullable": true},
+          "pravachan_number": {"type": "string", "nullable": true},
+          "gatha": {"type": "string", "nullable": true},
+          "page_number": {"type": "integer", "nullable": true},
+          "file_url": {"type": "string"},
+          "score": {"type": "number"}
+        }
+      }
+    }
+  }
+}

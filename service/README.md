@@ -35,7 +35,7 @@ Request:
   "role": "user",
   "content": "string",
   "filters": {
-    "content_type": "Granth|Pravachan|both",
+    "content_type": ["Granth", "Books"],
     "granth": "string",
     "anuyog": "string",
     "contributor": "string",
@@ -91,6 +91,22 @@ Response:
 { "status": "closed" }
 ```
 
+## Error Responses
+
+| HTTP Status | `detail` | When it happens |
+| --- | --- | --- |
+| 400 | `provider_not_supported` | Requested provider does not match configured provider. |
+| 400 | `invalid_message` | Message payload is invalid (missing role/content or role not `user`). |
+| 404 | `session_not_found` | Session ID does not exist. |
+| 409 | `session_busy` | Session is already processing another request. |
+| 429 | `Token Limit Exhausted for the session. Please initiate a new session.` | Session token limit threshold reached. |
+| 429 | `tool_call_budget_exceeded` | Workflow exceeded tool-call budget. |
+| 500 | `session_create_failed` | Session creation failed. |
+| 500 | `message_failed` | Unhandled error during message processing. |
+| 502 | `tool_backend_error` | External API failure. |
+| 503 | `provider_unavailable` | LLM provider unavailable. |
+| 503 | `model_temporarily_unavailable` | Model overloaded/unavailable (e.g., 503 from provider). |
+
 ## Notes
 - Workflow prompts live under `llm_direct_service/prompts/`.
 - External API schemas live under `tools/external_api_openapi.*`.
@@ -111,6 +127,13 @@ Configuration order:
 1. `LLM_SESSION_TOKEN_LIMIT` (explicit override)
 2. `LLM_TOKEN_LIMITS_JSON` (provider/model mapping)
 3. Defaults in `src/config/token_limits.js`
+
+Other env:
+- `GREETING_CONTACT_EMAIL` (default: `projectjinam@gmail.com`)
+- `WF_BASIC_PAGE`, `WF_BASIC_PAGE_SIZE`, `WF_BASIC_RERANK`
+- `WF_FOLLOWUP_PAGE`, `WF_FOLLOWUP_PAGE_SIZE`, `WF_FOLLOWUP_RERANK`, `WF_FOLLOWUP_NAVIGATE_STEPS`, `WF_FOLLOWUP_NAVIGATE_DIRECTION`, `WF_FOLLOWUP_EXPAND_LIMIT`
+- `WF_ADV_DISTINCT_PAGE`, `WF_ADV_DISTINCT_PAGE_SIZE`, `WF_ADV_DISTINCT_RERANK`
+- `WF_ADV_NESTED_PAGE`, `WF_ADV_NESTED_PAGE_SIZE`, `WF_ADV_NESTED_RERANK`
 
 Example `LLM_TOKEN_LIMITS_JSON`:
 ```json

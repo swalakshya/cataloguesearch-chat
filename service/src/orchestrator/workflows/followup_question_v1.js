@@ -1,7 +1,13 @@
+import { WORKFLOW_CONFIG } from "../../config/workflow_config.js";
+
 export async function runFollowupQuestion({ externalApi, params, requestId, toolBudget }) {
   const results = [];
   const language = params.language || "hi";
   const filters = params.filters || {};
+  const queries = Array.isArray(params.queries) ? params.queries : [];
+  const mainQuery = params.main_query || {};
+  const subQueries = Array.isArray(params.sub_queries) ? params.sub_queries : [];
+  const config = WORKFLOW_CONFIG.followup;
 
   const searchPayload = (keywords) => ({
     query: buildQuery(keywords),
@@ -10,19 +16,45 @@ export async function runFollowupQuestion({ externalApi, params, requestId, tool
     anuyog: filters.anuyog || null,
     granth: filters.granth || null,
     contributor: filters.contributor || null,
-    year_from: filters.year_from || null,
-    year_to: filters.year_to || null,
-    page: 1,
-    page_size: 15,
-    rerank: true,
+    page: config.page,
+    page_size: config.page_size,
+    rerank: config.rerank,
   });
 
   const followupKeywordSets = normalizeFollowupKeywordSets(params.followup_keywords);
+  const userSearches = countUserSearches({ queries, mainQuery, subQueries, keywords: params.keywords });
   const extraSearches = followupKeywordSets.length;
-  ensureBudget(toolBudget, 1 + extraSearches + (params.expand_chunk_ids?.length || 0));
+  const expandCount = Array.isArray(params.expand_chunk_ids)
+    ? Math.min(config.expand_limit, params.expand_chunk_ids.length)
+    : 0;
+  ensureBudget(toolBudget, userSearches + extraSearches + expandCount);
 
-  toolBudget.consume();
-  await safePush(results, () => externalApi.search(searchPayload(params.keywords), requestId), requestId);
+  if (queries.length) {
+    for (const query of queries) {
+      if (toolBudget.remaining() <= 0) break;
+      toolBudget.consume();
+      await safePush(results, () => externalApi.search(searchPayload(query.keywords), requestId), requestId);
+    }
+  } else if (subQueries.length || (mainQuery && Array.isArray(mainQuery.keywords))) {
+    const mainKeywords = Array.isArray(mainQuery.keywords) ? mainQuery.keywords : [];
+    if (!subQueries.length) {
+      if (toolBudget.remaining() > 0) {
+        toolBudget.consume();
+        await safePush(results, () => externalApi.search(searchPayload(mainKeywords), requestId), requestId);
+      }
+    } else {
+      for (const query of subQueries) {
+        if (toolBudget.remaining() <= 0) break;
+        const subKeywords = Array.isArray(query.keywords) ? query.keywords : [];
+        const combined = [...mainKeywords, ...subKeywords].filter(Boolean);
+        toolBudget.consume();
+        await safePush(results, () => externalApi.search(searchPayload(combined), requestId), requestId);
+      }
+    }
+  } else if (params.keywords) {
+    toolBudget.consume();
+    await safePush(results, () => externalApi.search(searchPayload(params.keywords), requestId), requestId);
+  }
 
   for (const keywordSet of followupKeywordSets) {
     toolBudget.consume();
@@ -33,12 +65,18 @@ export async function runFollowupQuestion({ externalApi, params, requestId, tool
     );
   }
 
-  const expandIds = Array.isArray(params.expand_chunk_ids) ? params.expand_chunk_ids.slice(0, 15) : [];
+  const expandIds = Array.isArray(params.expand_chunk_ids)
+    ? params.expand_chunk_ids.slice(0, config.expand_limit)
+    : [];
   for (const chunkId of expandIds) {
     toolBudget.consume();
     await safePush(
       results,
-      () => externalApi.navigate({ chunk_id: chunkId, direction: "both", steps: 3, language: "hi" }, requestId),
+      () =>
+        externalApi.navigate(
+          { chunk_id: chunkId, direction: config.navigate_direction, steps: config.navigate_steps, language: "hi" },
+          requestId
+        ),
       requestId
     );
   }
@@ -70,6 +108,14 @@ function ensureBudget(toolBudget, needed) {
   if (toolBudget.remaining() < needed) {
     throw new Error("tool_call_budget_exceeded");
   }
+}
+
+function countUserSearches({ queries, mainQuery, subQueries, keywords }) {
+  if (Array.isArray(queries) && queries.length) return queries.length;
+  if (Array.isArray(subQueries) && subQueries.length) return subQueries.length;
+  if (mainQuery && Array.isArray(mainQuery.keywords) && mainQuery.keywords.length) return 1;
+  if (keywords) return 1;
+  return 0;
 }
 
 async function safePush(results, fn, requestId) {

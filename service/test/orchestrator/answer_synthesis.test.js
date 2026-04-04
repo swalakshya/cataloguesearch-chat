@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { runAnswerSynthesis } from "../../src/orchestrator/answer_synthesis.js";
+import { formatConversationHistory } from "../../src/orchestrator/conversation_history.js";
+import { isPromptV2 } from "../../src/orchestrator/prompts.js";
 
 test("runAnswerSynthesis injects conversation history and context", async () => {
   let capturedPrompt = "";
@@ -27,6 +29,57 @@ test("runAnswerSynthesis injects conversation history and context", async () => 
   assert.equal(result.answer, "answer");
 });
 
+test("runAnswerSynthesis filters history by followupSetIds", async () => {
+  let capturedPrompt = "";
+  const provider = {
+    completeJson: async ({ messages }) => {
+      capturedPrompt = messages[1].content;
+      return JSON.stringify({ answer: "answer", scoring: [] });
+    },
+  };
+
+  await runAnswerSynthesis({
+    provider,
+    question: "Q?",
+    workflowName: "followup_question_v1",
+    context: "CTX",
+    conversationHistory: [
+      { id: "set_1", question: "Q1", answer: "A1" },
+      { id: "set_2", question: "Q2", answer: "A2" },
+    ],
+    followupSetIds: ["set_2"],
+    requestId: "r1",
+  });
+
+  const expectedHistory = formatConversationHistory(
+    [{ id: "set_2", question: "Q2", answer: "A2" }],
+    { includeChunkScores: false, includeAnswers: true, compact: isPromptV2() }
+  );
+  assert.ok(capturedPrompt.trim().endsWith(expectedHistory));
+});
+
+test("runAnswerSynthesis omits history when not followup", async () => {
+  let capturedPrompt = "";
+  const provider = {
+    completeJson: async ({ messages }) => {
+      capturedPrompt = messages[1].content;
+      return JSON.stringify({ answer: "answer", scoring: [] });
+    },
+  };
+
+  await runAnswerSynthesis({
+    provider,
+    question: "Q?",
+    workflowName: "basic_question_v1",
+    context: "CTX",
+    conversationHistory: [],
+    requestId: "r1",
+  });
+
+  assert.equal(capturedPrompt.includes("Conversation History"), false);
+  assert.equal(capturedPrompt.includes("[]"), false);
+});
+
 test("runAnswerSynthesis repairs invalid JSON", async () => {
   let calls = 0;
   const provider = {
@@ -50,4 +103,44 @@ test("runAnswerSynthesis repairs invalid JSON", async () => {
 
   assert.equal(calls, 2);
   assert.equal(result.answer, "ok");
+});
+
+test("runAnswerSynthesis falls back when repair fails", async () => {
+  let calls = 0;
+  const provider = {
+    completeJson: async () => {
+      calls += 1;
+      return '{ "answer": "bad "json", "scoring": [] }';
+    },
+  };
+
+  const result = await runAnswerSynthesis({
+    provider,
+    question: "Q?",
+    workflowName: "basic_question_v1",
+    context: "CTX",
+    conversationHistory: [],
+    requestId: "r1",
+  });
+
+  assert.equal(calls, 2);
+  assert.ok(typeof result.answer === "string");
+});
+
+test("runAnswerSynthesis tolerates control characters", async () => {
+  const provider = {
+    completeJson: async () =>
+      '{ "answer": "Line1\u2028Line2", "scoring": [] }',
+  };
+
+  const result = await runAnswerSynthesis({
+    provider,
+    question: "Q?",
+    workflowName: "basic_question_v1",
+    context: "CTX",
+    conversationHistory: [],
+    requestId: "r1",
+  });
+
+  assert.equal(result.answer.includes("Line1"), true);
 });

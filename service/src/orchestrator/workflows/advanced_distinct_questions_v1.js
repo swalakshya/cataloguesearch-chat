@@ -1,8 +1,11 @@
+import { WORKFLOW_CONFIG } from "../../config/workflow_config.js";
+
 export async function runAdvancedDistinctQuestions({ externalApi, params, requestId, toolBudget }) {
   const results = [];
   const language = params.language || "hi";
   const filters = params.filters || {};
   const queries = Array.isArray(params.queries) ? params.queries : [];
+  const config = WORKFLOW_CONFIG.advanced_distinct;
 
   ensureBudget(toolBudget, queries.length);
 
@@ -14,11 +17,9 @@ export async function runAdvancedDistinctQuestions({ externalApi, params, reques
       anuyog: filters.anuyog || null,
       granth: filters.granth || null,
       contributor: filters.contributor || null,
-      year_from: filters.year_from || null,
-      year_to: filters.year_to || null,
-      page: 1,
-      page_size: 10,
-      rerank: true,
+      page: config.page,
+      page_size: config.page_size,
+      rerank: config.rerank,
     };
     toolBudget.consume();
     await safePush(results, () => externalApi.search(payload, requestId), requestId);

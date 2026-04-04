@@ -1,4 +1,4 @@
-import { getKeywordPrompt } from "./prompts.js";
+import { getKeywordPrompt, isPromptV2 } from "./prompts.js";
 import { KEYWORD_EXTRACTION_SCHEMA } from "./keyword_schema.js";
 import { formatConversationHistory } from "./conversation_history.js";
 import { parseJsonStrict } from "../utils/json.js";
@@ -11,7 +11,12 @@ export async function runKeywordExtraction({
   sessionContext,
   requestId,
 }) {
-  const history = formatConversationHistory(sessionContext?.conversationHistory);
+  const useV2 = isPromptV2();
+  const history = formatConversationHistory(sessionContext?.conversationHistory, {
+    includeChunkScores: true,
+    includeAnswers: true,
+    compact: useV2,
+  });
   const prompt = getKeywordPrompt(question, history);
   log.info("keyword_extract_prompt_tokens", {
     requestId,
@@ -19,7 +24,7 @@ export async function runKeywordExtraction({
   });
 
   const messages = [
-    { role: "system", content: "You are a precise JSON-only extractor." },
+    { role: "system", content: "You are a precise JSON-only keyword extractor and question classifier." },
     { role: "user", content: prompt },
   ];
 
@@ -33,7 +38,11 @@ export async function runKeywordExtraction({
   log.info("keyword_extract_llm_response", {
     requestId,
     length: raw?.length || 0,
-    preview: String(raw || "").slice(0, 500),
+    response: String(raw || ""),
+  });
+  log.info("keyword_extract_output_tokens", {
+    requestId,
+    tokens: estimateTokens(raw),
   });
 
   const parsed = parseJsonStrict(raw);

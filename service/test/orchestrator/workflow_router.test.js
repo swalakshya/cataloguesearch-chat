@@ -49,3 +49,92 @@ test("runWorkflow resolves filters via external API", async () => {
   assert.equal(searchCall.granth, "Samaysaar");
   assert.deepEqual(searchCall.content_type, ["Granth"]);
 });
+
+test("runWorkflow skips filter options when only default content_type", async () => {
+  const calls = [];
+  const externalApi = {
+    getFilterOptions: async (payload) => {
+      calls.push({ type: "filter", payload });
+      return { granths: [], anuyogs: [], contributors: [] };
+    },
+    search: async (payload) => {
+      calls.push({ type: "search", payload });
+      return [];
+    },
+  };
+
+  await runWorkflow({
+    externalApi,
+    keywordResult: {
+      workflow: "basic_question_v1",
+      language: "hi",
+      keywords: ["आत्मा"],
+      filters: { content_type: ["Granth", "Books"] },
+    },
+    requestId: "r1",
+  });
+
+  const filterCalls = calls.filter((c) => c.type === "filter");
+  assert.equal(filterCalls.length, 0);
+});
+
+test("runWorkflow handles metadata_question_v1 with filter options only", async () => {
+  const calls = [];
+  const externalApi = {
+    getMetadataOptions: async (payload) => {
+      calls.push({ type: "filter", payload });
+      return [{ granth: "Samaysaar", author: "Kundkund", anuyog: "Dravyanuyog", url: "https://x" }];
+    },
+    search: async () => {
+      calls.push({ type: "search" });
+      return [];
+    },
+  };
+
+  const result = await runWorkflow({
+    externalApi,
+    keywordResult: {
+      workflow: "metadata_question_v1",
+      language: "hi",
+      asked_info: ["granth"],
+      filters: { content_type: ["Granth"] },
+    },
+    requestId: "r1",
+  });
+
+  assert.equal(calls.some((c) => c.type === "search"), false);
+  assert.equal(calls.some((c) => c.type === "filter"), true);
+  assert.deepEqual(result.chunks, [
+    { kind: "metadata", asked_info: ["granth"], options: [{ g: "Samaysaar" }] },
+  ]);
+});
+
+test("runWorkflow maps mismatched filters with llm", async () => {
+  const calls = [];
+  const externalApi = {
+    getFilterOptions: async () => ({ granths: ["Samaysaar"], anuyogs: [], contributors: [] }),
+    search: async (payload) => {
+      calls.push(payload);
+      return [];
+    },
+  };
+  const provider = {
+    completeJson: async () =>
+      JSON.stringify({ granth: "Samaysaar", anuyog: "", contributor: "" }),
+  };
+
+  await runWorkflow({
+    externalApi,
+    provider,
+    keywordResult: {
+      workflow: "basic_question_v1",
+      language: "hi",
+      keywords: ["आत्मा"],
+      filters: { granth: "Samyasar", content_type: ["Granth"] },
+    },
+    requestId: "r1",
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].granth, "Samaysaar");
+});

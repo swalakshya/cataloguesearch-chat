@@ -26,3 +26,44 @@ test("GeminiProvider throws when API key missing", async () => {
     /GEMINI_API_KEY/
   );
 });
+
+test("GeminiProvider refreshes key and retries once on 401", async () => {
+  let apiKey = "key-1";
+  const keyManager = {
+    getKey: () => apiKey,
+    refresh: async () => {
+      apiKey = "key-2";
+      return apiKey;
+    },
+  };
+
+  const provider = new GeminiProvider({
+    apiKey: "",
+    model: "gemini",
+    timeoutMs: 10,
+    jsonMode: false,
+    keyManager,
+    clientFactory: ({ apiKey }) => ({
+      models: {
+        generateContent: async () => {
+          if (apiKey === "key-1") {
+            const err = new Error("Unauthorized");
+            err.status = 401;
+            throw err;
+          }
+          return { text: "ok" };
+        },
+      },
+    }),
+  });
+
+  const result = await provider.completeText({ messages: [], temperature: 0, requestId: "r1" });
+  assert.equal(result, "ok");
+});
+
+test("GeminiProvider.fromEnv prefers env key over secret manager", async () => {
+  process.env.GEMINI_API_KEY = "env-key";
+  const provider = GeminiProvider.fromEnv({ keyManager: { getKey: () => "sm-key" } });
+  assert.equal(provider.apiKey, "env-key");
+  delete process.env.GEMINI_API_KEY;
+});

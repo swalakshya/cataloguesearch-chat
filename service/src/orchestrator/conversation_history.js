@@ -1,13 +1,27 @@
-export function formatConversationHistory(history) {
+export function formatConversationHistory(
+  history,
+  { includeChunkScores = true, includeAnswers = true, compact = false } = {}
+) {
   if (!Array.isArray(history) || history.length === 0) {
     return "[]";
   }
-  const normalized = history.map((entry, index) => ({
-    id: entry?.id || `set_${index + 1}`,
-    question: String(entry?.question || "").trim(),
-    answer: String(entry?.answer || "").trim(),
-    chunk_ids: Array.isArray(entry?.chunk_ids) ? entry.chunk_ids : [],
-    chunk_scores: Array.isArray(entry?.chunk_scores) ? entry.chunk_scores : [],
-  }));
-  return JSON.stringify(normalized, null, 2);
+  const normalized = history.map((entry, index) => {
+    const base = {
+      i: entry?.id || `set_${index + 1}`,
+      q: String(entry?.question || "").trim(),
+    };
+    if (includeAnswers) {
+      base.a = String(entry?.answer || "").trim();
+    }
+    if (includeChunkScores) {
+      base.s = Array.isArray(entry?.chunk_scores)
+        ? entry.chunk_scores.map((item) => ({
+            id: item?.chunk_id,
+            v: item?.score,
+          }))
+        : [];
+    }
+    return base;
+  });
+  return compact ? JSON.stringify(normalized) : JSON.stringify(normalized, null, 2);
 }

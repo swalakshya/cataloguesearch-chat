@@ -9,7 +9,13 @@ export const KEYWORD_EXTRACTION_SCHEMA = {
         "followup_question_v1",
         "advanced_distinct_questions_v1",
         "advanced_nested_questions_v1",
+        "greeting_message_v1",
+        "metadata_question_v1",
       ],
+    },
+    asked_info: {
+      type: "array",
+      items: { type: "string", enum: ["granth", "anuyog", "author", "link"] },
     },
     keywords: {
       type: "array",
@@ -22,8 +28,6 @@ export const KEYWORD_EXTRACTION_SCHEMA = {
         anuyog: { type: "string" },
         contributor: { type: "string" },
         content_type: { type: "array", items: { type: "string", enum: ["Granth", "Books"] } },
-        year_from: { type: "integer" },
-        year_to: { type: "integer" },
       },
       additionalProperties: false,
     },

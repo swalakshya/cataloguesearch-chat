@@ -1,6 +1,9 @@
+import { WORKFLOW_CONFIG } from "../../config/workflow_config.js";
+
 export async function runBasicQuestion({ externalApi, params, requestId, toolBudget }) {
   ensureBudget(toolBudget, 1);
   const query = buildQuery(params.keywords);
+  const config = WORKFLOW_CONFIG.basic;
   const payload = {
     query,
     language: params.language || "hi",
@@ -8,11 +11,9 @@ export async function runBasicQuestion({ externalApi, params, requestId, toolBud
     anuyog: params.filters?.anuyog || null,
     granth: params.filters?.granth || null,
     contributor: params.filters?.contributor || null,
-    year_from: params.filters?.year_from || null,
-    year_to: params.filters?.year_to || null,
-    page: 1,
-    page_size: 15,
-    rerank: true,
+    page: config.page,
+    page_size: config.page_size,
+    rerank: config.rerank,
   };
   toolBudget.consume();
   const results = await externalApi.search(payload, requestId);

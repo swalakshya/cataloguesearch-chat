@@ -4,11 +4,21 @@ import { fileURLToPath } from "url";
 import { log } from "../utils/log.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROMPT_ROOT = path.resolve(__dirname, "../../prompts");
+export function isPromptV2(env = process.env) {
+  return String(env.LLM_PROMPT_VERSION || "v2").toLowerCase() === "v2";
+}
+
 const cache = new Map();
 
+function getPromptRoot() {
+  return path.resolve(
+    __dirname,
+    isPromptV2() ? "../../prompts_v2" : "../../prompts"
+  );
+}
+
 function readPrompt(relPath) {
-  const absPath = path.join(PROMPT_ROOT, relPath);
+  const absPath = path.join(getPromptRoot(), relPath);
   if (cache.has(absPath)) return cache.get(absPath);
   try {
     const text = fs.readFileSync(absPath, "utf-8").trim();
@@ -23,19 +33,46 @@ function readPrompt(relPath) {
 
 export function getKeywordPrompt(question, conversationHistory) {
   const template = readPrompt("step_1_keyword_extract_and_classification.md");
-  return template
-    .replace("<QUESTION_HERE>", question)
-    .replace("<CONVERSATION_HISTORY_HERE>", conversationHistory || "[]")
+  const historyBlock = readPrompt("conversation_history.md");
+  return [
+    template.replace("<QUESTION_HERE>", question).trim(),
+    historyBlock,
+    conversationHistory || "[]",
+  ]
+    .filter(Boolean)
+    .join("\n\n")
     .trim();
 }
 
-export function getAnswerPrompt(question, context, workflowGuidelines, conversationHistory) {
-  const base = readPrompt("step_2_answer_synthesis.md");
+export function getAnswerPrompt(
+  question,
+  context,
+  workflowGuidelines,
+  conversationHistory,
+  workflowName = "",
+  language = "",
+  script = ""
+) {
+  const base =
+    workflowName === "metadata_question_v1"
+      ? readPrompt("step_2_metadata_answer_synthesis.md")
+      : readPrompt("step_2_answer_synthesis.md");
   const composed = [base, workflowGuidelines].filter(Boolean).join("\n\n");
-  return composed
-    .replace("<QUESTION_HERE>", question)
-    .replace("<CONVERSATION_HISTORY_HERE>", conversationHistory || "[]")
-    .replace("<CONTEXT_HERE>", context || "");
+  const historyBlock = readPrompt("conversation_history.md");
+  const historySection = conversationHistory && String(conversationHistory).trim() ? historyBlock : "";
+  return [
+    composed
+      .replace("<QUESTION_HERE>", question)
+      .replace("<CONTEXT_HERE>", context || "")
+      .replace("<LANGUAGE_HERE>", language || "")
+      .replace("<SCRIPT_HERE>", script || "")
+      .trim(),
+    historySection,
+    historySection ? conversationHistory : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
 }
 
 export function getWorkflowGuidelines(workflowName) {

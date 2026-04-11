@@ -1,11 +1,11 @@
-import { WORKFLOW_CONFIG } from "../../config/workflow_config.js";
+import { getWorkflowConfig } from "../../config/workflow_config.js";
 
-export async function runAdvancedDistinctQuestions({ externalApi, params, requestId, toolBudget }) {
+export async function runAdvancedDistinctQuestions({ externalApi, params, requestId, toolBudget, modelId }) {
   const results = [];
   const language = params.language || "hi";
   const filters = params.filters || {};
   const queries = Array.isArray(params.queries) ? params.queries : [];
-  const config = WORKFLOW_CONFIG.advanced_distinct;
+  const config = getWorkflowConfig(modelId).advanced_distinct;
 
   ensureBudget(toolBudget, queries.length);
 

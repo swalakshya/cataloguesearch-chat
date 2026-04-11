@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { KEYWORD_EXTRACTION_SCHEMA } from "../../src/orchestrator/keyword_schema.js";
+import { KEYWORD_EXTRACTION_SCHEMA } from "../../src/config/keyword_schema.js";
 
 test("keyword schema includes required fields and followup keyword objects", () => {
   assert.ok(KEYWORD_EXTRACTION_SCHEMA.required.includes("language"));

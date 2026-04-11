@@ -1,4 +1,4 @@
-import { mergeMetadataOptions, normalizeContentTypes } from "./metadata_utils.js";
+import { mergeMetadataOptions, normalizeContentTypes } from "../../utils/metadata.js";
 import { log } from "../../utils/log.js";
 
 export async function runMetadataQuestion({ externalApi, params, requestId, toolBudget }) {

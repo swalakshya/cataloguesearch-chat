@@ -16,7 +16,7 @@ export class ToolBudget {
   }
 }
 
-export async function runWorkflow({ externalApi, keywordResult, requestId, provider = null }) {
+export async function runWorkflow({ externalApi, keywordResult, requestId, provider = null, modelId = null }) {
   const workflowName = keywordResult.workflow || "basic_question_v1";
   const runner = workflowRegistry[workflowName];
   if (!runner) {
@@ -45,7 +45,7 @@ export async function runWorkflow({ externalApi, keywordResult, requestId, provi
   const toolBudgetLimit = Number(process.env.WORKFLOW_TOOL_CALL_BUDGET || 25);
   const toolBudget = new ToolBudget(toolBudgetLimit);
 
-  const chunks = await runner({ externalApi, params, requestId, toolBudget });
+  const chunks = await runner({ externalApi, params, requestId, toolBudget, modelId });
 
   log.info("workflow_complete", {
     requestId,

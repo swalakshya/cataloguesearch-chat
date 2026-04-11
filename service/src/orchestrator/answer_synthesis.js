@@ -1,6 +1,6 @@
 import { getAnswerPrompt, getWorkflowGuidelines, isPromptV2 } from "./prompts.js";
 import { formatConversationHistory } from "./conversation_history.js";
-import { ANSWER_SCHEMA } from "./answer_schema.js";
+import { ANSWER_SCHEMA } from "../config/answer_schema.js";
 import { parseJsonStrict, normalizeJsonLike, extractAnswerFallback } from "../utils/json.js";
 import { estimateTokens } from "../utils/token.js";
 import { log } from "../utils/log.js";
@@ -15,8 +15,9 @@ export async function runAnswerSynthesis({
   language,
   script,
   requestId,
+  modelId,
 }) {
-  const guidelines = getWorkflowGuidelines(workflowName);
+  const guidelines = getWorkflowGuidelines(workflowName, { modelId, requestId });
   const useV2 = isPromptV2();
   const filteredHistory =
     Array.isArray(followupSetIds) && followupSetIds.length
@@ -31,6 +32,11 @@ export async function runAnswerSynthesis({
         })
       : null;
   const history = historyText || "";
+  const promptScript =
+    String(language || "").toLowerCase() === "hi" &&
+    String(script || "").toLowerCase() === "latin"
+      ? "devanagari"
+      : script;
   const prompt = getAnswerPrompt(
     question,
     context,
@@ -38,7 +44,8 @@ export async function runAnswerSynthesis({
     history,
     workflowName,
     language,
-    script
+    promptScript,
+    { modelId, requestId }
   );
   log.info("answer_synthesis_prompt_tokens", {
     requestId,

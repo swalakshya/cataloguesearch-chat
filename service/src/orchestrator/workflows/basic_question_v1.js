@@ -1,9 +1,9 @@
-import { WORKFLOW_CONFIG } from "../../config/workflow_config.js";
+import { getWorkflowConfig } from "../../config/workflow_config.js";
 
-export async function runBasicQuestion({ externalApi, params, requestId, toolBudget }) {
+export async function runBasicQuestion({ externalApi, params, requestId, toolBudget, modelId }) {
   ensureBudget(toolBudget, 1);
   const query = buildQuery(params.keywords);
-  const config = WORKFLOW_CONFIG.basic;
+  const config = getWorkflowConfig(modelId).basic;
   const payload = {
     query,
     language: params.language || "hi",

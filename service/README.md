@@ -15,7 +15,7 @@ Deterministic, non-agentic LLM service for CatalogueSearch. It calls LLM provide
 Request:
 ```json
 {
-  "provider": "openai|gemini",
+  "provider": "auto",
   "language": "hi|gu|en"
 }
 ```
@@ -24,7 +24,7 @@ Response:
 ```json
 {
   "session_id": "uuid",
-  "provider": "openai|gemini"
+  "provider": "auto"
 }
 ```
 
@@ -63,7 +63,7 @@ Response:
       "file_url": "string"
     }
   ],
-  "provider": "openai|gemini",
+  "provider": "auto|<resolved-provider>",
   "tool_trace_id": "uuid",
   "warnings": ["string"] | null
 }
@@ -74,7 +74,7 @@ Response:
 ```json
 {
   "session_id": "uuid",
-  "provider": "openai|gemini",
+  "provider": "auto|<resolved-provider>",
   "language": "hi|gu|en",
   "created_at": 1710000000,
   "last_activity_at": 1710000123,
@@ -95,7 +95,7 @@ Response:
 
 | HTTP Status | `detail` | When it happens |
 | --- | --- | --- |
-| 400 | `provider_not_supported` | Requested provider does not match configured provider. |
+| 400 | `provider_not_supported` | Provider must be `auto`. |
 | 400 | `invalid_message` | Message payload is invalid (missing role/content or role not `user`). |
 | 404 | `session_not_found` | Session ID does not exist. |
 | 409 | `session_busy` | Session is already processing another request. |
@@ -106,9 +106,11 @@ Response:
 | 502 | `tool_backend_error` | External API failure. |
 | 503 | `provider_unavailable` | LLM provider unavailable. |
 | 503 | `model_temporarily_unavailable` | Model overloaded/unavailable (e.g., 503 from provider). |
+| 503 | `service_unavailable` | All models unavailable (failover exhausted). |
+| 4xx | `client_error` | Client-side error from provider (auth/validation). |
 
 ## Notes
-- Workflow prompts live under `llm_direct_service/prompts/`.
+- Workflow prompts live under `service/prompts_sets/`.
 - External API schemas live under `tools/external_api_openapi.*`.
 - This service uses deterministic retrieval workflows defined in `llm_direct_service/docs/workflow_implementation_details.md`.
 
@@ -130,10 +132,7 @@ Configuration order:
 
 Other env:
 - `GREETING_CONTACT_EMAIL` (default: `projectjinam@gmail.com`)
-- `WF_BASIC_PAGE`, `WF_BASIC_PAGE_SIZE`, `WF_BASIC_RERANK`
-- `WF_FOLLOWUP_PAGE`, `WF_FOLLOWUP_PAGE_SIZE`, `WF_FOLLOWUP_RERANK`, `WF_FOLLOWUP_NAVIGATE_STEPS`, `WF_FOLLOWUP_NAVIGATE_DIRECTION`, `WF_FOLLOWUP_EXPAND_LIMIT`
-- `WF_ADV_DISTINCT_PAGE`, `WF_ADV_DISTINCT_PAGE_SIZE`, `WF_ADV_DISTINCT_RERANK`
-- `WF_ADV_NESTED_PAGE`, `WF_ADV_NESTED_PAGE_SIZE`, `WF_ADV_NESTED_RERANK`
+Workflow tuning now lives in `src/config/model_config.js` under `workflowDefaults` and per-model `workflowOverrides`.
 
 Example `LLM_TOKEN_LIMITS_JSON`:
 ```json

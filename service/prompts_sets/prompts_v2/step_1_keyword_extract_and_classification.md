@@ -3,10 +3,9 @@
 **MUST FOLLOW, NON_NEGOTIABLE:**
 - Output correctly, every output will be reviewed in detail manually and by other ai agents.
 - Output JSON only. No prose, no markdown.
-- Follow the output schema exactly and include required base fields.
-- Keywords must be in Hindi and in Devanagari. Add simple keywords. Don't add multiple keywords for same word.
-- Do not invent filters that are not explicitly requested.
-- language/script must reflect the user question language/script.
+- Follow the output schema exactly and include required fields.
+- Keywords must be in Hindi and in Devanagari. Simple keywords for verbs. Keep nouns intact. Don't add multiple keywords for same word.
+- Do not invent filters if not explicitly requested.
 - Do not output reasoning.
 
 ## User Question
@@ -21,7 +20,7 @@ E.g: "Jai Jinendra" or "Hello"
 
 ### basic_question_v1
 Use for simple definitional/comparative questions.
-E.g: "Atma kya hai?", "जम्बूस्वामी कोन थे?"
+E.g: "जम्बूस्वामी कोन थे?"
 
 ### advanced_distinct_questions_v1
 Use for multiple distinct questions.
@@ -29,13 +28,13 @@ E.g: "Jeev kya hai aur ajiv kya hai?"
 
 ### advanced_nested_questions_v1
 Use for main question with sub-questions.
-E.g: “Ashrav tattva ka swaroop kya hai? Kya raag dwesh bhi isi me aate hain?”, "शलाका पुरुष कितने है? उनके भेद बताइए"
+E.g: “आस्रव तत्त्व का स्वरूप क्या है? Kya raag dwesh bhi ashrav me aate hain?”, "शलाका पुरुष कितने है? भेद बताइए"
 
 ### followup_question_v1
-Use when it references a previous answer from history. Can have three action intent based types. Example:
-- PureQuestion - "karan parmatma aur karya parmatma me bhed batao"
+Use when it references a previous answer from history. Can have three action-intent based types. E.g:
+- PureQuestion - "karan parmatma ke bhed batao"
 - PureRequest - "aur batao"
-- Mixed (mixed question + action) - "explain the concept of karan parmatma in detail"
+- Mixed (mixed question + action) - "karan parmatma ko aur samjhao, ye karya parmatma se kaise bhinna hai?"
 
 ### metadata_question_v1
 Use for metadata lists or metadata facts about granths, anuyogs, or authors.
@@ -43,19 +42,18 @@ E.g: "Acharya kundkund ne konse granth likhe hain?" / "Samaysaar shastra kisne l
 
 ---
 ## RULES (ordered)
-1) Question can include misspellings, grammar errors, emojis, and unexpected keywords (normalize them)
-2) Normalize question into **Hindi (Devanagari)** for keyword extraction. Keep original language/script in output.
-3) If greeting: output workflow=greeting_message_v1 with language, script, is_followup=false. Stop.
-4) If the question asks for metadata relations (see `metadata_question_v1`), include `asked_info` array (allowed: granth, anuyog, author, link) [always add granth] and return. No need to proceed further.
-5) Extract explicit filters (granth, anuyog, contributor). If none, inherit last filters from history. If user removes/changes, clear filters {}. **Filters must be in english always.**
-6) Determine is_followup (relates to history). Determine action intent.
-7) If is_followup=true:
+1) **Normalize** question into **Hindi (Devanagari)** for keyword extraction. Keep original language/script in output. Question can include misspellings, grammar errors, emojis, whatsapp lingos, slangs, sms language and unexpected keywords (normalize them and find most similar hindi keywords)
+2) If _greeting_: output workflow=greeting_message_v1 with language, script, is_followup=false. Stop.
+3) If the question asks for _metadata_ relations (see `metadata_question_v1`), include `asked_info` array (allowed: granth, anuyog, author, link) [always add granth] and return. No need to proceed further.
+4) Extract explicit **filters** (granth, anuyog, contributor). If none, inherit last filters from history. If user removes/changes, clear filters {}. **Filters must be in english always.**
+5) Determine **is_followup** (relates to history). Determine action intent.
+6) If `is_followup=true`:
    - workflow=followup_question_v1
    - followup_keywords: keywords extracted from matched history sets (questions/answers) 
    - expand_chunk_ids: up to 5 from matched sets (few top chunks from each set basis score) (up to 10, if user asks for more detail in question) 
    - If PureQuestion or Mixed: extract question(s) part (not action) and classify into - basic, distinct or nested followup question. Add `keywords` for basic, `queries` for distnict or `main_query + sub_queries` for nested.
-   - Id PureRequest: skip
-8) If is_followup=false: select best workflow and fill keywords/queries/main_query accordingly.
+   - If PureRequest: skip
+7) If `is_followup=false`: select best workflow and fill keywords/queries/main_query accordingly.
 
 ---
 ## OUTPUT JSON (no prose)

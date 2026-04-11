@@ -67,3 +67,14 @@ test("GeminiProvider.fromEnv prefers env key over secret manager", async () => {
   assert.equal(provider.apiKey, "env-key");
   delete process.env.GEMINI_API_KEY;
 });
+
+test("OpenAIProvider attaches status on non-200", async () => {
+  const provider = new OpenAIProvider({ apiKey: "k", model: "gpt-4o", timeoutMs: 10, jsonMode: false, baseUrl: "http://localhost" });
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({ ok: false, status: 503, text: async () => "boom" });
+  await assert.rejects(
+    () => provider.completeText({ messages: [], temperature: 0, requestId: "r1" }),
+    (err) => err.status === 503
+  );
+  global.fetch = originalFetch;
+});

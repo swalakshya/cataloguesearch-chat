@@ -38,6 +38,7 @@ test("advanced distinct workflow runs search per query", async () => {
     params,
     requestId: "r1",
     toolBudget: createToolBudget(5),
+    modelId: "gemini-2.5-flash",
   });
 
   assert.deepEqual(queries, ["पहला", "दूसरा प्रश्न"]);

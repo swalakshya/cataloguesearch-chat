@@ -35,6 +35,7 @@ test("basic workflow builds query and calls search", async () => {
     params,
     requestId: "r1",
     toolBudget: createToolBudget(2),
+    modelId: "gemini-2.5-flash",
   });
 
   assert.equal(captured.query, "आत्मा गुण");

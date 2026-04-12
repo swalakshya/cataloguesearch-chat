@@ -1,13 +1,13 @@
-import { WORKFLOW_CONFIG } from "../../config/workflow_config.js";
+import { getWorkflowConfig } from "../../config/workflow_config.js";
 
-export async function runFollowupQuestion({ externalApi, params, requestId, toolBudget }) {
+export async function runFollowupQuestion({ externalApi, params, requestId, toolBudget, modelId }) {
   const results = [];
   const language = params.language || "hi";
   const filters = params.filters || {};
   const queries = Array.isArray(params.queries) ? params.queries : [];
   const mainQuery = params.main_query || {};
   const subQueries = Array.isArray(params.sub_queries) ? params.sub_queries : [];
-  const config = WORKFLOW_CONFIG.followup;
+  const config = getWorkflowConfig(modelId).followup;
 
   const searchPayload = (keywords) => ({
     query: buildQuery(keywords),

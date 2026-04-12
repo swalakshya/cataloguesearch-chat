@@ -1,4 +1,4 @@
-# Workflow Implementation Details (CatalogueSearch)
+# Workflow Implementation Details (CatalogueSearch Chat)
 
 This document describes how each workflow is implemented in `llm_direct_service`, including strategy and retrieval steps. It is based on the CatalogueSearch answering guidelines and extended with implementation logic to maximize accuracy using the available External API tools. No LLM calls in b/w the workflow implementation are allowed.
 
@@ -84,9 +84,9 @@ Prefer page 1 results for `external_search`.
 
 **Steps:**
 1. Gather `main_query` + `sub_queries` returned by the LLM.
-2. If `sub_queries` exists:
+2. Always call `external_search` once using `main_query.keywords` (page 1, page_size=10, rerank=true).
+3. If `sub_queries` exists:
    - For each sub_query, call `external_search` using **combined keywords**: `main_query.keywords + sub_query.keywords` (page 1, page_size=10, rerank=true).
-3. If no `sub_queries`, call `external_search` using `main_query.keywords` only.
 4. Pass all retrieved results as context to the LLM for answer synthesis step.
 
 ---

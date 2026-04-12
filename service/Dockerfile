@@ -6,8 +6,7 @@ COPY package.json ./
 RUN npm install --omit=dev
 
 COPY src ./src
-COPY prompts ./prompts
-COPY prompts_v2 ./prompts_v2
+COPY prompts_sets ./prompts_sets
 
 ENV NODE_ENV=production
 ENV LLM_SERVICE_PORT=8012

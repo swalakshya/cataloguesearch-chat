@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { log } from "../utils/log.js";
+import { recordPromptRootForTest } from "../testing/test_prompt_roots.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export function isPromptV2(env = process.env) {
@@ -10,30 +11,59 @@ export function isPromptV2(env = process.env) {
 
 const cache = new Map();
 
-function getPromptRoot() {
-  return path.resolve(
-    __dirname,
-    isPromptV2() ? "../../prompts_v2" : "../../prompts"
-  );
+function normalizeModelId(modelId) {
+  return String(modelId || "").replace(/\./g, "_");
 }
 
-function readPrompt(relPath) {
-  const absPath = path.join(getPromptRoot(), relPath);
-  if (cache.has(absPath)) return cache.get(absPath);
-  try {
-    const text = fs.readFileSync(absPath, "utf-8").trim();
-    cache.set(absPath, text);
-    return text;
-  } catch (err) {
-    log.warn("prompt_read_failed", { path: absPath, message: err?.message || String(err) });
-    cache.set(absPath, "");
-    return "";
+function resolvePromptRoots({ modelId, promptVersion, overrideRoot, requestId } = {}) {
+  const version = promptVersion || (isPromptV2() ? "v2" : "v1");
+  const baseFolder = version === "v2" ? "prompts_v2" : "prompts";
+  const baseRoot = overrideRoot
+    ? path.resolve(overrideRoot, baseFolder)
+    : path.resolve(__dirname, `../../prompts_sets/${baseFolder}`);
+  const roots = [];
+  if (modelId) {
+    const safeModelId = normalizeModelId(modelId);
+    const modelFolder = `${baseFolder}_${safeModelId}`;
+    const modelRoot = overrideRoot
+      ? path.resolve(overrideRoot, modelFolder)
+      : path.resolve(__dirname, `../../prompts_sets/${modelFolder}`);
+    roots.push(modelRoot);
   }
+  roots.push(baseRoot);
+  if (requestId) {
+    recordPromptRootForTest({ requestId, modelId, promptRoot: roots[0] });
+  }
+  return roots;
 }
 
-export function getKeywordPrompt(question, conversationHistory) {
-  const template = readPrompt("step_1_keyword_extract_and_classification.md");
-  const historyBlock = readPrompt("conversation_history.md");
+export function getPromptRootForModel({ modelId, promptVersion } = {}) {
+  const roots = resolvePromptRoots({ modelId, promptVersion });
+  return roots[0] || null;
+}
+
+function readPrompt(relPath, options) {
+  const roots = resolvePromptRoots(options);
+  for (const root of roots) {
+    const absPath = path.join(root, relPath);
+    if (cache.has(absPath)) return cache.get(absPath);
+    try {
+      const text = fs.readFileSync(absPath, "utf-8").trim();
+      cache.set(absPath, text);
+      return text;
+    } catch {
+      // Try next root.
+    }
+  }
+  log.warn("prompt_read_failed", {
+    paths: roots.map((root) => path.join(root, relPath)),
+  });
+  return "";
+}
+
+export function getKeywordPrompt(question, conversationHistory, options = {}) {
+  const template = readPrompt("step_1_keyword_extract_and_classification.md", options);
+  const historyBlock = readPrompt("conversation_history.md", options);
   return [
     template.replace("<QUESTION_HERE>", question).trim(),
     historyBlock,
@@ -44,6 +74,14 @@ export function getKeywordPrompt(question, conversationHistory) {
     .trim();
 }
 
+export function getKeywordFixPrompt(question, step1Json, options = {}) {
+  const template = readPrompt("step_1b_keyword_fix.md", options);
+  return template
+    .replace("<QUESTION_HERE>", question)
+    .replace("<STEP1_JSON_HERE>", JSON.stringify(step1Json, null, 2))
+    .trim();
+}
+
 export function getAnswerPrompt(
   question,
   context,
@@ -51,14 +89,15 @@ export function getAnswerPrompt(
   conversationHistory,
   workflowName = "",
   language = "",
-  script = ""
+  script = "",
+  options = {}
 ) {
   const base =
     workflowName === "metadata_question_v1"
-      ? readPrompt("step_2_metadata_answer_synthesis.md")
-      : readPrompt("step_2_answer_synthesis.md");
+      ? readPrompt("step_2_metadata_answer_synthesis.md", options)
+      : readPrompt("step_2_answer_synthesis.md", options);
   const composed = [base, workflowGuidelines].filter(Boolean).join("\n\n");
-  const historyBlock = readPrompt("conversation_history.md");
+  const historyBlock = readPrompt("conversation_history.md", options);
   const historySection = conversationHistory && String(conversationHistory).trim() ? historyBlock : "";
   return [
     composed
@@ -75,7 +114,7 @@ export function getAnswerPrompt(
     .trim();
 }
 
-export function getWorkflowGuidelines(workflowName) {
+export function getWorkflowGuidelines(workflowName, options = {}) {
   const mapping = {
     basic_question_v1: "workflow_answering_guidelines/basic_question.md",
     followup_question_v1: "workflow_answering_guidelines/followup_question.md",
@@ -83,5 +122,5 @@ export function getWorkflowGuidelines(workflowName) {
     advanced_nested_questions_v1: "workflow_answering_guidelines/advanced_nested_questions.md",
   };
   const relPath = mapping[workflowName] || "";
-  return relPath ? readPrompt(relPath) : "";
+  return relPath ? readPrompt(relPath, options) : "";
 }

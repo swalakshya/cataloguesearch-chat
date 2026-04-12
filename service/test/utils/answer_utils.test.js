@@ -1,7 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { stripCitations, extractReferences, normalizeAnswerTextForParsing, cleanAnswerText } from "../../src/utils/answer.js";
+import {
+  stripCitations,
+  extractReferences,
+  normalizeAnswerTextForParsing,
+  cleanAnswerText,
+  normalizeReferencesInAnswer,
+} from "../../src/utils/answer.js";
 
 test("stripCitations removes citation markers", () => {
   const text = "Hello citeturn1search0 world";
@@ -36,6 +42,47 @@ test("extractReferences falls back to inline reference lines", () => {
   const { references } = extractReferences(text);
   assert.equal(references.length, 2);
   assert.equal(references[0].includes("**"), false);
+});
+
+test("extractReferences appends /N to file_url when missing", () => {
+  const text = [
+    "Answer line",
+    "References",
+    "1. Samaysaar, Granth, Page 12 http://example.com/file.pdf#page=12",
+    "2. Pravachansaar, Granth, Page 7 http://example.com/other.pdf/7",
+  ].join("\n");
+
+  const { references } = extractReferences(text);
+  assert.equal(references[0], "Samaysaar, Granth, Page 12 http://example.com/file.pdf#page=12/12");
+  assert.equal(references[1], "Pravachansaar, Granth, Page 7 http://example.com/other.pdf/7");
+});
+
+test("extractReferences appends /N when page is written as पृष्ठ 12", () => {
+  const text = [
+    "Answer line",
+    "References",
+    "1. Samaysaar, Granth, पृष्ठ 12 http://example.com/file.pdf",
+  ].join("\n");
+
+  const { references } = extractReferences(text);
+  assert.equal(references[0], "Samaysaar, Granth, पृष्ठ 12 http://example.com/file.pdf/12");
+});
+
+test("normalizeReferencesInAnswer appends /N only in References section", () => {
+  const text = [
+    "Answer line",
+    "References",
+    "1. Samaysaar, Granth, Page 12 http://example.com/file.pdf#page=12",
+    "2. Already ok http://example.com/x/7",
+    "Other section",
+    "Line with http://example.com/nochange",
+  ].join("\n");
+
+  const normalized = normalizeReferencesInAnswer(text);
+  const lines = normalized.split("\n");
+  assert.equal(lines[2], "1. Samaysaar, Granth, Page 12 http://example.com/file.pdf#page=12/12");
+  assert.equal(lines[3], "2. Already ok http://example.com/x/7");
+  assert.equal(lines[5], "Line with http://example.com/nochange");
 });
 
 test("normalizeReferenceLine strips granth and page_number labels", () => {

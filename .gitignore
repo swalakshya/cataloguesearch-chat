@@ -1,6 +1,11 @@
 node_modules
-.env*
 .idea
 .venv
+.env.local
 dev_docs
-superpowers
+.worktrees/
+.cursorrules
+.DS_Store
+.mcp.json
+.opencode.json
+.windsurfrules

@@ -45,8 +45,6 @@ npm start
 ```env
 # service/.env.local
 EXTERNAL_API_BASE_URL=https://swalakshya.me
-LLM_PROVIDER=gemini
-LLM_MODEL=gemini-2.5-flash
 GEMINI_API_KEY=your-gemini-key-here
 ```
 
@@ -66,8 +64,6 @@ Mount the service account JSON key file read-only into the container.
 ```env
 # service/.env.local
 EXTERNAL_API_BASE_URL=http://localhost:8000
-LLM_PROVIDER=gemini
-LLM_MODEL=gemini-2.5-flash
 GEMINI_API_KEY=your-gemini-key-here
 ```
 
@@ -76,8 +72,6 @@ GEMINI_API_KEY=your-gemini-key-here
 ```env
 # service/.env.local
 EXTERNAL_API_BASE_URL=https://swalakshya.me
-LLM_PROVIDER=openai
-LLM_MODEL=gpt-4o
 OPENAI_API_KEY=your-openai-key-here
 ```
 
@@ -101,8 +95,6 @@ docker compose up
 | Variable | Default | Description |
 |---|---|---|
 | `EXTERNAL_API_BASE_URL` | `http://localhost:8000` | CatalogueSearch backend URL |
-| `LLM_PROVIDER` | `openai` | `openai` or `gemini` |
-| `LLM_MODEL` | `gpt-4o` | Model name |
 | `OPENAI_API_KEY` | — | Required if using OpenAI |
 | `GEMINI_API_KEY` | — | Required if using Gemini |
 | `GCP_PROJECT_ID` | — | Google Cloud project id (Secret Manager) |
@@ -116,21 +108,43 @@ docker compose up
 | `LLM_SESSION_TOKEN_LIMIT_THRESHOLD` | `0.8` | % of limit after which requests are rejected |
 | `LLM_TOKEN_LIMITS_JSON` | — | JSON map of token limits by provider/model |
 | `GREETING_CONTACT_EMAIL` | `projectjinam@gmail.com` | Email shown in greeting response |
-| `WF_BASIC_PAGE` | `1` | basic workflow search page |
-| `WF_BASIC_PAGE_SIZE` | `15` | basic workflow page size |
-| `WF_BASIC_RERANK` | `true` | basic workflow rerank |
-| `WF_FOLLOWUP_PAGE` | `1` | followup workflow search page |
-| `WF_FOLLOWUP_PAGE_SIZE` | `10` | followup workflow page size |
-| `WF_FOLLOWUP_RERANK` | `true` | followup workflow rerank |
-| `WF_FOLLOWUP_NAVIGATE_STEPS` | `3` | followup workflow navigate steps |
-| `WF_FOLLOWUP_NAVIGATE_DIRECTION` | `both` | followup workflow navigate direction |
-| `WF_FOLLOWUP_EXPAND_LIMIT` | `10` | followup workflow expand cap |
-| `WF_ADV_DISTINCT_PAGE` | `1` | advanced distinct workflow search page |
-| `WF_ADV_DISTINCT_PAGE_SIZE` | `10` | advanced distinct workflow page size |
-| `WF_ADV_DISTINCT_RERANK` | `true` | advanced distinct workflow rerank |
-| `WF_ADV_NESTED_PAGE` | `1` | advanced nested workflow search page |
-| `WF_ADV_NESTED_PAGE_SIZE` | `10` | advanced nested workflow page size |
-| `WF_ADV_NESTED_RERANK` | `true` | advanced nested workflow rerank |
+
+Workflow tuning lives in `service/src/config/model_config.js` under `workflowDefaults` and per-model `workflowOverrides`.
+Example structure:
+```js
+const MODEL_ROUTING_CONFIG = {
+  workflowDefaults: {
+    basic: { page: 1, page_size: 15, rerank: true },
+    followup: {
+      page: 1,
+      page_size: 10,
+      rerank: true,
+      navigate_steps: 3,
+      navigate_direction: "both",
+      expand_limit: 10,
+    },
+    advanced_distinct: { page: 1, page_size: 10, rerank: true },
+    advanced_nested: { page: 1, page_size: 10, rerank: true },
+  },
+  models: [
+    {
+      id: "gemini-2.5-flash",
+      provider: "gemini",
+      priority: 1,
+      workflowOverrides: {}, // empty = use defaults
+    },
+    {
+      id: "gpt-4o",
+      provider: "openai",
+      priority: 3,
+      workflowOverrides: {
+        followup: { expand_limit: 5 },
+      },
+    },
+  ],
+};
+```
+`workflowOverrides` is merged over `workflowDefaults` by key, so you can override only the fields you need without redefining the full config.
 
 ---
 

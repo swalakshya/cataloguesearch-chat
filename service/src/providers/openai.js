@@ -38,7 +38,10 @@ export class OpenAIProvider extends LLMProvider {
 
   async #chatCompletion({ messages, temperature, maxTokens, requestId, responseFormat }) {
     if (!this.apiKey) {
-      throw new Error("OPENAI_API_KEY is required");
+      const err = new Error("OPENAI_API_KEY is required");
+      err.status = 401;
+      err.provider = "openai";
+      throw err;
     }
 
     const controller = new AbortController();
@@ -78,7 +81,10 @@ export class OpenAIProvider extends LLMProvider {
           status: res.status,
           body: text.slice(0, 800),
         });
-        throw new Error(`OpenAI request failed (${res.status})`);
+        const err = new Error(`OpenAI request failed (${res.status})`);
+        err.status = res.status;
+        err.provider = "openai";
+        throw err;
       }
 
       let json;
@@ -100,9 +106,9 @@ export class OpenAIProvider extends LLMProvider {
     }
   }
 
-  static fromEnv() {
-    const apiKey = process.env.OPENAI_API_KEY || process.env.LLM_API_KEY || "";
-    const model = process.env.LLM_MODEL || "gpt-4o";
+  static fromEnv({ modelOverride, apiKeyOverride } = {}) {
+    const apiKey = apiKeyOverride || process.env.OPENAI_API_KEY || process.env.LLM_API_KEY || "";
+    const model = modelOverride || "gpt-4o";
     const baseUrl = process.env.OPENAI_BASE_URL || process.env.LLM_BASE_URL || "";
     const timeoutMs = Number(process.env.LLM_REQUEST_TIMEOUT_SEC || 120) * 1000;
     const jsonMode = (process.env.LLM_JSON_MODE || "true").toLowerCase() !== "false";

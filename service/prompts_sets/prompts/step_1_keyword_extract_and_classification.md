@@ -34,7 +34,7 @@ Use for simple definitional/comparative questions.
 Examples:
 - “Jeev kise kehte hain?”
 - "Atma ke gyaan aur darshan guna me kya bhed hai?"
-- “Ajiv kya hai?”
+- "जम्बूस्वामी कोन थे?"
 - “Karma kya hai?”
 
 #### advanced_distinct_questions_v1
@@ -46,7 +46,7 @@ Examples:
 #### advanced_nested_questions_v1
 Use when the user asks nested questions, where one or more questions are around a main question.
 Examples:
-- “Ashrav tattva ka swaroop kya hai? Kya raag dwesh bhi isi me aate hain?”
+- “आस्रव तत्त्व का स्वरूप क्या है? Kya raag dwesh bhi ashrav me aate hain?”
 - “Bandh kaise hota hai? Kya bandh ki kriya apne upadan se hoti hai?”
 
 #### followup_question_v1
@@ -121,6 +121,7 @@ Now, the further steps will be dependent on whether is_followup is true or not.
    - Based on the workflow type, extract relevant keywords following the structure shared in the below examples by workflow shapes. For ex, if it is a advanced_distinct_questions_v1 workflow, populate `queries` param with an array of queries, each query having its own keywords array.
 
 ## Hard Rules
+- Question can include misspellings, grammar errors, emojis, whatsapp lingos, slangs, sms language and unexpected keywords (normalize them and find most similar hindi keywords)
 - Output correctly because every output will be reviewed in detail manually and sent to other ai agents to review.
 - Output JSON only. No prose, no markdown, no trailing commentary.
 - All type of question/requests will only return a valid JSON shape with atleast these 5 fields populated:
@@ -129,7 +130,7 @@ Now, the further steps will be dependent on whether is_followup is true or not.
   - `workflow`: "basic_question_v1"
   - `filters`: {} (details in next steps)
   - atleast any one of the relevant (workflow-specific) field populated for extracted keywords (`keywords/followup_keywords/queries or main_query etc.`)
-- Keywords must be Hindi and in Devanagari, regardless of the user question language or script. Add simple keywords. Don't add multiple keywords for same word. All the other fields and their values in the output JSON will be only in English including filters, content_type etc.
+- - Keywords must be in Hindi and in Devanagari. Simple keywords for verbs. Keep nouns intact. Don't add multiple keywords for same word. All the other fields and their values in the output JSON will be only in English including filters, content_type etc.
 - `language` must reflect the user question language, not the prompt language: "hi", or "en".
 - `content_type` must be an array of strings: ["Granth"] or ["Books"] or ["Granth", "Books"] (default).
 - Do not invent filters that are not explicitly requested.

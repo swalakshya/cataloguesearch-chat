@@ -1,5 +1,5 @@
 import { getKeywordPrompt, isPromptV2 } from "./prompts.js";
-import { KEYWORD_EXTRACTION_SCHEMA } from "./keyword_schema.js";
+import { KEYWORD_EXTRACTION_SCHEMA } from "../config/keyword_schema.js";
 import { formatConversationHistory } from "./conversation_history.js";
 import { parseJsonStrict } from "../utils/json.js";
 import { estimateTokens } from "../utils/token.js";
@@ -10,6 +10,7 @@ export async function runKeywordExtraction({
   question,
   sessionContext,
   requestId,
+  modelId,
 }) {
   const useV2 = isPromptV2();
   const history = formatConversationHistory(sessionContext?.conversationHistory, {
@@ -17,14 +18,14 @@ export async function runKeywordExtraction({
     includeAnswers: true,
     compact: useV2,
   });
-  const prompt = getKeywordPrompt(question, history);
+  const prompt = getKeywordPrompt(question, history, { modelId, requestId });
   log.info("keyword_extract_prompt_tokens", {
     requestId,
     tokens: estimateTokens(prompt),
   });
 
   const messages = [
-    { role: "system", content: "You are a precise JSON-only keyword extractor and question classifier." },
+    { role: "system", content: "You are a precise JSON-only keyword extractor and question classifier. This json will be used for a RAG-retrieval from Jainism related Texts." },
     { role: "user", content: prompt },
   ];
 

@@ -37,7 +37,13 @@ test("followup workflow runs separate searches per followup keyword set", async 
   };
 
   const toolBudget = createToolBudget(5);
-  await runFollowupQuestion({ externalApi, params, requestId: "r1", toolBudget });
+  await runFollowupQuestion({
+    externalApi,
+    params,
+    requestId: "r1",
+    toolBudget,
+    modelId: "gemini-2.5-flash",
+  });
 
   assert.deepEqual(calls, ["मुख्य", "पहला", "दूसरा सेट"]);
 });
@@ -65,7 +71,13 @@ test("followup workflow caps expand_chunk_ids to config limit", async () => {
   };
 
   const toolBudget = createToolBudget(30);
-  await runFollowupQuestion({ externalApi, params, requestId: "r1", toolBudget });
+  await runFollowupQuestion({
+    externalApi,
+    params,
+    requestId: "r1",
+    toolBudget,
+    modelId: "gemini-2.5-flash",
+  });
 
   assert.equal(navigated.length, 10);
   assert.deepEqual(navigated, expandIds.slice(0, 10));
@@ -93,7 +105,13 @@ test("followup workflow handles distinct followup queries", async () => {
   };
 
   const toolBudget = createToolBudget(5);
-  await runFollowupQuestion({ externalApi, params, requestId: "r1", toolBudget });
+  await runFollowupQuestion({
+    externalApi,
+    params,
+    requestId: "r1",
+    toolBudget,
+    modelId: "gemini-2.5-flash",
+  });
 
   assert.deepEqual(calls, ["पहला", "दूसरा प्रश्न"]);
 });
@@ -121,7 +139,13 @@ test("followup workflow handles nested followup queries", async () => {
   };
 
   const toolBudget = createToolBudget(5);
-  await runFollowupQuestion({ externalApi, params, requestId: "r1", toolBudget });
+  await runFollowupQuestion({
+    externalApi,
+    params,
+    requestId: "r1",
+    toolBudget,
+    modelId: "gemini-2.5-flash",
+  });
 
   assert.deepEqual(calls, ["मुख्य उप एक", "मुख्य उप दो"]);
 });

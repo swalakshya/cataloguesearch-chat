@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { cleanChunk, cleanChunks, buildContext, extractChunkIds } from "../../src/orchestrator/chunk_utils.js";
+import { cleanChunk, cleanChunks, buildContext, extractChunkIds } from "../../src/utils/chunk.js";
 
 test("cleanChunk normalizes fields", () => {
   const chunk = cleanChunk({ chunk_id: "c1", file_url: "u", page_number: 1, text_content: "t" });

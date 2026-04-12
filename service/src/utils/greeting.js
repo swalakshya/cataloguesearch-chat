@@ -56,12 +56,13 @@ function buildSuggestedQuestions() {
     "What are the different types of Karma?",
     "Who is a true Jain?",
     "What is the nature of Panch Parmeshthis?",
-    "Who was Jambuswami?",
     "How practical is Jain Dharma?",
     "What is the difference b/w Nimitt and Upadaan? Explain in detail.",
     "What are the 28 moolgunas of saadhu parmeshthi?",
     "What is the nature of Nigodiya Jeev?",
-    "What is the nature of soul according to Pravachansaar Ji Granth?"
+    "What is the nature of soul according to Pravachansaar Ji Granth?",
+    "How many types of Mokhsa Marg are there?",
+    "What is the difference b/w Shraddha and Gyaan?"
   ];
   const hindiLatin = [
     "Nishchay aur Vyavahar ka swaroop kya hai?",
@@ -75,9 +76,11 @@ function buildSuggestedQuestions() {
     "Charnanuyoga ke kuch granth bataiye",
     "Kevalgyaan ka kya swaroop hai? Vistaar se samjhaein",
     "Chah dravyon ka swaroop kya hai?",
-    "Samaysaar shastra ke aadhar par atma ka swaroop bataiye"
+    "Samaysaar shastra ke aadhar par atma ka swaroop bataiye",
+    "Dwidal khaane me kya dosh hai?"
   ];
   const hindiDevanagari = [
+    'पुण्य और पाप में क्या अंतर है?',
     'घाति कर्म और अघाति कर्म में क्या अंतर है?',
     'शलाका पुरुष कितने है? उनके भेद बताइए',
     'कर्म कैसे बँधते हैं? विस्तार से समझायें',
@@ -91,7 +94,7 @@ function buildSuggestedQuestions() {
     'मोक्षमार्ग क्या है?',
     'चारित्र क्या है? विस्तार से समझायें',
     'विकल्प और विचार में क्या भेद है?',
-    'गुणस्थान विवेचन पुस्तक के आधार पर गुणस्थानों का सारांश बताएँ'
+    'गुणस्थान विवेचन पुस्तक के आधार पर गुणस्थानों का सारांश बताएँ',
   ];
 
   const pick = (list) => {

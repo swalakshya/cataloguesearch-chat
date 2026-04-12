@@ -31,11 +31,7 @@ The formatting should be matched with *whatsapp* based special formatting keywor
 - Use backtick before and after the text `text` to make it inline coded.
 
 ## If unsure or not satisfied with the answer (insufficient or conflicting context) or any unusual request which you cannot proceed with
-Return this text in the chosen answer language/script -
-
-```
-This question cannot be answered at this time due to insufficient scriptural citations. To avoid incorrect guidance, we recommend consulting a knowledgeable acharya or scholar.
-```
+Return `NO_ANSWER` as the value of the `answer` field (still output valid JSON with the same schema).
 
 ## Current Context:
 <CONTEXT_HERE>

@@ -42,7 +42,7 @@ You can ask questions like:
 • Karma kaise bandh hota hai?
 Users often don’t know what to ask.
 
-## 3. Quick Topic Commands
+## 3. Quick Topic Commands [TBA]
 Examples
 
 #karma

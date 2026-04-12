@@ -61,6 +61,33 @@ export function normalizeAnswerTextForOutput(text) {
   return String(text);
 }
 
+export function normalizeReferencesInAnswer(text) {
+  if (!text) return "";
+  const lines = String(text).split(/\r?\n/);
+  let inRefs = false;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i].trim();
+    if (!line) {
+      continue;
+    }
+    const heading = normalizeHeading(line);
+    if (heading === "references") {
+      inRefs = true;
+      continue;
+    }
+    if (inRefs) {
+      if (heading && heading !== "references") {
+        break;
+      }
+      if (!isReferenceLine(line)) {
+        continue;
+      }
+      lines[i] = appendPageSuffixToUrl(lines[i]);
+    }
+  }
+  return lines.join("\n");
+}
+
 export function extractReferences(text) {
   const lines = text.split(/\r?\n/).map((line) => line.trim());
   let inRefs = false;
@@ -150,13 +177,14 @@ export function isReferenceLine(line) {
 }
 
 export function normalizeReferenceLine(line) {
-  return line
+  const normalized = line
     .replace(/^\s*[-*]\s+/, "")
     .replace(/^\s*\d+\.\s+/, "")
     .replace(/\*\*/g, "")
     .replace(/\bgranth\s*:\s*/gi, "")
     .replace(/\bpage_number\s*:\s*/gi, "")
     .trim();
+  return appendPageSuffixToUrl(normalized);
 }
 
 function parseReferenceLine(line) {
@@ -185,6 +213,18 @@ function parseReferenceLine(line) {
   };
 }
 
+function appendPageSuffixToUrl(line) {
+  if (!line || !line.includes("http")) return line;
+  const idx = line.indexOf("http");
+  const prefix = line.slice(0, idx).trimEnd();
+  const page = extractPage(prefix);
+  if (!page) return line;
+  const url = line.slice(idx).trim();
+  if (url.endsWith(`/${page}`)) return line;
+  const spacer = prefix ? " " : "";
+  return `${prefix}${spacer}${url}/${page}`;
+}
+
 function parseReferencesFromLines(lines) {
   const refs = [];
   for (const line of lines) {
@@ -208,7 +248,10 @@ function stripQuotes(text) {
 }
 
 function extractPage(prefix) {
-  const match = prefix.match(/p\.?\s*(\d+)/i) || prefix.match(/page\s*(\d+)/i);
+  const match =
+    prefix.match(/p\.?\s*(\d+)/i) ||
+    prefix.match(/page\s*(\d+)/i) ||
+    prefix.match(/पृष्ठ\s*(\d+)/);
   if (!match) return undefined;
   return Number(match[1]);
 }

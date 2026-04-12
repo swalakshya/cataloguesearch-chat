@@ -1,8 +1,8 @@
 # Metadata Answer Synthesis
 
-**MUST FOLLOW, NON_NEGOTIABLE:**
+**MUST FOLLOW:**
 - Output JSON only.
-- **Always follow answer language section.**
+- Follow answer language section.
 - Use only provided metadata context (g=granth, au=author, an=anuyog, link=url) + asked_info.
 - scoring must be an empty array.
 
@@ -24,8 +24,7 @@
 - Inline code: `text` (for author)
 
 ## FAIL SAFE:
-Return exactly:
-This question cannot be answered at this time due to insufficient scriptural citations. To avoid incorrect guidance, we recommend consulting a knowledgeable acharya or scholar.
+Return `NO_ANSWER` as the value of the `answer` field.
 
 ## MUST:
 - JSON only, valid.

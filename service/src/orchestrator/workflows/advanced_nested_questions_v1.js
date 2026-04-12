@@ -1,12 +1,12 @@
-import { WORKFLOW_CONFIG } from "../../config/workflow_config.js";
+import { getWorkflowConfig } from "../../config/workflow_config.js";
 
-export async function runAdvancedNestedQuestions({ externalApi, params, requestId, toolBudget }) {
+export async function runAdvancedNestedQuestions({ externalApi, params, requestId, toolBudget, modelId }) {
   const results = [];
   const language = params.language || "hi";
   const filters = params.filters || {};
   const mainQuery = params.main_query || {};
   const subQueries = Array.isArray(params.sub_queries) ? params.sub_queries : [];
-  const config = WORKFLOW_CONFIG.advanced_nested;
+  const config = getWorkflowConfig(modelId).advanced_nested;
 
   const searchPayload = (keywords, pageSize) => ({
     query: buildQuery(keywords),
@@ -20,15 +20,12 @@ export async function runAdvancedNestedQuestions({ externalApi, params, requestI
     rerank: config.rerank,
   });
 
-  const estimatedCalls = subQueries.length || 1;
+  const estimatedCalls = 1 + subQueries.length;
   ensureBudget(toolBudget, estimatedCalls);
 
   const mainKeywords = Array.isArray(mainQuery.keywords) ? mainQuery.keywords : [];
-  if (subQueries.length === 0) {
-    toolBudget.consume();
-    await safePush(results, () => externalApi.search(searchPayload(mainKeywords, config.page_size), requestId), requestId);
-    return results;
-  }
+  toolBudget.consume();
+  await safePush(results, () => externalApi.search(searchPayload(mainKeywords, config.page_size), requestId), requestId);
 
   for (const query of subQueries) {
     if (toolBudget.remaining() <= 0) break;

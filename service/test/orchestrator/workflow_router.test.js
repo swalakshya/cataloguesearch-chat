@@ -10,6 +10,7 @@ test("runWorkflow throws for unknown workflow", async () => {
         externalApi: {},
         keywordResult: { workflow: "missing_workflow", language: "hi" },
         requestId: "r1",
+        modelId: "gemini-2.5-flash",
       }),
     /Unknown workflow/
   );
@@ -41,6 +42,7 @@ test("runWorkflow resolves filters via external API", async () => {
       filters: { granth: "Samay", content_type: ["Granth"] },
     },
     requestId: "r1",
+    modelId: "gemini-2.5-flash",
   });
 
   const filterCall = captured.find((entry) => entry && entry.content_type && !entry.query);
@@ -72,6 +74,7 @@ test("runWorkflow skips filter options when only default content_type", async ()
       filters: { content_type: ["Granth", "Books"] },
     },
     requestId: "r1",
+    modelId: "gemini-2.5-flash",
   });
 
   const filterCalls = calls.filter((c) => c.type === "filter");
@@ -100,6 +103,7 @@ test("runWorkflow handles metadata_question_v1 with filter options only", async 
       filters: { content_type: ["Granth"] },
     },
     requestId: "r1",
+    modelId: "gemini-2.5-flash",
   });
 
   assert.equal(calls.some((c) => c.type === "search"), false);
@@ -133,6 +137,7 @@ test("runWorkflow maps mismatched filters with llm", async () => {
       filters: { granth: "Samyasar", content_type: ["Granth"] },
     },
     requestId: "r1",
+    modelId: "gemini-2.5-flash",
   });
 
   assert.equal(calls.length, 1);

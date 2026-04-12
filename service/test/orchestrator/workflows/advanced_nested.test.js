@@ -15,7 +15,7 @@ function createToolBudget(limit) {
   };
 }
 
-test("advanced nested workflow runs combined searches per subquery", async () => {
+test("advanced nested workflow runs main search plus combined searches per subquery", async () => {
   const calls = [];
   const externalApi = {
     search: async (payload) => {
@@ -39,9 +39,11 @@ test("advanced nested workflow runs combined searches per subquery", async () =>
     params,
     requestId: "r1",
     toolBudget: createToolBudget(10),
+    modelId: "gemini-2.5-flash",
   });
 
   assert.deepEqual(calls, [
+    { type: "search", query: "मुख्य" },
     { type: "search", query: "मुख्य उप एक" },
     { type: "search", query: "मुख्य उप दो" },
   ]);
@@ -68,6 +70,7 @@ test("advanced nested workflow falls back to main query when no subqueries", asy
     params,
     requestId: "r1",
     toolBudget: createToolBudget(5),
+    modelId: "gemini-2.5-flash",
   });
 
   assert.deepEqual(calls, [{ type: "search", query: "मुख्य" }]);

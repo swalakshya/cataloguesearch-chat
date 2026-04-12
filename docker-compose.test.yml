@@ -1,0 +1,26 @@
+services:
+  chat-service:
+    profiles: ["disabled"]
+
+  chat-service-test:
+    build:
+      context: ./service
+      dockerfile: Dockerfile
+    environment:
+      TEST_MODE: "true"
+      LLM_SERVICE_PORT: "8012"
+      TEST_MIN_SAMPLES: "2"
+      TEST_FAILURE_RATE_THRESHOLD: "0.1"
+    command: ["node", "src/server.js"]
+    ports:
+      - "8013:8012"
+
+  integration-tests:
+    build:
+      context: ./service
+      dockerfile: Dockerfile.test
+    environment:
+      INTEGRATION_BASE_URL: "http://chat-service-test:8012"
+    depends_on:
+      - chat-service-test
+    command: ["node", "--test", "test/integration"]

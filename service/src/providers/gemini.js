@@ -58,7 +58,10 @@ export class GeminiProvider extends LLMProvider {
 
     const runOnce = async (apiKey) => {
       if (!apiKey) {
-        throw new Error("GEMINI_API_KEY is required");
+        const err = new Error("GEMINI_API_KEY is required");
+        err.status = 401;
+        err.provider = "gemini";
+        throw err;
       }
       const client = this.clientFactory({ apiKey });
       const controller = new AbortController();
@@ -87,6 +90,7 @@ export class GeminiProvider extends LLMProvider {
     } catch (err) {
       const message = err?.message || String(err);
       log.warn("gemini_request_failed", { requestId, message });
+      if (err && !err.provider) err.provider = "gemini";
       if (this.keyManager && isAuthError(err)) {
         await this.keyManager.refresh();
         return await runOnce(this.keyManager.getKey());
@@ -95,10 +99,10 @@ export class GeminiProvider extends LLMProvider {
     }
   }
 
-  static fromEnv({ keyManager } = {}) {
+  static fromEnv({ keyManager, modelOverride, apiKeyOverride } = {}) {
     const apiKey =
-      process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.LLM_API_KEY || "";
-    const model = process.env.LLM_MODEL || "gemini-2.0-flash";
+      apiKeyOverride || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.LLM_API_KEY || "";
+    const model = modelOverride || "gemini-2.5-flash";
     const timeoutMs = Number(process.env.LLM_REQUEST_TIMEOUT_SEC || 120) * 1000;
     const jsonMode = (process.env.LLM_JSON_MODE || "true").toLowerCase() !== "false";
     const responseMimeType = process.env.GEMINI_RESPONSE_MIME_TYPE || "";

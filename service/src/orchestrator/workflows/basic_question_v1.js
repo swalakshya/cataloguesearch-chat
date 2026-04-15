@@ -1,4 +1,5 @@
 import { getWorkflowConfig } from "../../config/workflow_config.js";
+import { normalizeContentTypes } from "../../config/content_types.js";
 
 export async function runBasicQuestion({ externalApi, params, requestId, toolBudget, modelId }) {
   ensureBudget(toolBudget, 1);
@@ -7,7 +8,7 @@ export async function runBasicQuestion({ externalApi, params, requestId, toolBud
   const payload = {
     query,
     language: params.language || "hi",
-    content_type: params.filters?.content_type || ["Granth", "Books"],
+    content_type: normalizeContentTypes(params.filters?.content_type),
     anuyog: params.filters?.anuyog || null,
     granth: params.filters?.granth || null,
     contributor: params.filters?.contributor || null,

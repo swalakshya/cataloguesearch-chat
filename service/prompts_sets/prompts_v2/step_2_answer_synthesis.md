@@ -35,7 +35,7 @@ Follow-up section:
 
 References section:
 - Heading "References"
-- Numbered list: "1. GranthName, Page N, file_url/N" (page no. N appended in the file_url from Context)
+- Numbered list: "1. SourceNameOrCategory, Page N, file_url/N" (page no. N appended in the file_url from Context)
 - Translate granth name/page text to answer language (links stay as-is)
 
 ---

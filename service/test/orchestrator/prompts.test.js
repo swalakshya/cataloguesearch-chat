@@ -12,6 +12,17 @@ test("getKeywordPrompt injects conversation history", () => {
   assert.ok(prompt.trim().endsWith('[{"id":"set_1"}]'));
 });
 
+test("getKeywordPrompt injects configured content type defaults", () => {
+  const prompt = getKeywordPrompt("What is Atma?", "[]", {
+    env: {
+      LLM_DEFAULT_CONTENT_TYPES: "Pravachan,Granth",
+      LLM_ALLOWED_CONTENT_TYPES: "Pravachan,Granth,Books",
+    },
+  });
+  assert.ok(prompt.includes('"content_type": ["Pravachan","Granth"]'));
+  assert.ok(prompt.includes('allowed values: ["Pravachan","Granth","Books"]'));
+});
+
 test("getAnswerPrompt injects conversation history and context", () => {
   const prompt = getAnswerPrompt("Q?", "CTX", "GUIDE", '[{"id":"set_2"}]', "basic_question_v1");
   assert.ok(prompt.includes("Q?"));
@@ -37,4 +48,9 @@ test("getAnswerPrompt omits history when empty", () => {
 test("getAnswerPrompt uses metadata base prompt", () => {
   const prompt = getAnswerPrompt("Q?", "CTX", "", "[]", "metadata_question_v1");
   assert.ok(prompt.includes("Metadata Answer Synthesis"));
+});
+
+test("getAnswerPrompt uses category-neutral reference wording", () => {
+  const prompt = getAnswerPrompt("Q?", "CTX", "", "", "basic_question_v1");
+  assert.ok(prompt.includes("SourceNameOrCategory, Page N, file_url/N"));
 });

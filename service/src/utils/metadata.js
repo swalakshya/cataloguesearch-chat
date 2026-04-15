@@ -1,7 +1,7 @@
-export function normalizeContentTypes(contentTypes) {
-  if (!Array.isArray(contentTypes)) return [];
-  const normalized = contentTypes.map((ct) => String(ct || "").trim()).filter(Boolean);
-  return Array.from(new Set(normalized));
+import { normalizeContentTypes as normalizeConfiguredContentTypes } from "../config/content_types.js";
+
+export function normalizeContentTypes(contentTypes, options) {
+  return normalizeConfiguredContentTypes(contentTypes, options);
 }
 
 export function mergeMetadataOptions(optionSets) {

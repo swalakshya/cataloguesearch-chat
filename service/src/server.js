@@ -17,6 +17,8 @@ import {
   getHistorySummaryTopChunks,
 } from "./orchestrator/history_summary.js";
 import {
+  appendReferencesSection,
+  buildStructuredReferencesFromMetadata,
   extractReferences,
   sanitizeCitations,
   sanitizeReferences,
@@ -28,7 +30,7 @@ import {
 } from "./utils/answer.js";
 import { buildNoContextAnswer, getNoContextTextForLocale } from "./utils/no_context.js";
 import { buildGreetingAnswer } from "./utils/greeting.js";
-import { buildHashedChunks, mapHashedIdsToReal } from "./utils/chunk_hash.js";
+import { buildHashedChunks, getChunkHash, mapHashedIdsToReal } from "./utils/chunk_hash.js";
 import { buildScoredChunks } from "./utils/scoring.js";
 import { estimateTokens, shouldRejectForTokenLimit, getSessionTokenLimit } from "./utils/token.js";
 import { log } from "./utils/log.js";
@@ -36,6 +38,7 @@ import { MODEL_ROUTING_CONFIG } from "./config/model_config.js";
 import { getOrderedModels } from "./routing/model_registry.js";
 import { ModelAvailabilityTracker } from "./routing/model_availability.js";
 import { ModelRouter } from "./routing/model_router.js";
+import { sanitizeAllowedContentTypes } from "./config/content_types.js";
 import {
   buildTestProviderFactory,
   getTestProviderStats,
@@ -441,6 +444,7 @@ async function handleMessageWithProvider({ provider, model, session, content, ui
   keywordResult = finalKeywordResult;
 
   const isMetadataWorkflow = workflowName === "metadata_question_v1";
+  const metadataByRealId = isMetadataWorkflow ? {} : buildChunkMetadataMap(chunks);
   const cleanedChunks = isMetadataWorkflow ? (Array.isArray(chunks) ? chunks : []) : cleanChunks(chunks);
   log.info("context_prepared", {
     requestId,
@@ -557,21 +561,29 @@ async function handleMessageWithProvider({ provider, model, session, content, ui
   const normalizedForParsing = normalizeAnswerTextForParsing(cleanedRaw);
   const cleaned = stripCitations(normalizedForParsing);
   const { answer, references, citations } = extractReferences(cleaned);
-  const answerForOutput = normalizeReferencesInAnswer(
-    normalizeAnswerTextForOutput(stripCitations(cleanedRaw))
-  );
-  const safeCitations = sanitizeCitations(citations);
-  log.info("answer_parsed", {
-    requestId,
-    sessionId: session.sessionId,
-    answerLength: answer.length,
-    referencesCount: references.length,
-    citationsCount: safeCitations.length,
-  });
 
   const hashedChunkIds = extractChunkIds(hashedChunks);
   const scoring = Array.isArray(answerPayload?.scoring) ? answerPayload.scoring : [];
   const scoredChunks = buildScoredChunks(scoring, hashedChunkIds);
+  const structured = buildStructuredReferencesFromMetadata({
+    scoredChunks,
+    parsedReferencesCount: references.length,
+    hashToRealId: session.chunkIdMap,
+    metadataByRealId,
+    language: keywordResult.language,
+  });
+  const safeReferences = sanitizeReferences(structured.references.length ? structured.references : references);
+  const safeCitations = sanitizeCitations(structured.citations.length ? structured.citations : citations);
+  const answerForOutput = safeReferences.length
+    ? appendReferencesSection(normalizeAnswerTextForOutput(answer), safeReferences, keywordResult.language)
+    : normalizeAnswerTextForOutput(answer);
+  log.info("answer_parsed", {
+    requestId,
+    sessionId: session.sessionId,
+    answerLength: answerForOutput.length,
+    referencesCount: safeReferences.length,
+    citationsCount: safeCitations.length,
+  });
 
   const updatedHistory = [
     ...workingHistory,
@@ -599,7 +611,6 @@ async function handleMessageWithProvider({ provider, model, session, content, ui
     conversationHistoryIds: session.conversationHistory.map((entry) => entry?.id).filter(Boolean),
   });
 
-  const safeReferences = sanitizeReferences(references);
   return {
     answer: answerForOutput,
     references: safeReferences,
@@ -695,13 +706,45 @@ function sanitizeNumber(value) {
 }
 
 function sanitizeContentType(value) {
-  const valid = ["Granth", "Books"];
-  if (Array.isArray(value)) {
-    const filtered = value.filter((v) => valid.includes(v));
-    return filtered.length ? filtered : undefined;
+  const normalized = sanitizeAllowedContentTypes(value, { fallbackToDefault: false });
+  return normalized.length ? normalized : undefined;
+}
+
+function buildChunkMetadataMap(chunks) {
+  if (!Array.isArray(chunks)) return {};
+  const map = {};
+  for (const chunk of chunks) {
+    const metadata = toChunkMetadataRecord(chunk);
+    if (!metadata.chunk_id) continue;
+    map[metadata.chunk_id] = metadata;
   }
-  if (typeof value === "string" && valid.includes(value)) return [value];
-  return undefined;
+  return map;
+}
+
+function toChunkMetadataRecord(chunk) {
+  if (!chunk || typeof chunk !== "object") return {};
+  const metadata = chunk.metadata && typeof chunk.metadata === "object" ? chunk.metadata : {};
+  return {
+    chunk_id: chunk.chunk_id || metadata.chunk_id || "",
+    category: chunk.category || metadata.category || "",
+    granth: chunk.granth || metadata.granth || "",
+    author: chunk.author || metadata.author || "",
+    anuyog: chunk.anuyog || metadata.anuyog || "",
+    language: chunk.language || metadata.language || "",
+    date: chunk.date || metadata.date || "",
+    pravachan_number: chunk.pravachan_number || metadata.pravachan_number || "",
+    series_number: chunk.series_number || metadata.series_number || "",
+    gatha: chunk.gatha || metadata.gatha || "",
+    kalash: chunk.kalash || metadata.kalash || "",
+    shlok: chunk.shlok || metadata.shlok || "",
+    dohra: chunk.dohra || metadata.dohra || "",
+    volume: chunk.volume ?? metadata.volume ?? null,
+    series_start_date: chunk.series_start_date || metadata.series_start_date || "",
+    series_end_date: chunk.series_end_date || metadata.series_end_date || "",
+    page_number: chunk.page_number ?? metadata.page_number ?? null,
+    file_url: chunk.file_url || metadata.file_url || "",
+    pravachankar: chunk.Pravachankar || metadata.Pravachankar || chunk.pravachankar || metadata.pravachankar || "",
+  };
 }
 
 export function buildHashedChunksForTest(chunks, session) {

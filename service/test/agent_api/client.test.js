@@ -17,13 +17,13 @@ test("ExternalApiClient normalizes baseUrl and posts payload", async () => {
 
   try {
     const client = new ExternalApiClient({ baseUrl: "http://example.com/", timeoutMs: 50 });
-    await client.search({ query: "q", content_type: ["Books"] }, "r1");
+    await client.search({ query: "q", content_type: ["Pravachan"] }, "r1");
 
     assert.equal(calls.length, 1);
     assert.equal(calls[0].url, "http://example.com/api/agent/search");
     const body = JSON.parse(calls[0].options.body);
     assert.equal(body.query, "q");
-    assert.deepEqual(body.content_type, ["Books", "Granth"]);
+    assert.deepEqual(body.content_type, ["Pravachan"]);
   } finally {
     global.fetch = originalFetch;
   }

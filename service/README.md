@@ -131,6 +131,8 @@ Configuration order:
 3. Defaults in `src/config/token_limits.js`
 
 Other env:
+- `LLM_DEFAULT_CONTENT_TYPES` (comma-separated default retrieval categories, example: `Pravachan,Granth`)
+- `LLM_ALLOWED_CONTENT_TYPES` (comma-separated allowed category values for prompts and filters, example: `Pravachan,Granth,Books`)
 - `GREETING_CONTACT_EMAIL` (default: `projectjinam@gmail.com`)
 Workflow tuning now lives in `src/config/model_config.js` under `workflowDefaults` and per-model `workflowOverrides`.
 

@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { getAllowedContentTypes, getDefaultContentTypes } from "../config/content_types.js";
 import { log } from "../utils/log.js";
 import { recordPromptRootForTest } from "../testing/test_prompt_roots.js";
 
@@ -46,11 +47,11 @@ function readPrompt(relPath, options) {
   const roots = resolvePromptRoots(options);
   for (const root of roots) {
     const absPath = path.join(root, relPath);
-    if (cache.has(absPath)) return cache.get(absPath);
+    if (cache.has(absPath)) return interpolatePrompt(cache.get(absPath), options?.env);
     try {
       const text = fs.readFileSync(absPath, "utf-8").trim();
       cache.set(absPath, text);
-      return text;
+      return interpolatePrompt(text, options?.env);
     } catch {
       // Try next root.
     }
@@ -59,6 +60,17 @@ function readPrompt(relPath, options) {
     paths: roots.map((root) => path.join(root, relPath)),
   });
   return "";
+}
+
+function interpolatePrompt(text, env = process.env) {
+  if (!text) return "";
+  const defaultContentTypes = getDefaultContentTypes(env);
+  const allowedContentTypes = getAllowedContentTypes(env);
+  return String(text)
+    .replace(/<DEFAULT_CONTENT_TYPES_JSON>/g, JSON.stringify(defaultContentTypes))
+    .replace(/<ALLOWED_CONTENT_TYPES_JSON>/g, JSON.stringify(allowedContentTypes))
+    .replace(/<ALLOWED_CONTENT_TYPES_PIPE>/g, allowedContentTypes.join("|"))
+    .replace(/<ALLOWED_CONTENT_TYPES_OR>/g, allowedContentTypes.map((value) => `"${value}"`).join(" or "));
 }
 
 export function getKeywordPrompt(question, conversationHistory, options = {}) {

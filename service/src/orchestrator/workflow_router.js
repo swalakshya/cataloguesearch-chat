@@ -1,4 +1,9 @@
 import { workflowRegistry } from "./workflow_registry.js";
+import {
+  getDefaultContentTypes,
+  hasSameContentTypes,
+  sanitizeAllowedContentTypes,
+} from "../config/content_types.js";
 import { log } from "../utils/log.js";
 
 export class ToolBudget {
@@ -66,21 +71,20 @@ async function resolveFilters({ externalApi, filters, language, requestId, allow
       filters.contributor
   );
 
-  const normalizedContentTypes = normalizeContentTypes(filters.content_type);
-  const isDefaultContentTypes =
-    Array.isArray(normalizedContentTypes) &&
-    normalizedContentTypes.length === 2 &&
-    normalizedContentTypes.includes("Granth") &&
-    normalizedContentTypes.includes("Books");
+  const requestedContentTypes = sanitizeAllowedContentTypes(filters.content_type, {
+    fallbackToDefault: false,
+  });
+  const defaultContentTypes = getDefaultContentTypes();
+  const isDefaultContentTypes = hasSameContentTypes(requestedContentTypes, defaultContentTypes);
 
   if (!hasExplicitFilter) {
-    if (filters.content_type && !isDefaultContentTypes) {
-      return { content_type: normalizedContentTypes };
+    if (requestedContentTypes.length && !isDefaultContentTypes) {
+      return { content_type: requestedContentTypes };
     }
     return {};
   }
 
-  const typesToFetch = ["Granth", "Books"];
+  const typesToFetch = requestedContentTypes.length ? requestedContentTypes : defaultContentTypes;
   const optionSets = [];
 
   for (const ct of typesToFetch) {
@@ -94,7 +98,7 @@ async function resolveFilters({ externalApi, filters, language, requestId, allow
   const anuyogMatch = resolveMatchWithFlag(filters.anuyog, merged.anuyogs);
   const contributorMatch = resolveMatchWithFlag(filters.contributor, merged.contributors);
   let resolved = {
-    content_type: filters.content_type || undefined,
+    content_type: requestedContentTypes.length ? requestedContentTypes : undefined,
     granth: granthMatch.value,
     anuyog: anuyogMatch.value,
     contributor: contributorMatch.value,
@@ -239,15 +243,6 @@ async function mapFiltersWithLlm({ provider, requestId, original, options }) {
 
 function normalize(value) {
   return String(value || "").trim().toLowerCase();
-}
-
-const _ALL_CONTENT_TYPES = ["Granth", "Books"];
-
-function normalizeContentTypes(value) {
-  if (!value || (Array.isArray(value) && value.length === 0)) return _ALL_CONTENT_TYPES;
-  if (Array.isArray(value)) return value.filter((v) => _ALL_CONTENT_TYPES.includes(v));
-  if (_ALL_CONTENT_TYPES.includes(value)) return [value];
-  return _ALL_CONTENT_TYPES;
 }
 
 function parseYear(value) {

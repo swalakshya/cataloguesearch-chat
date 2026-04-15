@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  appendReferencesSection,
+  buildStructuredReferencesFromMetadata,
   stripCitations,
   extractReferences,
   normalizeAnswerTextForParsing,
@@ -142,4 +144,63 @@ test("cleanAnswerText keeps parentheses with non-chunk text", () => {
   const input = "Keep this (c4, other) intact";
   const output = cleanAnswerText({ text: input });
   assert.equal(output, input);
+});
+
+test("buildStructuredReferencesFromMetadata formats Pravachan references from metadata", () => {
+  const { references, citations } = buildStructuredReferencesFromMetadata({
+    scoredChunks: [{ chunk_id: "c1", score: 100 }],
+    parsedReferencesCount: 2,
+    hashToRealId: { c1: "real-1" },
+    metadataByRealId: {
+      "real-1": {
+        chunk_id: "real-1",
+        category: "Pravachan",
+        granth: "Pravachansaar",
+        pravachankar: "पूज्य गुरुदेव श्री कानजी स्वामी",
+        pravachan_number: "265",
+        volume: 11,
+        shlok: "271-272",
+        page_number: 254,
+        date: "1979-09-08",
+        file_url: "https://example.com/p",
+      },
+    },
+    language: "hi",
+  });
+
+  assert.equal(references.length, 1);
+  assert.equal(
+    references[0],
+    'पूज्य गुरुदेव श्री कानजी स्वामी द्वारा "Pravachansaar प्रवचन", क्रमांक 265, Volume 11, श्लोक 271-272, पृष्ठ 254, दिनांक 08-09-1979, https://example.com/p/254'
+  );
+  assert.equal(citations[0].category, "Pravachan");
+  assert.equal(citations[0].pravachankar, "पूज्य गुरुदेव श्री कानजी स्वामी");
+  assert.equal(citations[0].date, "08-09-1979");
+});
+
+test("buildStructuredReferencesFromMetadata formats Granth references from metadata", () => {
+  const { references, citations } = buildStructuredReferencesFromMetadata({
+    scoredChunks: [{ chunk_id: "c1", score: 90 }],
+    parsedReferencesCount: 1,
+    hashToRealId: { c1: "real-1" },
+    metadataByRealId: {
+      "real-1": {
+        chunk_id: "real-1",
+        category: "Granth",
+        granth: "Samaysaar",
+        gatha: "12",
+        page_number: 145,
+        file_url: "https://example.com/g",
+      },
+    },
+    language: "hi",
+  });
+
+  assert.equal(references[0], "Samaysaar, गाथा 12, पृष्ठ 145, https://example.com/g/145");
+  assert.equal(citations[0].gatha, "12");
+});
+
+test("appendReferencesSection rebuilds Hindi references section", () => {
+  const output = appendReferencesSection("उत्तर", ["पहला संदर्भ", "दूसरा संदर्भ"], "hi");
+  assert.equal(output, "उत्तर\n\nसंदर्भ\n\n1. पहला संदर्भ\n\n2. दूसरा संदर्भ");
 });

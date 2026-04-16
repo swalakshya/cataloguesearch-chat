@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   appendReferencesSection,
   buildStructuredReferencesFromMetadata,
+  sanitizeFollowUpQuestions,
   stripCitations,
   extractReferences,
   normalizeAnswerTextForParsing,
@@ -224,4 +225,9 @@ test("buildStructuredReferencesFromMetadata respects zero parsed reference count
 test("appendReferencesSection rebuilds Hindi references section", () => {
   const output = appendReferencesSection("उत्तर", ["पहला संदर्भ", "दूसरा संदर्भ"], "hi");
   assert.equal(output, "उत्तर\n\nसंदर्भ\n\n1. पहला संदर्भ\n\n2. दूसरा संदर्भ");
+});
+
+test("sanitizeFollowUpQuestions trims, dedupes and caps items", () => {
+  const output = sanitizeFollowUpQuestions([" q1 ", "", "q2", "q1", "q3", "q4"]);
+  assert.deepEqual(output, ["q1", "q2", "q3"]);
 });

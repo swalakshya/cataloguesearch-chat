@@ -8,7 +8,7 @@
 - Keep answer grounded on context. Ground every factual claim. Don't guess
 - Do not use tables.
 - Include at least 1 direct quote as inline citation.
-- **Always add follow-up questions section and references section.**
+- **Always return follow-up questions in the `follow_up_questions` field and add references section in the answer.**
 - *DO NOT include chunk_id values in the answer text.*
 - Add scoring for used chunk_ids only from context (score 1-100).
 - Always adhere to the *Specific Answering Guidelines* section below when generating answer.
@@ -28,9 +28,9 @@
 - Ensure a single \n before and after the inline citation line. Don't add space before angle bracket ">". Don't add any new lines (\n) in between the citation.
 - Lists should be bulled, each item as "- {item}". Headings should not be bulleted.
 
-Follow-up section:
-- Starts with italic line: "_If you want I can answer this in detail or I can also answer -_"
-- 2-3 relevant questions as bulleted list, each as "- {q1}"
+Follow-up questions (`follow_up_questions` field):
+- Return 2-3 relevant questions as plain strings in the `follow_up_questions` array
+- Do not include follow-up questions inside `answer`
 - follow‑ups must be unique and not repeat history questions but grounded on the context
 
 References section:
@@ -49,13 +49,15 @@ References section:
 ---
 ## Output Contract (JSON only)
 {
-  "answer": "<full answer text including citations, follow-ups, references>",
+  "answer": "<full answer text including citations and references>",
+  "follow_up_questions": ["<question 1>", "<question 2>"],
   "scoring": [ { "chunk_id": "<id>", "score": 1 }, ... ]
 }
 
 SCORING:
 - include only used chunk_ids
 - score is integer 1-100
+- `follow_up_questions` must contain 0-3 short strings
 
 ---
 ## Answer Language (`answer` param in output)
@@ -85,5 +87,6 @@ MUST:
 - **Always follow answer language section.**
 - *DO NOT include chunk_id values in the answer text.*
 - Include at least 1 inline citation quote.
-- Include follow-up questions and references sections.
+- Include references section in `answer`.
+- Put follow-up questions only in `follow_up_questions`.
 - Scoring includes used chunk_ids only.

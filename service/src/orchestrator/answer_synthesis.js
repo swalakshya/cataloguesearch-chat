@@ -140,5 +140,5 @@ async function parseOrRepairJson({ raw, provider, requestId }) {
   }
 
   const fallbackAnswer = extractAnswerFallback(raw);
-  return { answer: fallbackAnswer, scoring: [] };
+  return { answer: fallbackAnswer, follow_up_questions: [], scoring: [] };
 }

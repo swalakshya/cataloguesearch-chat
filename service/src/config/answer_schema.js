@@ -2,6 +2,10 @@ export const ANSWER_SCHEMA = {
   type: "object",
   properties: {
     answer: { type: "string" },
+    follow_up_questions: {
+      type: "array",
+      items: { type: "string" },
+    },
     scoring: {
       type: "array",
       items: {
@@ -15,6 +19,6 @@ export const ANSWER_SCHEMA = {
       },
     },
   },
-  required: ["answer", "scoring"],
+  required: ["answer", "follow_up_questions", "scoring"],
   additionalProperties: false,
 };

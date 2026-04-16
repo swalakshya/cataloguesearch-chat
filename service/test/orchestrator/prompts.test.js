@@ -72,3 +72,9 @@ test("getAnswerPrompt uses category-neutral reference wording", () => {
   const prompt = getAnswerPrompt("Q?", "CTX", "", "", "basic_question_v1");
   assert.ok(prompt.includes("SourceNameOrCategory, Page N, file_url/N"));
 });
+
+test("getAnswerPrompt requests structured follow up questions", () => {
+  const prompt = getAnswerPrompt("Q?", "CTX", "", "", "basic_question_v1");
+  assert.ok(prompt.includes('"follow_up_questions": ["<question 1>", "<question 2>"]'));
+  assert.equal(prompt.includes("If you want I can answer this in detail or I can also answer"), false);
+});

@@ -64,7 +64,7 @@ class TestProvider {
     if (system.includes("you map filter values")) {
       return JSON.stringify({ granth: "", anuyog: "", contributor: "" });
     }
-    return JSON.stringify({ answer: "test-answer", scoring: [] });
+    return JSON.stringify({ answer: "test-answer", follow_up_questions: [], scoring: [] });
   }
 
   async completeText({ messages }) {

@@ -99,6 +99,21 @@ export function appendReferencesSection(answer, references, language = "") {
   return lines.join("\n\n").trim();
 }
 
+export function sanitizeFollowUpQuestions(questions, maxItems = 3) {
+  if (!Array.isArray(questions)) return [];
+  const seen = new Set();
+  const cleaned = [];
+  for (const question of questions) {
+    const value = String(question || "").trim();
+    if (!value) continue;
+    if (seen.has(value)) continue;
+    seen.add(value);
+    cleaned.push(value);
+    if (cleaned.length >= maxItems) break;
+  }
+  return cleaned;
+}
+
 export function buildStructuredReferencesFromMetadata({
   scoredChunks,
   parsedReferencesCount,

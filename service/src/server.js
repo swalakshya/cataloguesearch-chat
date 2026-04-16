@@ -21,6 +21,7 @@ import {
   buildStructuredReferencesFromMetadata,
   extractReferences,
   sanitizeCitations,
+  sanitizeFollowUpQuestions,
   sanitizeReferences,
   stripCitations,
   normalizeAnswerTextForParsing,
@@ -405,6 +406,7 @@ async function handleMessageWithProvider({ provider, model, session, content, ui
 
     return {
       answer: greeting,
+      follow_up_questions: [],
       references: [],
       citations: [],
       provider: session.provider,
@@ -512,6 +514,7 @@ async function handleMessageWithProvider({ provider, model, session, content, ui
 
     return {
       answer: answerForOutput,
+      follow_up_questions: [],
       references: [],
       citations: [],
       provider: session.provider,
@@ -545,6 +548,7 @@ async function handleMessageWithProvider({ provider, model, session, content, ui
   });
 
   const answerRaw = String(answerPayload?.answer || "");
+  const followUpQuestions = sanitizeFollowUpQuestions(answerPayload?.follow_up_questions);
   const isNoAnswer = answerRaw.trim() === "NO_ANSWER";
   const resolvedAnswer = isNoAnswer
     ? getNoContextTextForLocale({
@@ -613,6 +617,7 @@ async function handleMessageWithProvider({ provider, model, session, content, ui
 
   return {
     answer: answerForOutput,
+    follow_up_questions: followUpQuestions,
     references: safeReferences,
     citations: safeCitations,
     provider: session.provider,

@@ -6,7 +6,7 @@
 - Keep answer simple and grounded in context; no guess.
 - No tables.
 - Include at least 1 direct quote as inline citation.
-- Always include follow-up section and references section.
+- Always return follow-up questions in the `follow_up_questions` field and include references section in the answer.
 - Do not include chunk_id values in answer text.
 - Scoring only for used chunk_ids from context (1-100).
 - Follow Specific Answering Guidelines section.
@@ -26,9 +26,9 @@
 - Ensure a single \n before and after the inline citation line. No space before ">". No new lines inside the citation.
 - Lists should be bulled, each item as "- {item}". Headings should not be bulleted.
 
-Follow-up section:
-- Starts with italic line: "_If you want I can answer this in detail or I can also answer -_"
-- 2-3 relevant questions as bulleted list, each as "- {q1}"
+Follow-up questions (`follow_up_questions` field):
+- Return 2-3 relevant questions as plain strings in the `follow_up_questions` array
+- Do not include follow-up questions inside `answer`
 - follow‑ups must be unique and not repeat history questions but grounded on the context
 
 References section:
@@ -47,13 +47,15 @@ References section:
 ---
 ## Output Contract (JSON only)
 {
-  "answer": "<full answer text including citations, follow-ups, references>",
+  "answer": "<full answer text including citations and references>",
+  "follow_up_questions": ["<question 1>", "<question 2>"],
   "scoring": [ { "chunk_id": "<id>", "score": 1 }, ... ]
 }
 
 SCORING:
 - include only used chunk_ids
 - score is integer 1-100
+- `follow_up_questions` must contain 0-3 short strings
 
 ---
 ## Answer Language (`answer` param in output)

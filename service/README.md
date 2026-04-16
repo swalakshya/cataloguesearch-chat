@@ -52,6 +52,7 @@ Response:
 ```json
 {
   "answer": "string",
+  "follow_up_questions": ["string"],
   "references": ["string"],
   "citations": [
     {

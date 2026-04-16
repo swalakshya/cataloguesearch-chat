@@ -376,7 +376,9 @@ function withPageSuffix(fileUrl, pageNumber) {
 function buildCitationFromMetadata(metadata, reference) {
   if (!metadata || typeof metadata !== "object") return null;
   return {
+    chunk_id: String(metadata.chunk_id || "").trim() || undefined,
     granth: String(metadata.granth || "").trim() || extractGranth(String(reference || "").trim()),
+    author: String(metadata.author || "").trim() || undefined,
     category: String(metadata.category || "").trim() || undefined,
     page_number: toPositiveNumber(metadata.page_number),
     file_url: withPageSuffix(metadata.file_url, metadata.page_number),
@@ -458,7 +460,9 @@ export function sanitizeCitations(citations) {
     if (seen.has(key)) continue;
     seen.add(key);
     cleaned.push({
+      chunk_id: citation.chunk_id || undefined,
       granth: citation.granth || undefined,
+      author: citation.author || undefined,
       category: citation.category || undefined,
       page_number: citation.page_number,
       file_url: citation.file_url,

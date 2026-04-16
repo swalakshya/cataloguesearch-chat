@@ -159,6 +159,7 @@ test("buildStructuredReferencesFromMetadata formats Pravachan references from me
         granth: "Pravachansaar",
         pravachankar: "पूज्य गुरुदेव श्री कानजी स्वामी",
         pravachan_number: "265",
+        series: "1979 Series",
         volume: 11,
         shlok: "271-272",
         page_number: 254,
@@ -177,6 +178,7 @@ test("buildStructuredReferencesFromMetadata formats Pravachan references from me
   assert.equal(citations[0].category, "Pravachan");
   assert.equal(citations[0].pravachankar, "पूज्य गुरुदेव श्री कानजी स्वामी");
   assert.equal(citations[0].date, "08-09-1979");
+  assert.equal(citations[0].series, "1979 Series");
 });
 
 test("buildStructuredReferencesFromMetadata formats Granth references from metadata", () => {

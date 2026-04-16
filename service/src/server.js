@@ -787,6 +787,7 @@ function toChunkMetadataRecord(chunk) {
     language: chunk.language || metadata.language || "",
     date: chunk.date || metadata.date || "",
     pravachan_number: chunk.pravachan_number || metadata.pravachan_number || "",
+    series: chunk.series || metadata.series || "",
     series_number: chunk.series_number || metadata.series_number || "",
     gatha: chunk.gatha || metadata.gatha || "",
     kalash: chunk.kalash || metadata.kalash || "",

@@ -64,6 +64,7 @@ Response:
       "pravachankar": "string",
       "date": "DD-MM-YYYY",
       "pravachan_number": "string",
+      "series": "string",
       "series_number": "string",
       "volume": 1,
       "gatha": "string",

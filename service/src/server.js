@@ -58,6 +58,8 @@ const SESSION_IDLE_MS = Number(process.env.LLM_SESSION_IDLE_TIMEOUT_SEC || 900) 
 
 const DEFAULT_PROVIDER = "auto";
 const DEFAULT_MODEL = null;
+const DEFAULT_RESPONSE_FORMAT =
+  normalizeResponseFormat(process.env.DEFAULT_ANSWER_FORMAT, { fallback: "structured" }) || "structured";
 const TEST_MODE = String(process.env.TEST_MODE || "").toLowerCase() === "true";
 
 const EXTERNAL_API_BASE_URL = process.env.EXTERNAL_API_BASE_URL || "http://localhost:8000";
@@ -186,9 +188,17 @@ app.post("/v1/chat/sessions/:sessionId/messages", async (req, res) => {
   }
 
   const { role, content, filters: uiFilters } = req.body || {};
+  const responseFormat = normalizeResponseFormat(req.body?.response_format);
   if (role !== "user" || !content) {
     log.warn("message_invalid", { sessionId: req.params.sessionId });
     return res.status(400).json({ detail: "invalid_message" });
+  }
+  if (!responseFormat) {
+    log.warn("message_invalid_response_format", {
+      sessionId: req.params.sessionId,
+      responseFormat: req.body?.response_format,
+    });
+    return res.status(400).json({ detail: "invalid_response_format" });
   }
 
   if (
@@ -253,6 +263,7 @@ app.post("/v1/chat/sessions/:sessionId/messages", async (req, res) => {
         session,
         content,
         uiFilters,
+        responseFormat,
         requestId,
       });
       log.info("model_routing_success", {
@@ -350,7 +361,15 @@ function resolveSessionTokenLimit() {
   return 0;
 }
 
-async function handleMessageWithProvider({ provider, model, session, content, uiFilters, requestId }) {
+async function handleMessageWithProvider({
+  provider,
+  model,
+  session,
+  content,
+  uiFilters,
+  responseFormat,
+  requestId,
+}) {
   log.info("model_prompt_root", {
     requestId,
     sessionId: session.sessionId,
@@ -404,15 +423,16 @@ async function handleMessageWithProvider({ provider, model, session, content, ui
     session.provider = model.provider;
     session.model = model.id;
 
-    return {
+    return buildResponsePayload({
+      responseFormat,
       answer: greeting,
-      follow_up_questions: [],
+      followUpQuestions: [],
       references: [],
       citations: [],
       provider: session.provider,
-      tool_trace_id: requestId,
+      requestId,
       warnings: null,
-    };
+    });
   }
 
   const workflowOutcome = await retryWorkflowOnEmptyChunks({
@@ -512,15 +532,16 @@ async function handleMessageWithProvider({ provider, model, session, content, ui
       conversationHistoryIds: session.conversationHistory.map((entry) => entry?.id).filter(Boolean),
     });
 
-    return {
+    return buildResponsePayload({
+      responseFormat,
       answer: answerForOutput,
-      follow_up_questions: [],
+      followUpQuestions: [],
       references: [],
       citations: [],
       provider: session.provider,
-      tool_trace_id: requestId,
+      requestId,
       warnings,
-    };
+    });
   }
   if (isMetadataWorkflow) {
     log.info("metadata_context_for_llm", {
@@ -545,6 +566,7 @@ async function handleMessageWithProvider({ provider, model, session, content, ui
     script: keywordResult.script,
     requestId,
     modelId: model.id,
+    responseFormat,
   });
 
   const answerRaw = String(answerPayload?.answer || "");
@@ -615,15 +637,16 @@ async function handleMessageWithProvider({ provider, model, session, content, ui
     conversationHistoryIds: session.conversationHistory.map((entry) => entry?.id).filter(Boolean),
   });
 
-  return {
+  return buildResponsePayload({
+    responseFormat,
     answer: answerForOutput,
-    follow_up_questions: followUpQuestions,
+    followUpQuestions,
     references: safeReferences,
     citations: safeCitations,
     provider: session.provider,
-    tool_trace_id: requestId,
+    requestId,
     warnings: warnings.length ? warnings : null,
-  };
+  });
 }
 
 function scheduleHistorySummary({ provider, session, requestId }) {
@@ -707,6 +730,38 @@ function sanitizeString(value) {
 function sanitizeContentType(value) {
   const normalized = sanitizeAllowedContentTypes(value, { fallbackToDefault: false });
   return normalized.length ? normalized : undefined;
+}
+
+function normalizeResponseFormat(value, { fallback = DEFAULT_RESPONSE_FORMAT } = {}) {
+  const raw = value === undefined || value === null || String(value).trim() === "" ? fallback : value;
+  const normalized = String(raw || "").trim().toLowerCase();
+  if (normalized === "structured") return "structured";
+  if (normalized === "combined" || normalized === "compact") return "combined";
+  return null;
+}
+
+function buildResponsePayload({
+  responseFormat,
+  answer,
+  followUpQuestions,
+  references,
+  citations,
+  provider,
+  requestId,
+  warnings,
+}) {
+  const payload = {
+    answer,
+    references,
+    citations,
+    provider,
+    tool_trace_id: requestId,
+    warnings,
+  };
+  if (responseFormat === "structured") {
+    payload.follow_up_questions = Array.isArray(followUpQuestions) ? followUpQuestions : [];
+  }
+  return payload;
 }
 
 function buildChunkMetadataMap(chunks) {

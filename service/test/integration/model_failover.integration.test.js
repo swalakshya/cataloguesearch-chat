@@ -194,3 +194,18 @@ integrationTest("records model-specific prompt root per request", async () => {
   assert.equal(promptRoot.res.status, 200);
   assert.ok(String(promptRoot.json.prompt_root).includes("prompts_v2_gemini-3-flash-preview"));
 });
+
+integrationTest("response_format=combined omits follow_up_questions field", async () => {
+  await post("/v1/test/reset");
+
+  const session = await post("/v1/chat/sessions", { provider: "auto" });
+  const message = await post(`/v1/chat/sessions/${session.json.session_id}/messages`, {
+    role: "user",
+    content: "combined-format",
+    response_format: "combined",
+  });
+
+  assert.equal(message.res.status, 200);
+  assert.equal(typeof message.json.answer, "string");
+  assert.equal("follow_up_questions" in message.json, false);
+});

@@ -34,6 +34,7 @@ Request:
 {
   "role": "user",
   "content": "string",
+  "response_format": "structured|combined",
   "filters": {
     "content_type": ["Pravachan", "Granth"],
     "granth": "string",
@@ -77,6 +78,11 @@ Response:
   "warnings": ["string"] | null
 }
 ```
+
+`response_format` behavior:
+- `structured` (default): returns `answer` plus `follow_up_questions`, `references`, and `citations`.
+- `combined`: returns a single WhatsApp-ready `answer` string that already includes follow-up questions inline; `follow_up_questions` is omitted, while `references` and `citations` are still returned structurally.
+- If `response_format` is omitted, the service uses `DEFAULT_ANSWER_FORMAT` from env. Supported env values are `structured` and `compact` (`compact` maps to the single-message combined mode).
 
 ### `GET /v1/chat/sessions/{id}`
 Response:

@@ -7,9 +7,11 @@ import { isPromptV2 } from "../../src/orchestrator/prompts.js";
 
 test("runAnswerSynthesis injects conversation history and context", async () => {
   let capturedPrompt = "";
+  let capturedSchema = null;
   const provider = {
-    completeJson: async ({ messages }) => {
+    completeJson: async ({ messages, responseJsonSchema }) => {
       capturedPrompt = messages[1].content;
+      capturedSchema = responseJsonSchema;
       return JSON.stringify({ answer: "answer", follow_up_questions: ["q1"], scoring: [] });
     },
   };
@@ -28,6 +30,7 @@ test("runAnswerSynthesis injects conversation history and context", async () => 
   assert.ok(capturedPrompt.includes("\"set_1\""));
   assert.equal(result.answer, "answer");
   assert.deepEqual(result.follow_up_questions, ["q1"]);
+  assert.ok(capturedSchema.properties.follow_up_questions);
 });
 
 test("runAnswerSynthesis filters history by followupSetIds", async () => {
@@ -147,4 +150,32 @@ test("runAnswerSynthesis tolerates control characters", async () => {
 
   assert.equal(result.answer.includes("Line1"), true);
   assert.deepEqual(result.follow_up_questions, ["q1"]);
+});
+
+test("runAnswerSynthesis supports combined response format", async () => {
+  let capturedPrompt = "";
+  let capturedSchema = null;
+  const provider = {
+    completeJson: async ({ messages, responseJsonSchema }) => {
+      capturedPrompt = messages[1].content;
+      capturedSchema = responseJsonSchema;
+      return JSON.stringify({ answer: "combined answer", scoring: [] });
+    },
+  };
+
+  const result = await runAnswerSynthesis({
+    provider,
+    question: "Q?",
+    workflowName: "basic_question_v1",
+    context: "CTX",
+    conversationHistory: [],
+    requestId: "r1",
+    responseFormat: "combined",
+  });
+
+  assert.equal(result.answer, "combined answer");
+  assert.equal(result.follow_up_questions, undefined);
+  assert.equal(capturedPrompt.includes('"follow_up_questions"'), false);
+  assert.equal(capturedPrompt.includes("If you want I can answer this in detail or I can also answer"), true);
+  assert.equal(capturedSchema.properties.follow_up_questions, undefined);
 });

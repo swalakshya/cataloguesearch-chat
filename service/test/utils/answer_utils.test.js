@@ -200,6 +200,27 @@ test("buildStructuredReferencesFromMetadata formats Granth references from metad
   assert.equal(citations[0].gatha, "12");
 });
 
+test("buildStructuredReferencesFromMetadata respects zero parsed reference count", () => {
+  const { references, citations } = buildStructuredReferencesFromMetadata({
+    scoredChunks: [{ chunk_id: "c1", score: 90 }],
+    parsedReferencesCount: 0,
+    hashToRealId: { c1: "real-1" },
+    metadataByRealId: {
+      "real-1": {
+        chunk_id: "real-1",
+        category: "Pravachan",
+        granth: "Pravachansaar",
+        page_number: 145,
+        file_url: "https://example.com/p",
+      },
+    },
+    language: "hi",
+  });
+
+  assert.deepEqual(references, []);
+  assert.deepEqual(citations, []);
+});
+
 test("appendReferencesSection rebuilds Hindi references section", () => {
   const output = appendReferencesSection("उत्तर", ["पहला संदर्भ", "दूसरा संदर्भ"], "hi");
   assert.equal(output, "उत्तर\n\nसंदर्भ\n\n1. पहला संदर्भ\n\n2. दूसरा संदर्भ");

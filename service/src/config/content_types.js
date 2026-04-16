@@ -1,3 +1,5 @@
+import { log } from "../utils/log.js";
+
 const FALLBACK_CONTENT_TYPES = ["Granth", "Books"];
 
 export function parseContentTypes(value) {
@@ -11,12 +13,24 @@ export function parseContentTypes(value) {
 }
 
 export function getDefaultContentTypes(env = process.env) {
-  const parsed = parseContentTypes(env.LLM_DEFAULT_CONTENT_TYPES || "");
+  const raw = env.LLM_DEFAULT_CONTENT_TYPES;
+  const parsed = parseContentTypes(raw || "");
+  warnOnMisconfiguredContentTypes({
+    raw,
+    parsed,
+    envKey: "LLM_DEFAULT_CONTENT_TYPES",
+  });
   return parsed.length ? parsed : [...FALLBACK_CONTENT_TYPES];
 }
 
 export function getAllowedContentTypes(env = process.env) {
-  const parsed = parseContentTypes(env.LLM_ALLOWED_CONTENT_TYPES || "");
+  const raw = env.LLM_ALLOWED_CONTENT_TYPES;
+  const parsed = parseContentTypes(raw || "");
+  warnOnMisconfiguredContentTypes({
+    raw,
+    parsed,
+    envKey: "LLM_ALLOWED_CONTENT_TYPES",
+  });
   if (parsed.length) return parsed;
   return dedupeContentTypes([...getDefaultContentTypes(env), ...FALLBACK_CONTENT_TYPES]);
 }
@@ -51,4 +65,16 @@ function dedupeContentTypes(values) {
     normalized.push(contentType);
   }
   return normalized;
+}
+
+function warnOnMisconfiguredContentTypes({ raw, parsed, envKey }) {
+  if (raw === undefined || raw === null) return;
+  if (typeof raw !== "string") return;
+  if (parsed.length) return;
+  if (!raw.trim()) return;
+  log.warn("content_types_env_invalid", {
+    envKey,
+    value: raw,
+    fallback: FALLBACK_CONTENT_TYPES,
+  });
 }

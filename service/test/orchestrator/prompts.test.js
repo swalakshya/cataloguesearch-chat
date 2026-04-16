@@ -23,6 +23,24 @@ test("getKeywordPrompt injects configured content type defaults", () => {
   assert.ok(prompt.includes('allowed values: ["Pravachan","Granth","Books"]'));
 });
 
+test("getKeywordPrompt interpolation cache respects env changes", () => {
+  const promptA = getKeywordPrompt("What is Atma?", "[]", {
+    env: {
+      LLM_DEFAULT_CONTENT_TYPES: "Pravachan,Granth",
+      LLM_ALLOWED_CONTENT_TYPES: "Pravachan,Granth,Books",
+    },
+  });
+  const promptB = getKeywordPrompt("What is Atma?", "[]", {
+    env: {
+      LLM_DEFAULT_CONTENT_TYPES: "Granth,Books",
+      LLM_ALLOWED_CONTENT_TYPES: "Pravachan,Granth,Books",
+    },
+  });
+
+  assert.ok(promptA.includes('"content_type": ["Pravachan","Granth"]'));
+  assert.ok(promptB.includes('"content_type": ["Granth","Books"]'));
+});
+
 test("getAnswerPrompt injects conversation history and context", () => {
   const prompt = getAnswerPrompt("Q?", "CTX", "GUIDE", '[{"id":"set_2"}]', "basic_question_v1");
   assert.ok(prompt.includes("Q?"));

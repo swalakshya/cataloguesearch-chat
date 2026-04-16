@@ -50,3 +50,25 @@ test("ExternalApiClient forces language to hi when invalid", async () => {
     global.fetch = originalFetch;
   }
 });
+
+test("ExternalApiClient preserves mixed content types unchanged", async () => {
+  const originalFetch = global.fetch;
+  const calls = [];
+  global.fetch = async (url, options) => {
+    calls.push({ url, options });
+    return {
+      ok: true,
+      status: 200,
+      text: async () => "[]",
+    };
+  };
+
+  try {
+    const client = new ExternalApiClient({ baseUrl: "http://example.com", timeoutMs: 50 });
+    await client.search({ query: "q", content_type: ["Pravachan", "Books"] }, "r1");
+    const body = JSON.parse(calls[0].options.body);
+    assert.deepEqual(body.content_type, ["Pravachan", "Books"]);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});

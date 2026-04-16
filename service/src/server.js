@@ -699,12 +699,6 @@ function sanitizeString(value) {
   return str ? str : undefined;
 }
 
-function sanitizeNumber(value) {
-  if (value === undefined || value === null || value === "") return undefined;
-  const num = Number(value);
-  return Number.isFinite(num) ? num : undefined;
-}
-
 function sanitizeContentType(value) {
   const normalized = sanitizeAllowedContentTypes(value, { fallbackToDefault: false });
   return normalized.length ? normalized : undefined;
@@ -743,8 +737,18 @@ function toChunkMetadataRecord(chunk) {
     series_end_date: chunk.series_end_date || metadata.series_end_date || "",
     page_number: chunk.page_number ?? metadata.page_number ?? null,
     file_url: chunk.file_url || metadata.file_url || "",
-    pravachankar: chunk.Pravachankar || metadata.Pravachankar || chunk.pravachankar || metadata.pravachankar || "",
+    pravachankar: normalizePravachankar(chunk, metadata),
   };
+}
+
+function normalizePravachankar(chunk, metadata) {
+  return (
+    chunk?.pravachankar ||
+    metadata?.pravachankar ||
+    chunk?.Pravachankar ||
+    metadata?.Pravachankar ||
+    ""
+  );
 }
 
 export function buildHashedChunksForTest(chunks, session) {

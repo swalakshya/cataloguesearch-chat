@@ -1,9 +1,3 @@
-import { normalizeContentTypes as normalizeConfiguredContentTypes } from "../config/content_types.js";
-
-export function normalizeContentTypes(contentTypes, options) {
-  return normalizeConfiguredContentTypes(contentTypes, options);
-}
-
 export function mergeMetadataOptions(optionSets) {
   const merged = [];
   for (const options of optionSets || []) {

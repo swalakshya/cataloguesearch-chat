@@ -35,12 +35,10 @@ Request:
   "role": "user",
   "content": "string",
   "filters": {
-    "content_type": ["Granth", "Books"],
+    "content_type": ["Pravachan", "Granth"],
     "granth": "string",
     "anuyog": "string",
-    "contributor": "string",
-    "year_from": 1990,
-    "year_to": 2024
+    "contributor": "string"
   }
 }
 ```
@@ -60,7 +58,17 @@ Response:
       "granth": "string",
       "category": "string",
       "page_number": 123,
-      "file_url": "string"
+      "file_url": "string",
+      "pravachankar": "string",
+      "date": "DD-MM-YYYY",
+      "pravachan_number": "string",
+      "series_number": "string",
+      "volume": 1,
+      "gatha": "string",
+      "kalash": "string",
+      "shlok": "string",
+      "dohra": "string",
+      "reference": "string"
     }
   ],
   "provider": "auto|<resolved-provider>",
@@ -133,6 +141,7 @@ Configuration order:
 Other env:
 - `LLM_DEFAULT_CONTENT_TYPES` (comma-separated default retrieval categories, example: `Pravachan,Granth`)
 - `LLM_ALLOWED_CONTENT_TYPES` (comma-separated allowed category values for prompts and filters, example: `Pravachan,Granth,Books`)
+- When these env vars are unset or invalid, the service falls back to `Granth,Books`.
 - `GREETING_CONTACT_EMAIL` (default: `projectjinam@gmail.com`)
 Workflow tuning now lives in `src/config/model_config.js` under `workflowDefaults` and per-model `workflowOverrides`.
 

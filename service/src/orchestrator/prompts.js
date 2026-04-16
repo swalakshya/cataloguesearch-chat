@@ -11,6 +11,7 @@ export function isPromptV2(env = process.env) {
 }
 
 const cache = new Map();
+const interpolatedCache = new Map();
 
 function normalizeModelId(modelId) {
   return String(modelId || "").replace(/\./g, "_");
@@ -47,11 +48,11 @@ function readPrompt(relPath, options) {
   const roots = resolvePromptRoots(options);
   for (const root of roots) {
     const absPath = path.join(root, relPath);
-    if (cache.has(absPath)) return interpolatePrompt(cache.get(absPath), options?.env);
+    if (cache.has(absPath)) return interpolatePrompt(cache.get(absPath), absPath, options?.env);
     try {
       const text = fs.readFileSync(absPath, "utf-8").trim();
       cache.set(absPath, text);
-      return interpolatePrompt(text, options?.env);
+      return interpolatePrompt(text, absPath, options?.env);
     } catch {
       // Try next root.
     }
@@ -62,15 +63,24 @@ function readPrompt(relPath, options) {
   return "";
 }
 
-function interpolatePrompt(text, env = process.env) {
+function interpolatePrompt(text, cacheKey, env = process.env) {
   if (!text) return "";
+  const interpolationKey = JSON.stringify({
+    cacheKey,
+    defaultContentTypes: env?.LLM_DEFAULT_CONTENT_TYPES || "",
+    allowedContentTypes: env?.LLM_ALLOWED_CONTENT_TYPES || "",
+  });
+  const cached = interpolatedCache.get(interpolationKey);
+  if (cached) return cached;
   const defaultContentTypes = getDefaultContentTypes(env);
   const allowedContentTypes = getAllowedContentTypes(env);
-  return String(text)
+  const resolved = String(text)
     .replace(/<DEFAULT_CONTENT_TYPES_JSON>/g, JSON.stringify(defaultContentTypes))
     .replace(/<ALLOWED_CONTENT_TYPES_JSON>/g, JSON.stringify(allowedContentTypes))
     .replace(/<ALLOWED_CONTENT_TYPES_PIPE>/g, allowedContentTypes.join("|"))
     .replace(/<ALLOWED_CONTENT_TYPES_OR>/g, allowedContentTypes.map((value) => `"${value}"`).join(" or "));
+  interpolatedCache.set(interpolationKey, resolved);
+  return resolved;
 }
 
 export function getKeywordPrompt(question, conversationHistory, options = {}) {

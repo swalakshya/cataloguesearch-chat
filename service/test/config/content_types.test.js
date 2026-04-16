@@ -53,3 +53,18 @@ test("sanitizeAllowedContentTypes filters unsupported values", () => {
 test("hasSameContentTypes compares lists ignoring order", () => {
   assert.equal(hasSameContentTypes(["Pravachan", "Granth"], ["Granth", "Pravachan"]), true);
 });
+
+test("getDefaultContentTypes warns on invalid configured env value", () => {
+  const originalLog = console.log;
+  const messages = [];
+  console.log = (value) => messages.push(String(value));
+
+  try {
+    const contentTypes = getDefaultContentTypes({ LLM_DEFAULT_CONTENT_TYPES: " , , " });
+    assert.deepEqual(contentTypes, ["Granth", "Books"]);
+  } finally {
+    console.log = originalLog;
+  }
+
+  assert.equal(messages.some((entry) => entry.includes("\"message\":\"content_types_env_invalid\"")), true);
+});

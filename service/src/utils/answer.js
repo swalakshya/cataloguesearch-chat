@@ -109,7 +109,10 @@ export function buildStructuredReferencesFromMetadata({
   const hashMap = hashToRealId && typeof hashToRealId === "object" ? hashToRealId : {};
   const metadataMap = metadataByRealId && typeof metadataByRealId === "object" ? metadataByRealId : {};
   const scored = Array.isArray(scoredChunks) ? scoredChunks : [];
-  const targetCount = Math.max(1, Math.min(MAX_REFERENCES, Number(parsedReferencesCount) || Math.min(scored.length, 2)));
+  const targetCount = resolveReferenceCount(parsedReferencesCount, scored.length);
+  if (targetCount === 0) {
+    return { references: [], citations: [] };
+  }
   const references = [];
   const citations = [];
   const seen = new Set();
@@ -356,6 +359,7 @@ function formatLabeledValue({ labelHi, labelEn, value, isHindi }) {
 function formatDateValue(value) {
   const raw = String(value || "").trim();
   if (!raw) return "";
+  // Backend contract is expected to be YYYY-MM-DD; preserve unknown formats verbatim.
   const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return raw;
   return `${match[3]}-${match[2]}-${match[1]}`;
@@ -392,6 +396,17 @@ function buildCitationFromMetadata(metadata, reference) {
 function toPositiveNumber(value) {
   const num = Number(value);
   return Number.isFinite(num) && num > 0 ? num : undefined;
+}
+
+function resolveReferenceCount(parsedReferencesCount, scoredLength) {
+  const parsedCount =
+    parsedReferencesCount === undefined || parsedReferencesCount === null || parsedReferencesCount === ""
+      ? undefined
+      : Number(parsedReferencesCount);
+  if (Number.isFinite(parsedCount)) {
+    return Math.max(0, Math.min(MAX_REFERENCES, Math.trunc(parsedCount)));
+  }
+  return Math.max(1, Math.min(MAX_REFERENCES, Math.min(Number(scoredLength) || 0, 2)));
 }
 
 function extractPage(prefix) {

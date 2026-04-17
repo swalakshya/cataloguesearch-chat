@@ -1,8 +1,10 @@
-import { test, before } from "node:test";
+import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
+import { acquireIntegrationLock } from "../../test_support/integration_lock.js";
 
 const BASE = process.env.INTEGRATION_BASE_URL || "";
 const INTEGRATION_ENABLED = Boolean(BASE);
+let releaseLock = null;
 
 async function post(path, body) {
   const res = await fetch(`${BASE}${path}`, {
@@ -48,7 +50,12 @@ async function waitForSummary(sessionId) {
 
 before(async () => {
   if (!INTEGRATION_ENABLED) return;
+  releaseLock = await acquireIntegrationLock();
   await waitForHealthy();
+});
+
+after(async () => {
+  await releaseLock?.();
 });
 
 const integrationTest = INTEGRATION_ENABLED ? test : test.skip;

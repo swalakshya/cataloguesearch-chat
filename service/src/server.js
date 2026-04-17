@@ -84,6 +84,12 @@ const externalApi = TEST_MODE
 
 const registry = new SessionRegistry(SESSION_IDLE_MS);
 
+const CHAT_PROGRESS_STAGES = {
+  understanding: "Understanding your question",
+  searching: "Searching through our scriptures",
+  preparing: "Preparing answer",
+};
+
 log.info("service_start", {
   port: PORT,
   provider: DEFAULT_PROVIDER,
@@ -177,151 +183,48 @@ app.post("/v1/chat/sessions", async (req, res) => {
 });
 
 app.post("/v1/chat/sessions/:sessionId/messages", async (req, res) => {
-  const session = registry.get(req.params.sessionId);
-  if (!session) {
-    log.warn("message_session_not_found", { sessionId: req.params.sessionId });
-    return res.status(404).json({ detail: "session_not_found" });
-  }
-  if (session.busy) {
-    log.warn("message_session_busy", { sessionId: req.params.sessionId });
-    return res.status(409).json({ detail: "session_busy" });
-  }
-
-  const { role, content, filters: uiFilters } = req.body || {};
-  const responseFormat = normalizeResponseFormat(req.body?.response_format);
-  if (role !== "user" || !content) {
-    log.warn("message_invalid", { sessionId: req.params.sessionId });
-    return res.status(400).json({ detail: "invalid_message" });
-  }
-  if (!responseFormat) {
-    log.warn("message_invalid_response_format", {
+  try {
+    const responsePayload = await executeMessageRequest({
       sessionId: req.params.sessionId,
-      responseFormat: req.body?.response_format,
+      body: req.body,
     });
+    res.json(responsePayload);
+  } catch (err) {
+    const mapped = mapMessageRequestError(err);
+    res.status(mapped.status).json(mapped.body);
+  }
+});
+
+app.post("/v1/chat/sessions/:sessionId/messages/stream", async (req, res) => {
+  const responseFormat = normalizeResponseFormat(req.body?.response_format);
+  if (responseFormat !== "structured") {
     return res.status(400).json({ detail: "invalid_response_format" });
   }
 
-  if (
-    shouldRejectForTokenLimit({
-      currentTokens: session.tokenCount || 0,
-      incomingText: content,
-      limit: SESSION_TOKEN_LIMIT,
-      threshold: SESSION_TOKEN_LIMIT_THRESHOLD,
-    })
-  ) {
-    log.warn("session_token_limit_reached", { sessionId: session.sessionId, tokenCount: session.tokenCount });
-    return res.status(429).json({
-      detail: "Token Limit Exhausted for the session. Please initiate a new session.",
-      customer_message: "Please start a new chat for better answer accuracy.",
-    });
-  }
-
-  session.busy = true;
-  session.lastActivityAt = Date.now();
-  session.messages.push({ role: "user", content });
-  session.tokenCount = (session.tokenCount || 0) + estimateTokens(content);
-
-  const requestId = crypto.randomUUID();
-
-  const availableModels = router.getAvailableModels();
-  log.info("model_availability_status", {
-    requestId,
-    sessionId: session.sessionId,
-    models: models.map((model) => {
-      const stats = availability.getStats(model.id);
-      return {
-        modelId: model.id,
-        provider: model.provider,
-        available: availability.isAvailable(model.id),
-        total: stats.total,
-        failures: stats.failures,
-        failureRate: stats.failureRate,
-      };
-    }),
-  });
-  log.info("model_routing_start", {
-    requestId,
-    sessionId: session.sessionId,
-    candidates: availableModels.map((model) => model.id),
-  });
-
-  const attemptWithModel = async (model) => {
-    log.info("model_routing_attempt", {
-      requestId,
-      sessionId: session.sessionId,
-      modelId: model.id,
-      provider: model.provider,
-    });
-    const provider = await providerFactory.getProvider({
-      providerId: model.provider,
-      modelId: model.id,
-    });
-    try {
-      const response = await handleMessageWithProvider({
-        provider,
-        model,
-        session,
-        content,
-        uiFilters,
-        responseFormat,
-        requestId,
-      });
-      log.info("model_routing_success", {
-        requestId,
-        sessionId: session.sessionId,
-        modelId: model.id,
-        provider: model.provider,
-      });
-      return response;
-    } catch (err) {
-      log.warn("model_routing_failure", {
-        requestId,
-        sessionId: session.sessionId,
-        modelId: model.id,
-        provider: model.provider,
-        message: err?.message || String(err),
-      });
-      throw err;
-    }
-  };
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  if (typeof res.flushHeaders === "function") res.flushHeaders();
 
   try {
-    const responsePayload = await router.route(attemptWithModel);
-    session.busy = false;
-    res.json(responsePayload);
-  } catch (err) {
-    session.busy = false;
-    const message = err?.message || String(err);
-    log.error("message_failed", {
-      requestId,
-      sessionId: session.sessionId,
-      message,
-      stack: err?.stack,
+    const responsePayload = await executeMessageRequest({
+      sessionId: req.params.sessionId,
+      body: req.body,
+      onStage: (event) => {
+        if (!res.writableEnded) writeSseEvent(res, { type: "stage", ...event });
+      },
     });
-
-    if (err?.code === "service_unavailable") {
-      return res.status(503).json({ detail: "service_unavailable" });
+    if (!res.writableEnded) {
+      writeSseEvent(res, { type: "final", data: responsePayload });
+      res.end();
     }
-    if (Number.isFinite(err?.status) && err.status >= 400 && err.status < 500) {
-      return res.status(err.status).json({ detail: "client_error" });
+  } catch (err) {
+    const mapped = mapMessageRequestError(err);
+    if (!res.writableEnded) {
+      writeSseEvent(res, { type: "error", status: mapped.status, detail: mapped.body?.detail || "message_failed" });
+      res.end();
     }
-    if (message.includes("External API")) {
-      return res.status(502).json({ detail: "tool_backend_error" });
-    }
-    if (message.includes("OpenAI")) {
-      return res.status(503).json({ detail: "provider_unavailable" });
-    }
-    if (
-      message.includes("Service Unavailable") ||
-      message.includes("UNAVAILABLE") ||
-      message.includes("model is currently experiencing high demand")
-    ) {
-      return res.status(503).json({ detail: "model_temporarily_unavailable" });
-    }
-    if (message.includes("tool_call_budget_exceeded")) {
-      return res.status(429).json({ detail: "tool_call_budget_exceeded" });
-    }
-    res.status(500).json({ detail: "message_failed" });
   }
 });
 
@@ -349,6 +252,181 @@ app.listen(PORT, () => {
   log.info("server_listen", { port: PORT, provider: DEFAULT_PROVIDER, model: DEFAULT_MODEL });
 });
 
+async function executeMessageRequest({ sessionId, body, onStage } = {}) {
+  const session = registry.get(sessionId);
+  if (!session) {
+    log.warn("message_session_not_found", { sessionId });
+    const err = new Error("session_not_found");
+    err.status = 404;
+    err.detail = "session_not_found";
+    throw err;
+  }
+  if (session.busy) {
+    log.warn("message_session_busy", { sessionId });
+    const err = new Error("session_busy");
+    err.status = 409;
+    err.detail = "session_busy";
+    throw err;
+  }
+
+  const { role, content, filters: uiFilters } = body || {};
+  const responseFormat = normalizeResponseFormat(body?.response_format);
+  if (role !== "user" || !content) {
+    log.warn("message_invalid", { sessionId });
+    const err = new Error("invalid_message");
+    err.status = 400;
+    err.detail = "invalid_message";
+    throw err;
+  }
+  if (!responseFormat) {
+    log.warn("message_invalid_response_format", {
+      sessionId,
+      responseFormat: body?.response_format,
+    });
+    const err = new Error("invalid_response_format");
+    err.status = 400;
+    err.detail = "invalid_response_format";
+    throw err;
+  }
+
+  if (
+    shouldRejectForTokenLimit({
+      currentTokens: session.tokenCount || 0,
+      incomingText: content,
+      limit: SESSION_TOKEN_LIMIT,
+      threshold: SESSION_TOKEN_LIMIT_THRESHOLD,
+    })
+  ) {
+    log.warn("session_token_limit_reached", { sessionId: session.sessionId, tokenCount: session.tokenCount });
+    const err = new Error("token_limit_exhausted");
+    err.status = 429;
+    err.payload = {
+      detail: "Token Limit Exhausted for the session. Please initiate a new session.",
+      customer_message: "Please start a new chat for better answer accuracy.",
+    };
+    throw err;
+  }
+
+  session.busy = true;
+  session.lastActivityAt = Date.now();
+  session.messages.push({ role: "user", content });
+  session.tokenCount = (session.tokenCount || 0) + estimateTokens(content);
+
+  const requestId = crypto.randomUUID();
+  const availableModels = router.getAvailableModels();
+  log.info("model_availability_status", {
+    requestId,
+    sessionId: session.sessionId,
+    models: models.map((model) => {
+      const stats = availability.getStats(model.id);
+      return {
+        modelId: model.id,
+        provider: model.provider,
+        available: availability.isAvailable(model.id),
+        total: stats.total,
+        failures: stats.failures,
+        failureRate: stats.failureRate,
+      };
+    }),
+  });
+  log.info("model_routing_start", {
+    requestId,
+    sessionId: session.sessionId,
+    candidates: availableModels.map((model) => model.id),
+  });
+
+  const stageEmitter = createStageEmitter(onStage);
+  const attemptWithModel = async (model) => {
+    log.info("model_routing_attempt", {
+      requestId,
+      sessionId: session.sessionId,
+      modelId: model.id,
+      provider: model.provider,
+    });
+    const provider = await providerFactory.getProvider({
+      providerId: model.provider,
+      modelId: model.id,
+    });
+    try {
+      const response = await handleMessageWithProvider({
+        provider,
+        model,
+        session,
+        content,
+        uiFilters,
+        responseFormat,
+        requestId,
+        onStage: stageEmitter,
+      });
+      log.info("model_routing_success", {
+        requestId,
+        sessionId: session.sessionId,
+        modelId: model.id,
+        provider: model.provider,
+      });
+      return response;
+    } catch (err) {
+      log.warn("model_routing_failure", {
+        requestId,
+        sessionId: session.sessionId,
+        modelId: model.id,
+        provider: model.provider,
+        message: err?.message || String(err),
+      });
+      throw err;
+    }
+  };
+
+  try {
+    return await router.route(attemptWithModel);
+  } catch (err) {
+    const message = err?.message || String(err);
+    log.error("message_failed", {
+      requestId,
+      sessionId: session.sessionId,
+      message,
+      stack: err?.stack,
+    });
+    throw err;
+  } finally {
+    session.busy = false;
+  }
+}
+
+function mapMessageRequestError(err) {
+  if (err?.payload && Number.isFinite(err?.status)) {
+    return { status: err.status, body: err.payload };
+  }
+  if (Number.isFinite(err?.status) && err?.detail) {
+    return { status: err.status, body: { detail: err.detail } };
+  }
+
+  const message = err?.message || String(err);
+  if (err?.code === "service_unavailable") {
+    return { status: 503, body: { detail: "service_unavailable" } };
+  }
+  if (Number.isFinite(err?.status) && err.status >= 400 && err.status < 500) {
+    return { status: err.status, body: { detail: "client_error" } };
+  }
+  if (message.includes("External API")) {
+    return { status: 502, body: { detail: "tool_backend_error" } };
+  }
+  if (message.includes("OpenAI")) {
+    return { status: 503, body: { detail: "provider_unavailable" } };
+  }
+  if (
+    message.includes("Service Unavailable") ||
+    message.includes("UNAVAILABLE") ||
+    message.includes("model is currently experiencing high demand")
+  ) {
+    return { status: 503, body: { detail: "model_temporarily_unavailable" } };
+  }
+  if (message.includes("tool_call_budget_exceeded")) {
+    return { status: 429, body: { detail: "tool_call_budget_exceeded" } };
+  }
+  return { status: 500, body: { detail: "message_failed" } };
+}
+
 function resolveSessionTokenLimit() {
   const raw = process.env.LLM_SESSION_TOKEN_LIMIT;
   if (raw !== undefined && raw !== null && String(raw).trim() !== "") {
@@ -361,6 +439,21 @@ function resolveSessionTokenLimit() {
   return 0;
 }
 
+function createStageEmitter(onStage) {
+  if (typeof onStage !== "function") return null;
+  const emitted = new Set();
+  return (stage) => {
+    const key = String(stage || "").trim();
+    if (!key || emitted.has(key) || !CHAT_PROGRESS_STAGES[key]) return;
+    emitted.add(key);
+    onStage({ stage: key, label: CHAT_PROGRESS_STAGES[key] });
+  };
+}
+
+function writeSseEvent(res, payload) {
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
 async function handleMessageWithProvider({
   provider,
   model,
@@ -369,6 +462,7 @@ async function handleMessageWithProvider({
   uiFilters,
   responseFormat,
   requestId,
+  onStage,
 }) {
   log.info("model_prompt_root", {
     requestId,
@@ -377,6 +471,7 @@ async function handleMessageWithProvider({
     promptRoot: getPromptRootForModel({ modelId: model.id }),
   });
   const baseHistory = Array.isArray(session.conversationHistory) ? [...session.conversationHistory] : [];
+  onStage?.("understanding");
   let keywordResult = await runKeywordExtraction({
     provider,
     question: content,
@@ -386,6 +481,12 @@ async function handleMessageWithProvider({
     requestId,
     modelId: model.id,
   });
+  if (TEST_MODE && String(content || "").includes("FORCE_FOLLOWUP")) {
+    keywordResult = {
+      ...keywordResult,
+      is_followup: true,
+    };
+  }
 
   const normalizedUiFilters = normalizeUiFilters(uiFilters);
 
@@ -435,6 +536,7 @@ async function handleMessageWithProvider({
     });
   }
 
+  onStage?.("searching");
   const workflowOutcome = await retryWorkflowOnEmptyChunks({
     initialKeywordResult: keywordResult,
     question: content,
@@ -552,6 +654,7 @@ async function handleMessageWithProvider({
     });
   }
 
+  onStage?.("preparing");
   const answerPayload = await runAnswerSynthesis({
     provider,
     question: content,

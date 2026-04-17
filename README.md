@@ -108,6 +108,8 @@ docker compose up
 | `LLM_SESSION_TOKEN_LIMIT_THRESHOLD` | `0.8` | % of limit after which requests are rejected |
 | `LLM_TOKEN_LIMITS_JSON` | — | JSON map of token limits by provider/model |
 | `GREETING_CONTACT_EMAIL` | `projectjinam@gmail.com` | Email shown in greeting response |
+| `LOG_LEVEL` | `info` | Console log level (`info`, `verbose`, `debug`) |
+| `LOGS_DIR` | — | When set, writes JSON lines to `info.log` and `verbose.log` |
 
 Workflow tuning lives in `service/src/config/model_config.js` under `workflowDefaults` and per-model `workflowOverrides`.
 Example structure:
@@ -145,6 +147,8 @@ const MODEL_ROUTING_CONFIG = {
 };
 ```
 `workflowOverrides` is merged over `workflowDefaults` by key, so you can override only the fields you need without redefining the full config.
+
+In Docker, the compose file mounts a named volume at `/app/logs` so the chat service keeps `info.log` and `verbose.log` outside the container lifecycle.
 
 ---
 

@@ -1,4 +1,4 @@
-import { log, summarize } from "../utils/log.js";
+import { log } from "../utils/log.js";
 
 export class ExternalApiClient {
   constructor({ baseUrl, timeoutMs }) {
@@ -37,7 +37,7 @@ export class ExternalApiClient {
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
       const startedAt = Date.now();
-      log.info("external_api_request", { requestId, path, payload: normalizedPayload });
+      log.verbose("external_api_request", { requestId, path, payload: normalizedPayload });
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -63,6 +63,12 @@ export class ExternalApiClient {
           status: res.status,
           durationMs: Date.now() - startedAt,
           items: Array.isArray(parsed) ? parsed.length : undefined,
+        });
+        log.verbose("external_api_response_detail", {
+          requestId,
+          path,
+          status: res.status,
+          response: parsed,
         });
         return parsed;
       } catch (err) {

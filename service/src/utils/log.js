@@ -1,13 +1,70 @@
+import fs from "node:fs";
+import path from "node:path";
+
 const LEVELS = {
   error: 0,
   warn: 1,
   info: 2,
-  debug: 3,
+  verbose: 3,
+  debug: 4,
+};
+
+let streamsInitialized = false;
+let fileStreams = {
+  info: null,
+  verbose: null,
 };
 
 function getLevel() {
   const raw = (process.env.LOG_LEVEL || "info").toLowerCase();
   return LEVELS[raw] ?? LEVELS.info;
+}
+
+function getLogsDir() {
+  const raw = String(process.env.LOGS_DIR || "").trim();
+  return raw || null;
+}
+
+function shouldEmit(level, threshold) {
+  return LEVELS[level] <= threshold;
+}
+
+function reportFileLogError(target, err) {
+  const payload = JSON.stringify({
+    ts: new Date().toISOString(),
+    level: "error",
+    message: "log_file_write_failed",
+    target,
+    error: err?.message || String(err),
+  });
+  console.error(payload);
+}
+
+function attachErrorHandler(stream, target) {
+  stream.on("error", (err) => reportFileLogError(target, err));
+}
+
+function ensureFileStreams() {
+  if (streamsInitialized) return fileStreams;
+  streamsInitialized = true;
+
+  const logsDir = getLogsDir();
+  if (!logsDir) return fileStreams;
+
+  try {
+    fs.mkdirSync(logsDir, { recursive: true });
+    fileStreams = {
+      info: fs.createWriteStream(path.join(logsDir, "info.log"), { flags: "a" }),
+      verbose: fs.createWriteStream(path.join(logsDir, "verbose.log"), { flags: "a" }),
+    };
+    attachErrorHandler(fileStreams.info, "info.log");
+    attachErrorHandler(fileStreams.verbose, "verbose.log");
+  } catch (err) {
+    reportFileLogError(logsDir, err);
+    fileStreams = { info: null, verbose: null };
+  }
+
+  return fileStreams;
 }
 
 function toRecord(level, message, fields) {
@@ -17,19 +74,39 @@ function toRecord(level, message, fields) {
     message,
   };
   if (fields && typeof fields === "object") {
-    Object.assign(record, fields);
+    for (const [key, value] of Object.entries(fields)) {
+      if (key === "message") {
+        record.detail = value;
+        continue;
+      }
+      if (key === "level" || key === "ts") {
+        record[`field_${key}`] = value;
+        continue;
+      }
+      record[key] = value;
+    }
   }
   return record;
 }
 
 function emit(level, message, fields) {
-  const min = getLevel();
-  if (LEVELS[level] > min) return;
-  const payload = JSON.stringify(toRecord(level, message, fields));
-  if (level === "error") {
-    console.error(payload);
-  } else {
-    console.log(payload);
+  const record = toRecord(level, message, fields);
+  const payload = `${JSON.stringify(record)}\n`;
+
+  if (shouldEmit(level, getLevel())) {
+    if (level === "error") {
+      console.error(payload.trimEnd());
+    } else {
+      console.log(payload.trimEnd());
+    }
+  }
+
+  const streams = ensureFileStreams();
+  if (streams.info && shouldEmit(level, LEVELS.info)) {
+    streams.info.write(payload);
+  }
+  if (streams.verbose && shouldEmit(level, LEVELS.verbose)) {
+    streams.verbose.write(payload);
   }
 }
 
@@ -42,6 +119,9 @@ export const log = {
   },
   info(message, fields) {
     emit("info", message, fields);
+  },
+  verbose(message, fields) {
+    emit("verbose", message, fields);
   },
   debug(message, fields) {
     emit("debug", message, fields);

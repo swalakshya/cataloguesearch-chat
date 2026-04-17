@@ -36,7 +36,7 @@ export async function runKeywordExtraction({
     responseJsonSchema: KEYWORD_EXTRACTION_SCHEMA,
   });
 
-  log.info("keyword_extract_llm_response", {
+  log.verbose("keyword_extract_llm_response", {
     requestId,
     length: raw?.length || 0,
     response: String(raw || ""),

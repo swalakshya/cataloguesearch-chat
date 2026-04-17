@@ -27,7 +27,7 @@ export async function runMetadataQuestion({ externalApi, params, requestId, tool
           link: item?.url || "",
         }))
       : options;
-    log.info("metadata_options_response", {
+    log.verbose("metadata_options_response", {
       requestId,
       content_type: ct,
       response: mappedResponse,

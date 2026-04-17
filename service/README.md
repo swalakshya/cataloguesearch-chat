@@ -151,7 +151,14 @@ Other env:
 - `LLM_ALLOWED_CONTENT_TYPES` (comma-separated allowed category values for prompts and filters, example: `Pravachan,Granth,Books`)
 - When these env vars are unset or invalid, the service falls back to `Granth,Books`.
 - `GREETING_CONTACT_EMAIL` (default: `projectjinam@gmail.com`)
+- `LOG_LEVEL` (`info`, `verbose`, or `debug`; default `info`)
+- `LOGS_DIR` (when set, writes newline-delimited JSON logs to `info.log` and `verbose.log`)
 Workflow tuning now lives in `src/config/model_config.js` under `workflowDefaults` and per-model `workflowOverrides`.
+
+## Logging
+- `info.log` captures operational events at `info`, `warn`, and `error`.
+- `verbose.log` captures everything in `info.log` plus payload-heavy `verbose` traces such as request/response bodies.
+- When `LOGS_DIR` is unset, logs go only to stdout/stderr.
 
 Example `LLM_TOKEN_LIMITS_JSON`:
 ```json

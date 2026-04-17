@@ -578,7 +578,7 @@ async function handleMessageWithProvider({
   const emptyTextCount = cleanedChunks.filter(
     (chunk) => !String(chunk?.t || "").trim()
   ).length;
-  log.info("context_sample", {
+  log.verbose("context_sample", {
     requestId,
     sessionId: session.sessionId,
     chunks_total: cleanedChunks.length,
@@ -628,7 +628,7 @@ async function handleMessageWithProvider({
       referencesCount: 0,
       citationsCount: 0,
     });
-    log.info("conversation_history_ids", {
+    log.verbose("conversation_history_ids", {
       requestId,
       sessionId: session.sessionId,
       conversationHistoryIds: session.conversationHistory.map((entry) => entry?.id).filter(Boolean),
@@ -646,7 +646,7 @@ async function handleMessageWithProvider({
     });
   }
   if (isMetadataWorkflow) {
-    log.info("metadata_context_for_llm", {
+    log.verbose("metadata_context_for_llm", {
       requestId,
       sessionId: session.sessionId,
       asked_info: keywordResult.asked_info || [],
@@ -734,7 +734,7 @@ async function handleMessageWithProvider({
 
   scheduleHistorySummary({ provider, session, requestId });
 
-  log.info("conversation_history_ids", {
+  log.verbose("conversation_history_ids", {
     requestId,
     sessionId: session.sessionId,
     conversationHistoryIds: session.conversationHistory.map((entry) => entry?.id).filter(Boolean),

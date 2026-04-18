@@ -8,6 +8,7 @@ RUN npm install --omit=dev
 COPY src ./src
 COPY prompts_sets ./prompts_sets
 COPY test ./test
+COPY test_support ./test_support
 
 ENV NODE_ENV=test
 

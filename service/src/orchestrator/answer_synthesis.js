@@ -1,6 +1,6 @@
 import { getAnswerPrompt, getWorkflowGuidelines, isPromptV2 } from "./prompts.js";
 import { formatConversationHistory } from "./conversation_history.js";
-import { ANSWER_SCHEMA } from "../config/answer_schema.js";
+import { getAnswerSchema } from "../config/answer_schema.js";
 import { parseJsonStrict, normalizeJsonLike, extractAnswerFallback } from "../utils/json.js";
 import { estimateTokens } from "../utils/token.js";
 import { log } from "../utils/log.js";
@@ -16,6 +16,7 @@ export async function runAnswerSynthesis({
   script,
   requestId,
   modelId,
+  responseFormat = "combined",
 }) {
   const guidelines = getWorkflowGuidelines(workflowName, { modelId, requestId });
   const useV2 = isPromptV2();
@@ -45,8 +46,9 @@ export async function runAnswerSynthesis({
     workflowName,
     language,
     promptScript,
-    { modelId, requestId }
+    { modelId, requestId, responseFormat }
   );
+  const responseJsonSchema = getAnswerSchema({ workflowName, responseFormat });
   log.info("answer_synthesis_prompt_tokens", {
     requestId,
     tokens: estimateTokens(prompt),
@@ -61,7 +63,7 @@ export async function runAnswerSynthesis({
     messages,
     temperature: Number(process.env.LLM_TEMPERATURE || 0.75),
     requestId,
-    responseJsonSchema: ANSWER_SCHEMA,
+    responseJsonSchema,
   });
 
   // Logged at info to correlate with downstream response parsing.
@@ -80,6 +82,8 @@ export async function runAnswerSynthesis({
     raw,
     provider,
     requestId,
+    responseJsonSchema,
+    responseFormat,
   });
   log.info("answer_synthesis_scoring", {
     requestId,
@@ -88,7 +92,7 @@ export async function runAnswerSynthesis({
   return parsed;
 }
 
-async function parseOrRepairJson({ raw, provider, requestId }) {
+async function parseOrRepairJson({ raw, provider, requestId, responseJsonSchema, responseFormat }) {
   try {
     return parseJsonStrict(raw);
   } catch (err) {
@@ -112,7 +116,7 @@ async function parseOrRepairJson({ raw, provider, requestId }) {
       messages: repairMessages,
       temperature: 0,
       requestId,
-      responseJsonSchema: ANSWER_SCHEMA,
+      responseJsonSchema,
     });
 
     log.info("answer_synthesis_llm_repair_response", {

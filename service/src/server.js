@@ -17,8 +17,11 @@ import {
   getHistorySummaryTopChunks,
 } from "./orchestrator/history_summary.js";
 import {
+  buildStructuredReferencesFromMetadata,
   extractReferences,
+  extractFollowUpQuestionsFromAnswer,
   sanitizeCitations,
+  sanitizeFollowUpQuestions,
   sanitizeReferences,
   stripCitations,
   normalizeAnswerTextForParsing,
@@ -28,7 +31,7 @@ import {
 } from "./utils/answer.js";
 import { buildNoContextAnswer, getNoContextTextForLocale } from "./utils/no_context.js";
 import { buildGreetingAnswer } from "./utils/greeting.js";
-import { buildHashedChunks, mapHashedIdsToReal } from "./utils/chunk_hash.js";
+import { buildHashedChunks, getChunkHash, mapHashedIdsToReal } from "./utils/chunk_hash.js";
 import { buildScoredChunks } from "./utils/scoring.js";
 import { estimateTokens, shouldRejectForTokenLimit, getSessionTokenLimit } from "./utils/token.js";
 import { log } from "./utils/log.js";
@@ -36,6 +39,7 @@ import { MODEL_ROUTING_CONFIG } from "./config/model_config.js";
 import { getOrderedModels } from "./routing/model_registry.js";
 import { ModelAvailabilityTracker } from "./routing/model_availability.js";
 import { ModelRouter } from "./routing/model_router.js";
+import { sanitizeAllowedContentTypes } from "./config/content_types.js";
 import {
   buildTestProviderFactory,
   getTestProviderStats,
@@ -54,6 +58,8 @@ const SESSION_IDLE_MS = Number(process.env.LLM_SESSION_IDLE_TIMEOUT_SEC || 900) 
 
 const DEFAULT_PROVIDER = "auto";
 const DEFAULT_MODEL = null;
+const DEFAULT_RESPONSE_FORMAT =
+  normalizeResponseFormat(process.env.DEFAULT_ANSWER_FORMAT, { fallback: "combined" });
 const TEST_MODE = String(process.env.TEST_MODE || "").toLowerCase() === "true";
 
 const EXTERNAL_API_BASE_URL = process.env.EXTERNAL_API_BASE_URL || "http://localhost:8000";
@@ -78,6 +84,12 @@ const externalApi = TEST_MODE
 
 const registry = new SessionRegistry(SESSION_IDLE_MS);
 
+const CHAT_PROGRESS_STAGES = {
+  understanding: "Understanding your question",
+  searching: "Searching through our scriptures",
+  preparing: "Preparing answer",
+};
+
 log.info("service_start", {
   port: PORT,
   provider: DEFAULT_PROVIDER,
@@ -96,6 +108,7 @@ if (TEST_MODE) {
     availability.reset();
     resetTestProviderStats();
     resetPromptRootsForTest();
+    setTestProviderBehavior({});
     res.json({ status: "ok" });
   });
 
@@ -171,142 +184,48 @@ app.post("/v1/chat/sessions", async (req, res) => {
 });
 
 app.post("/v1/chat/sessions/:sessionId/messages", async (req, res) => {
-  const session = registry.get(req.params.sessionId);
-  if (!session) {
-    log.warn("message_session_not_found", { sessionId: req.params.sessionId });
-    return res.status(404).json({ detail: "session_not_found" });
-  }
-  if (session.busy) {
-    log.warn("message_session_busy", { sessionId: req.params.sessionId });
-    return res.status(409).json({ detail: "session_busy" });
-  }
-
-  const { role, content, filters: uiFilters } = req.body || {};
-  if (role !== "user" || !content) {
-    log.warn("message_invalid", { sessionId: req.params.sessionId });
-    return res.status(400).json({ detail: "invalid_message" });
-  }
-
-  if (
-    shouldRejectForTokenLimit({
-      currentTokens: session.tokenCount || 0,
-      incomingText: content,
-      limit: SESSION_TOKEN_LIMIT,
-      threshold: SESSION_TOKEN_LIMIT_THRESHOLD,
-    })
-  ) {
-    log.warn("session_token_limit_reached", { sessionId: session.sessionId, tokenCount: session.tokenCount });
-    return res.status(429).json({
-      detail: "Token Limit Exhausted for the session. Please initiate a new session.",
-      customer_message: "Please start a new chat for better answer accuracy.",
-    });
-  }
-
-  session.busy = true;
-  session.lastActivityAt = Date.now();
-  session.messages.push({ role: "user", content });
-  session.tokenCount = (session.tokenCount || 0) + estimateTokens(content);
-
-  const requestId = crypto.randomUUID();
-
-  const availableModels = router.getAvailableModels();
-  log.info("model_availability_status", {
-    requestId,
-    sessionId: session.sessionId,
-    models: models.map((model) => {
-      const stats = availability.getStats(model.id);
-      return {
-        modelId: model.id,
-        provider: model.provider,
-        available: availability.isAvailable(model.id),
-        total: stats.total,
-        failures: stats.failures,
-        failureRate: stats.failureRate,
-      };
-    }),
-  });
-  log.info("model_routing_start", {
-    requestId,
-    sessionId: session.sessionId,
-    candidates: availableModels.map((model) => model.id),
-  });
-
-  const attemptWithModel = async (model) => {
-    log.info("model_routing_attempt", {
-      requestId,
-      sessionId: session.sessionId,
-      modelId: model.id,
-      provider: model.provider,
-    });
-    const provider = await providerFactory.getProvider({
-      providerId: model.provider,
-      modelId: model.id,
-    });
-    try {
-      const response = await handleMessageWithProvider({
-        provider,
-        model,
-        session,
-        content,
-        uiFilters,
-        requestId,
-      });
-      log.info("model_routing_success", {
-        requestId,
-        sessionId: session.sessionId,
-        modelId: model.id,
-        provider: model.provider,
-      });
-      return response;
-    } catch (err) {
-      log.warn("model_routing_failure", {
-        requestId,
-        sessionId: session.sessionId,
-        modelId: model.id,
-        provider: model.provider,
-        message: err?.message || String(err),
-      });
-      throw err;
-    }
-  };
-
   try {
-    const responsePayload = await router.route(attemptWithModel);
-    session.busy = false;
+    const responsePayload = await executeMessageRequest({
+      sessionId: req.params.sessionId,
+      body: req.body,
+    });
     res.json(responsePayload);
   } catch (err) {
-    session.busy = false;
-    const message = err?.message || String(err);
-    log.error("message_failed", {
-      requestId,
-      sessionId: session.sessionId,
-      message,
-      stack: err?.stack,
-    });
+    const mapped = mapMessageRequestError(err);
+    res.status(mapped.status).json(mapped.body);
+  }
+});
 
-    if (err?.code === "service_unavailable") {
-      return res.status(503).json({ detail: "service_unavailable" });
+app.post("/v1/chat/sessions/:sessionId/messages/stream", async (req, res) => {
+  const responseFormat = normalizeResponseFormat(req.body?.response_format);
+  if (responseFormat !== "structured") {
+    return res.status(400).json({ detail: "invalid_response_format" });
+  }
+
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  if (typeof res.flushHeaders === "function") res.flushHeaders();
+
+  try {
+    const responsePayload = await executeMessageRequest({
+      sessionId: req.params.sessionId,
+      body: req.body,
+      onStage: (event) => {
+        if (!res.writableEnded) writeSseEvent(res, { type: "stage", ...event });
+      },
+    });
+    if (!res.writableEnded) {
+      writeSseEvent(res, { type: "final", data: responsePayload });
+      res.end();
     }
-    if (Number.isFinite(err?.status) && err.status >= 400 && err.status < 500) {
-      return res.status(err.status).json({ detail: "client_error" });
+  } catch (err) {
+    const mapped = mapMessageRequestError(err);
+    if (!res.writableEnded) {
+      writeSseEvent(res, { type: "error", status: mapped.status, detail: mapped.body?.detail || "message_failed" });
+      res.end();
     }
-    if (message.includes("External API")) {
-      return res.status(502).json({ detail: "tool_backend_error" });
-    }
-    if (message.includes("OpenAI")) {
-      return res.status(503).json({ detail: "provider_unavailable" });
-    }
-    if (
-      message.includes("Service Unavailable") ||
-      message.includes("UNAVAILABLE") ||
-      message.includes("model is currently experiencing high demand")
-    ) {
-      return res.status(503).json({ detail: "model_temporarily_unavailable" });
-    }
-    if (message.includes("tool_call_budget_exceeded")) {
-      return res.status(429).json({ detail: "tool_call_budget_exceeded" });
-    }
-    res.status(500).json({ detail: "message_failed" });
   }
 });
 
@@ -334,6 +253,181 @@ app.listen(PORT, () => {
   log.info("server_listen", { port: PORT, provider: DEFAULT_PROVIDER, model: DEFAULT_MODEL });
 });
 
+async function executeMessageRequest({ sessionId, body, onStage } = {}) {
+  const session = registry.get(sessionId);
+  if (!session) {
+    log.warn("message_session_not_found", { sessionId });
+    const err = new Error("session_not_found");
+    err.status = 404;
+    err.detail = "session_not_found";
+    throw err;
+  }
+  if (session.busy) {
+    log.warn("message_session_busy", { sessionId });
+    const err = new Error("session_busy");
+    err.status = 409;
+    err.detail = "session_busy";
+    throw err;
+  }
+
+  const { role, content, filters: uiFilters } = body || {};
+  const responseFormat = normalizeResponseFormat(body?.response_format);
+  if (role !== "user" || !content) {
+    log.warn("message_invalid", { sessionId });
+    const err = new Error("invalid_message");
+    err.status = 400;
+    err.detail = "invalid_message";
+    throw err;
+  }
+  if (!responseFormat) {
+    log.warn("message_invalid_response_format", {
+      sessionId,
+      responseFormat: body?.response_format,
+    });
+    const err = new Error("invalid_response_format");
+    err.status = 400;
+    err.detail = "invalid_response_format";
+    throw err;
+  }
+
+  if (
+    shouldRejectForTokenLimit({
+      currentTokens: session.tokenCount || 0,
+      incomingText: content,
+      limit: SESSION_TOKEN_LIMIT,
+      threshold: SESSION_TOKEN_LIMIT_THRESHOLD,
+    })
+  ) {
+    log.warn("session_token_limit_reached", { sessionId: session.sessionId, tokenCount: session.tokenCount });
+    const err = new Error("token_limit_exhausted");
+    err.status = 429;
+    err.payload = {
+      detail: "Token Limit Exhausted for the session. Please initiate a new session.",
+      customer_message: "Please start a new chat for better answer accuracy.",
+    };
+    throw err;
+  }
+
+  session.busy = true;
+  session.lastActivityAt = Date.now();
+  session.messages.push({ role: "user", content });
+  session.tokenCount = (session.tokenCount || 0) + estimateTokens(content);
+
+  const requestId = crypto.randomUUID();
+  const availableModels = router.getAvailableModels();
+  log.info("model_availability_status", {
+    requestId,
+    sessionId: session.sessionId,
+    models: models.map((model) => {
+      const stats = availability.getStats(model.id);
+      return {
+        modelId: model.id,
+        provider: model.provider,
+        available: availability.isAvailable(model.id),
+        total: stats.total,
+        failures: stats.failures,
+        failureRate: stats.failureRate,
+      };
+    }),
+  });
+  log.info("model_routing_start", {
+    requestId,
+    sessionId: session.sessionId,
+    candidates: availableModels.map((model) => model.id),
+  });
+
+  const stageEmitter = createStageEmitter(onStage);
+  const attemptWithModel = async (model) => {
+    log.info("model_routing_attempt", {
+      requestId,
+      sessionId: session.sessionId,
+      modelId: model.id,
+      provider: model.provider,
+    });
+    const provider = await providerFactory.getProvider({
+      providerId: model.provider,
+      modelId: model.id,
+    });
+    try {
+      const response = await handleMessageWithProvider({
+        provider,
+        model,
+        session,
+        content,
+        uiFilters,
+        responseFormat,
+        requestId,
+        onStage: stageEmitter,
+      });
+      log.info("model_routing_success", {
+        requestId,
+        sessionId: session.sessionId,
+        modelId: model.id,
+        provider: model.provider,
+      });
+      return response;
+    } catch (err) {
+      log.warn("model_routing_failure", {
+        requestId,
+        sessionId: session.sessionId,
+        modelId: model.id,
+        provider: model.provider,
+        message: err?.message || String(err),
+      });
+      throw err;
+    }
+  };
+
+  try {
+    return await router.route(attemptWithModel);
+  } catch (err) {
+    const message = err?.message || String(err);
+    log.error("message_failed", {
+      requestId,
+      sessionId: session.sessionId,
+      message,
+      stack: err?.stack,
+    });
+    throw err;
+  } finally {
+    session.busy = false;
+  }
+}
+
+function mapMessageRequestError(err) {
+  if (err?.payload && Number.isFinite(err?.status)) {
+    return { status: err.status, body: err.payload };
+  }
+  if (Number.isFinite(err?.status) && err?.detail) {
+    return { status: err.status, body: { detail: err.detail } };
+  }
+
+  const message = err?.message || String(err);
+  if (err?.code === "service_unavailable") {
+    return { status: 503, body: { detail: "service_unavailable" } };
+  }
+  if (Number.isFinite(err?.status) && err.status >= 400 && err.status < 500) {
+    return { status: err.status, body: { detail: "client_error" } };
+  }
+  if (message.includes("External API")) {
+    return { status: 502, body: { detail: "tool_backend_error" } };
+  }
+  if (message.includes("OpenAI")) {
+    return { status: 503, body: { detail: "provider_unavailable" } };
+  }
+  if (
+    message.includes("Service Unavailable") ||
+    message.includes("UNAVAILABLE") ||
+    message.includes("model is currently experiencing high demand")
+  ) {
+    return { status: 503, body: { detail: "model_temporarily_unavailable" } };
+  }
+  if (message.includes("tool_call_budget_exceeded")) {
+    return { status: 429, body: { detail: "tool_call_budget_exceeded" } };
+  }
+  return { status: 500, body: { detail: "message_failed" } };
+}
+
 function resolveSessionTokenLimit() {
   const raw = process.env.LLM_SESSION_TOKEN_LIMIT;
   if (raw !== undefined && raw !== null && String(raw).trim() !== "") {
@@ -346,7 +440,31 @@ function resolveSessionTokenLimit() {
   return 0;
 }
 
-async function handleMessageWithProvider({ provider, model, session, content, uiFilters, requestId }) {
+function createStageEmitter(onStage) {
+  if (typeof onStage !== "function") return null;
+  const emitted = new Set();
+  return (stage) => {
+    const key = String(stage || "").trim();
+    if (!key || emitted.has(key) || !CHAT_PROGRESS_STAGES[key]) return;
+    emitted.add(key);
+    onStage({ stage: key, label: CHAT_PROGRESS_STAGES[key] });
+  };
+}
+
+function writeSseEvent(res, payload) {
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+async function handleMessageWithProvider({
+  provider,
+  model,
+  session,
+  content,
+  uiFilters,
+  responseFormat,
+  requestId,
+  onStage,
+}) {
   log.info("model_prompt_root", {
     requestId,
     sessionId: session.sessionId,
@@ -354,6 +472,7 @@ async function handleMessageWithProvider({ provider, model, session, content, ui
     promptRoot: getPromptRootForModel({ modelId: model.id }),
   });
   const baseHistory = Array.isArray(session.conversationHistory) ? [...session.conversationHistory] : [];
+  onStage?.("understanding");
   let keywordResult = await runKeywordExtraction({
     provider,
     question: content,
@@ -363,6 +482,12 @@ async function handleMessageWithProvider({ provider, model, session, content, ui
     requestId,
     modelId: model.id,
   });
+  if (TEST_MODE && String(content || "").includes("FORCE_FOLLOWUP")) {
+    keywordResult = {
+      ...keywordResult,
+      is_followup: true,
+    };
+  }
 
   const normalizedUiFilters = normalizeUiFilters(uiFilters);
 
@@ -400,16 +525,19 @@ async function handleMessageWithProvider({ provider, model, session, content, ui
     session.provider = model.provider;
     session.model = model.id;
 
-    return {
+    return buildResponsePayload({
+      responseFormat,
       answer: greeting,
+      followUpQuestions: [],
       references: [],
       citations: [],
       provider: session.provider,
-      tool_trace_id: requestId,
+      requestId,
       warnings: null,
-    };
+    });
   }
 
+  onStage?.("searching");
   const workflowOutcome = await retryWorkflowOnEmptyChunks({
     initialKeywordResult: keywordResult,
     question: content,
@@ -441,6 +569,7 @@ async function handleMessageWithProvider({ provider, model, session, content, ui
   keywordResult = finalKeywordResult;
 
   const isMetadataWorkflow = workflowName === "metadata_question_v1";
+  const metadataByRealId = isMetadataWorkflow ? {} : buildChunkMetadataMap(chunks);
   const cleanedChunks = isMetadataWorkflow ? (Array.isArray(chunks) ? chunks : []) : cleanChunks(chunks);
   log.info("context_prepared", {
     requestId,
@@ -506,14 +635,16 @@ async function handleMessageWithProvider({ provider, model, session, content, ui
       conversationHistoryIds: session.conversationHistory.map((entry) => entry?.id).filter(Boolean),
     });
 
-    return {
+    return buildResponsePayload({
+      responseFormat,
       answer: answerForOutput,
+      followUpQuestions: [],
       references: [],
       citations: [],
       provider: session.provider,
-      tool_trace_id: requestId,
+      requestId,
       warnings,
-    };
+    });
   }
   if (isMetadataWorkflow) {
     log.info("metadata_context_for_llm", {
@@ -524,6 +655,7 @@ async function handleMessageWithProvider({ provider, model, session, content, ui
     });
   }
 
+  onStage?.("preparing");
   const answerPayload = await runAnswerSynthesis({
     provider,
     question: content,
@@ -538,6 +670,7 @@ async function handleMessageWithProvider({ provider, model, session, content, ui
     script: keywordResult.script,
     requestId,
     modelId: model.id,
+    responseFormat,
   });
 
   const answerRaw = String(answerPayload?.answer || "");
@@ -556,22 +689,42 @@ async function handleMessageWithProvider({ provider, model, session, content, ui
   });
   const normalizedForParsing = normalizeAnswerTextForParsing(cleanedRaw);
   const cleaned = stripCitations(normalizedForParsing);
-  const { answer, references, citations } = extractReferences(cleaned);
-  const answerForOutput = normalizeReferencesInAnswer(
-    normalizeAnswerTextForOutput(stripCitations(cleanedRaw))
-  );
-  const safeCitations = sanitizeCitations(citations);
-  log.info("answer_parsed", {
-    requestId,
-    sessionId: session.sessionId,
-    answerLength: answer.length,
-    referencesCount: references.length,
-    citationsCount: safeCitations.length,
-  });
 
   const hashedChunkIds = extractChunkIds(hashedChunks);
   const scoring = Array.isArray(answerPayload?.scoring) ? answerPayload.scoring : [];
   const scoredChunks = buildScoredChunks(scoring, hashedChunkIds);
+
+  let answerForOutput;
+  let followUpQuestions = [];
+  let safeReferences = [];
+  let safeCitations = [];
+
+  if (responseFormat === "structured") {
+    const { answer: answerWithoutFollowUps, followUpQuestions: extractedFollowUps } = extractFollowUpQuestionsFromAnswer(cleaned);
+    followUpQuestions = sanitizeFollowUpQuestions(extractedFollowUps);
+    const { answer: answerClean, references, citations } = extractReferences(answerWithoutFollowUps);
+    const structured = buildStructuredReferencesFromMetadata({
+      scoredChunks,
+      parsedReferencesCount: references.length,
+      hashToRealId: session.chunkIdMap,
+      metadataByRealId,
+      language: keywordResult.language,
+    });
+    safeReferences = sanitizeReferences(structured.references.length ? structured.references : references);
+    safeCitations = sanitizeCitations(structured.citations.length ? structured.citations : citations);
+    answerForOutput = normalizeAnswerTextForOutput(answerClean);
+  } else {
+    // combined: keep answer as-is (follow-ups and references remain embedded in answer text)
+    answerForOutput = normalizeAnswerTextForOutput(cleaned);
+  }
+
+  log.info("answer_parsed", {
+    requestId,
+    sessionId: session.sessionId,
+    answerLength: answerForOutput.length,
+    referencesCount: safeReferences.length,
+    citationsCount: safeCitations.length,
+  });
 
   const updatedHistory = [
     ...workingHistory,
@@ -599,15 +752,16 @@ async function handleMessageWithProvider({ provider, model, session, content, ui
     conversationHistoryIds: session.conversationHistory.map((entry) => entry?.id).filter(Boolean),
   });
 
-  const safeReferences = sanitizeReferences(references);
-  return {
+  return buildResponsePayload({
+    responseFormat,
     answer: answerForOutput,
+    followUpQuestions,
     references: safeReferences,
     citations: safeCitations,
     provider: session.provider,
-    tool_trace_id: requestId,
+    requestId,
     warnings: warnings.length ? warnings : null,
-  };
+  });
 }
 
 function scheduleHistorySummary({ provider, session, requestId }) {
@@ -688,20 +842,89 @@ function sanitizeString(value) {
   return str ? str : undefined;
 }
 
-function sanitizeNumber(value) {
-  if (value === undefined || value === null || value === "") return undefined;
-  const num = Number(value);
-  return Number.isFinite(num) ? num : undefined;
+function sanitizeContentType(value) {
+  const normalized = sanitizeAllowedContentTypes(value, { fallbackToDefault: false });
+  return normalized.length ? normalized : undefined;
 }
 
-function sanitizeContentType(value) {
-  const valid = ["Granth", "Books"];
-  if (Array.isArray(value)) {
-    const filtered = value.filter((v) => valid.includes(v));
-    return filtered.length ? filtered : undefined;
+function normalizeResponseFormat(value, { fallback = DEFAULT_RESPONSE_FORMAT } = {}) {
+  const raw = value === undefined || value === null || String(value).trim() === "" ? fallback : value;
+  const normalized = String(raw || "").trim().toLowerCase();
+  if (normalized === "structured") return "structured";
+  if (normalized === "combined" || normalized === "compact") return "combined";
+  return null;
+}
+
+function buildResponsePayload({
+  responseFormat,
+  answer,
+  followUpQuestions,
+  references,
+  citations,
+  provider,
+  requestId,
+  warnings,
+}) {
+  const payload = {
+    answer,
+    provider,
+    tool_trace_id: requestId,
+    warnings,
+  };
+  if (responseFormat === "structured") {
+    payload.follow_up_questions = Array.isArray(followUpQuestions) ? followUpQuestions : [];
+    payload.references = references;
+    payload.citations = citations;
   }
-  if (typeof value === "string" && valid.includes(value)) return [value];
-  return undefined;
+  return payload;
+}
+
+function buildChunkMetadataMap(chunks) {
+  if (!Array.isArray(chunks)) return {};
+  const map = {};
+  for (const chunk of chunks) {
+    const metadata = toChunkMetadataRecord(chunk);
+    if (!metadata.chunk_id) continue;
+    map[metadata.chunk_id] = metadata;
+  }
+  return map;
+}
+
+function toChunkMetadataRecord(chunk) {
+  if (!chunk || typeof chunk !== "object") return {};
+  const metadata = chunk.metadata && typeof chunk.metadata === "object" ? chunk.metadata : {};
+  return {
+    chunk_id: chunk.chunk_id || metadata.chunk_id || "",
+    category: chunk.category || metadata.category || "",
+    granth: chunk.granth || metadata.granth || "",
+    author: chunk.author || metadata.author || "",
+    anuyog: chunk.anuyog || metadata.anuyog || "",
+    language: chunk.language || metadata.language || "",
+    date: chunk.date || metadata.date || "",
+    pravachan_number: chunk.pravachan_number || metadata.pravachan_number || "",
+    series: chunk.series || metadata.series || "",
+    series_number: chunk.series_number || metadata.series_number || "",
+    gatha: chunk.gatha || metadata.gatha || "",
+    kalash: chunk.kalash || metadata.kalash || "",
+    shlok: chunk.shlok || metadata.shlok || "",
+    dohra: chunk.dohra || metadata.dohra || "",
+    volume: chunk.volume ?? metadata.volume ?? null,
+    series_start_date: chunk.series_start_date || metadata.series_start_date || "",
+    series_end_date: chunk.series_end_date || metadata.series_end_date || "",
+    page_number: chunk.page_number ?? metadata.page_number ?? null,
+    file_url: chunk.file_url || metadata.file_url || "",
+    pravachankar: normalizePravachankar(chunk, metadata),
+  };
+}
+
+function normalizePravachankar(chunk, metadata) {
+  return (
+    chunk?.pravachankar ||
+    metadata?.pravachankar ||
+    chunk?.Pravachankar ||
+    metadata?.Pravachankar ||
+    ""
+  );
 }
 
 export function buildHashedChunksForTest(chunks, session) {

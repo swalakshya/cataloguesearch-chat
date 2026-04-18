@@ -7,7 +7,7 @@ export class ExternalApiClient {
   }
 
   async search(payload, requestId) {
-    return this.#post("/api/agent/search", { ...payload, content_type: ["Books", "Granth"] }, requestId);
+    return this.#post("/api/agent/search", payload, requestId);
   }
 
   async navigate(payload, requestId) {

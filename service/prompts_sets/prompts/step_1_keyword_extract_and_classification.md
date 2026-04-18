@@ -88,7 +88,7 @@ Examples:
    ```
    "filters": {
     "granth": "Samaysaar", #must be in english always
-    "content_type": ["Granth", "Books"] #default
+    "content_type": <DEFAULT_CONTENT_TYPES_JSON> #default
    }
    ```
 
@@ -132,7 +132,7 @@ Now, the further steps will be dependent on whether is_followup is true or not.
   - atleast any one of the relevant (workflow-specific) field populated for extracted keywords (`keywords/followup_keywords/queries or main_query etc.`)
 - - Keywords must be in Hindi and in Devanagari. Simple keywords for verbs. Keep nouns intact. Don't add multiple keywords for same word. All the other fields and their values in the output JSON will be only in English including filters, content_type etc.
 - `language` must reflect the user question language, not the prompt language: "hi", or "en".
-- `content_type` must be an array of strings: ["Granth"] or ["Books"] or ["Granth", "Books"] (default).
+- `content_type` must be an array of strings using only these allowed values: <ALLOWED_CONTENT_TYPES_OR>. Use <DEFAULT_CONTENT_TYPES_JSON> as the default.
 - Do not invent filters that are not explicitly requested.
 
 ## Output JSON examples (by workflow shapes)
@@ -144,7 +144,7 @@ Now, the further steps will be dependent on whether is_followup is true or not.
   "script": "devanagari",
   "filters": { skip if metadata_question_v1
     "granth": "Samaysaar",
-    "content_type": ["Granth", "Books"]
+    "content_type": <DEFAULT_CONTENT_TYPES_JSON>
   }
 }
 ```
@@ -219,7 +219,7 @@ Now, the further steps will be dependent on whether is_followup is true or not.
     "granth": "<optional>",
     "anuyog": "<optional>",
     "contributor": "<optional>",
-    "content_type": ["<optional: array of Granth|Books>"]
+    "content_type": ["<optional: array of <ALLOWED_CONTENT_TYPES_PIPE>>"]
   },
   "queries": [
     { "id": "<string>", "keywords": ["..."] },

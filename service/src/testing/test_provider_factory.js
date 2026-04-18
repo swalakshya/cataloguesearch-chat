@@ -64,7 +64,14 @@ class TestProvider {
     if (system.includes("you map filter values")) {
       return JSON.stringify({ granth: "", anuyog: "", contributor: "" });
     }
-    return JSON.stringify({ answer: "test-answer", scoring: [] });
+    const userContent = String(messages?.[1]?.content || "");
+    if (userContent.includes('"follow_up_questions"')) {
+      return JSON.stringify({ answer: "test-answer", follow_up_questions: ["q1", "q2"], scoring: [] });
+    }
+    return JSON.stringify({
+      answer: "test-answer\n\n_If you want I can answer this in detail or I can also answer -_\n- q1\n- q2",
+      scoring: [],
+    });
   }
 
   async completeText({ messages }) {

@@ -1,4 +1,5 @@
 import { getWorkflowConfig } from "../../config/workflow_config.js";
+import { normalizeContentTypes } from "../../config/content_types.js";
 
 export async function runFollowupQuestion({ externalApi, params, requestId, toolBudget, modelId }) {
   const results = [];
@@ -12,7 +13,7 @@ export async function runFollowupQuestion({ externalApi, params, requestId, tool
   const searchPayload = (keywords) => ({
     query: buildQuery(keywords),
     language,
-    content_type: filters.content_type || ["Granth", "Books"],
+    content_type: normalizeContentTypes(filters.content_type),
     anuyog: filters.anuyog || null,
     granth: filters.granth || null,
     contributor: filters.contributor || null,

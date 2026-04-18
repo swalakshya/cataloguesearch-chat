@@ -1,7 +1,13 @@
 export function buildTestExternalApiClient() {
   return {
     async search() {
-      return [{ id: "c1", t: "stub context", file_url: "http://example.com/f1" }];
+      return [{
+        chunk_id: "test-chunk-1",
+        text_content: "stub context",
+        granth: "Test Granth",
+        page_number: 1,
+        file_url: "http://example.com/f1",
+      }];
     },
     async navigate() {
       return [];

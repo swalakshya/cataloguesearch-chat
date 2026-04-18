@@ -3,6 +3,48 @@ import assert from "node:assert/strict";
 
 import { runWorkflow } from "../../src/orchestrator/workflow_router.js";
 
+test("runWorkflow uses env default content types for search", async () => {
+  const originalDefaults = process.env.LLM_DEFAULT_CONTENT_TYPES;
+  const calls = [];
+  const externalApi = {
+    getFilterOptions: async (payload) => {
+      calls.push({ type: "filter", payload });
+      return { granths: [], anuyogs: [], contributors: [] };
+    },
+    search: async (payload) => {
+      calls.push({ type: "search", payload });
+      return [];
+    },
+  };
+
+  process.env.LLM_DEFAULT_CONTENT_TYPES = "Pravachan,Granth";
+
+  try {
+    await runWorkflow({
+      externalApi,
+      keywordResult: {
+        workflow: "basic_question_v1",
+        language: "hi",
+        keywords: ["आत्मा"],
+        filters: {},
+      },
+      requestId: "r1",
+      modelId: "gemini-2.5-flash",
+    });
+  } finally {
+    if (originalDefaults === undefined) {
+      delete process.env.LLM_DEFAULT_CONTENT_TYPES;
+    } else {
+      process.env.LLM_DEFAULT_CONTENT_TYPES = originalDefaults;
+    }
+  }
+
+  const filterCalls = calls.filter((c) => c.type === "filter");
+  const searchCall = calls.find((c) => c.type === "search");
+  assert.equal(filterCalls.length, 0);
+  assert.deepEqual(searchCall.payload.content_type, ["Pravachan", "Granth"]);
+});
+
 test("runWorkflow throws for unknown workflow", async () => {
   await assert.rejects(
     () =>
@@ -53,6 +95,7 @@ test("runWorkflow resolves filters via external API", async () => {
 });
 
 test("runWorkflow skips filter options when only default content_type", async () => {
+  const originalDefaults = process.env.LLM_DEFAULT_CONTENT_TYPES;
   const calls = [];
   const externalApi = {
     getFilterOptions: async (payload) => {
@@ -65,17 +108,27 @@ test("runWorkflow skips filter options when only default content_type", async ()
     },
   };
 
-  await runWorkflow({
-    externalApi,
-    keywordResult: {
-      workflow: "basic_question_v1",
-      language: "hi",
-      keywords: ["आत्मा"],
-      filters: { content_type: ["Granth", "Books"] },
-    },
-    requestId: "r1",
-    modelId: "gemini-2.5-flash",
-  });
+  process.env.LLM_DEFAULT_CONTENT_TYPES = "Pravachan,Granth";
+
+  try {
+    await runWorkflow({
+      externalApi,
+      keywordResult: {
+        workflow: "basic_question_v1",
+        language: "hi",
+        keywords: ["आत्मा"],
+        filters: { content_type: ["Pravachan", "Granth"] },
+      },
+      requestId: "r1",
+      modelId: "gemini-2.5-flash",
+    });
+  } finally {
+    if (originalDefaults === undefined) {
+      delete process.env.LLM_DEFAULT_CONTENT_TYPES;
+    } else {
+      process.env.LLM_DEFAULT_CONTENT_TYPES = originalDefaults;
+    }
+  }
 
   const filterCalls = calls.filter((c) => c.type === "filter");
   assert.equal(filterCalls.length, 0);

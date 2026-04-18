@@ -27,7 +27,7 @@ export const KEYWORD_EXTRACTION_SCHEMA = {
         granth: { type: "string" },
         anuyog: { type: "string" },
         contributor: { type: "string" },
-        content_type: { type: "array", items: { type: "string", enum: ["Granth", "Books"] } },
+        content_type: { type: "array", items: { type: "string" } },
       },
       additionalProperties: false,
     },

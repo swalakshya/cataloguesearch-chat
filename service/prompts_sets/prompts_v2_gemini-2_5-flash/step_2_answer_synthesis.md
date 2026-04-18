@@ -35,7 +35,7 @@ Follow-up section:
 
 References section:
 - Heading "References"
-- Numbered list: "1. GranthName, Page N, file_url/N" (page no. N appended in the file_url from Context)
+- Numbered list: "1. source, Page N, file_url + "/" + N" (N is page_number) (e.g. https://ab.com/64) 
 - Translate granth name/page text to answer language (links stay as-is)
 
 ---
@@ -72,7 +72,7 @@ Return `NO_ANSWER` as the value of the `answer` field.
 - id: chunk_id
 - u: file_url
 - p: page_number
-- g: granth
+- g: source
 - a: author
 - t: text_content
 

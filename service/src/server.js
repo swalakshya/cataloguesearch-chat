@@ -1,8 +1,11 @@
+import { fileURLToPath } from "node:url";
+import fs from "node:fs";
 import express from "express";
 import cors from "cors";
 import crypto from "crypto";
 
 import { SessionRegistry } from "./sessions/registry.js";
+import { SessionStore } from "./sessions/session_store.js";
 import { ProviderFactory } from "./providers/provider_factory.js";
 import { ExternalApiClient } from "./agent_api/client.js";
 import { runKeywordExtraction } from "./orchestrator/keyword_extract.js";
@@ -49,349 +52,838 @@ import {
 import { buildTestExternalApiClient } from "./testing/test_external_api.js";
 import { getPromptRootForTest, resetPromptRootsForTest } from "./testing/test_prompt_roots.js";
 
-const app = express();
-app.use(cors());
-app.use(express.json({ limit: "1mb" }));
+export function createServer(options = {}) {
+  const configuredPort = Number(options.port ?? process.env.LLM_SERVICE_PORT ?? 8012);
+  const configuredHost = options.host ?? "0.0.0.0";
+  const sessionIdleMs = Number(options.sessionIdleMs ?? process.env.LLM_SESSION_IDLE_TIMEOUT_SEC ?? 900) * 1000;
+  const defaultProvider = "auto";
+  const defaultModel = null;
+  const testMode = options.testMode ?? readBooleanEnv("TEST_MODE");
+  const cleanSessionDb = options.cleanSessionDb ?? readBooleanEnv("CLEAN_SESSION_DB");
+  const externalApiBaseUrl = options.externalApiBaseUrl ?? process.env.EXTERNAL_API_BASE_URL ?? "http://localhost:8000";
+  const externalApiTimeoutMs =
+    Number(options.externalApiTimeoutMs ?? process.env.EXTERNAL_API_TIMEOUT_SEC ?? 60) * 1000;
+  const sessionTokenLimitThreshold = Number(
+    options.sessionTokenLimitThreshold ?? process.env.LLM_SESSION_TOKEN_LIMIT_THRESHOLD ?? 0.8
+  );
+  const sessionDbPath = String(options.sessionDbPath ?? process.env.SESSION_DB_PATH ?? "").trim();
+  const defaultResponseFormat =
+    normalizeResponseFormat(options.defaultResponseFormat ?? process.env.DEFAULT_ANSWER_FORMAT, { fallback: "combined" });
 
-const PORT = Number(process.env.LLM_SERVICE_PORT || 8012);
-const SESSION_IDLE_MS = Number(process.env.LLM_SESSION_IDLE_TIMEOUT_SEC || 900) * 1000;
+  const app = express();
+  app.use(cors());
+  app.use(express.json({ limit: "1mb" }));
 
-const DEFAULT_PROVIDER = "auto";
-const DEFAULT_MODEL = null;
-const DEFAULT_RESPONSE_FORMAT =
-  normalizeResponseFormat(process.env.DEFAULT_ANSWER_FORMAT, { fallback: "combined" });
-const TEST_MODE = String(process.env.TEST_MODE || "").toLowerCase() === "true";
-
-const EXTERNAL_API_BASE_URL = process.env.EXTERNAL_API_BASE_URL || "http://localhost:8000";
-const EXTERNAL_API_TIMEOUT_MS = Number(process.env.EXTERNAL_API_TIMEOUT_SEC || 60) * 1000;
-const SESSION_TOKEN_LIMIT = resolveSessionTokenLimit();
-const SESSION_TOKEN_LIMIT_THRESHOLD = Number(process.env.LLM_SESSION_TOKEN_LIMIT_THRESHOLD || 0.8);
-
-const models = getOrderedModels();
-const availability = new ModelAvailabilityTracker({
-  windowMs: MODEL_ROUTING_CONFIG.windowMs,
-  failureRateThreshold: MODEL_ROUTING_CONFIG.failureRateThreshold,
-  minSamples: MODEL_ROUTING_CONFIG.minSamples,
-});
-const router = new ModelRouter({ models, tracker: availability, logger: log });
-const providerFactory = TEST_MODE ? buildTestProviderFactory() : new ProviderFactory();
-const externalApi = TEST_MODE
-  ? buildTestExternalApiClient()
-  : new ExternalApiClient({
-      baseUrl: EXTERNAL_API_BASE_URL,
-      timeoutMs: EXTERNAL_API_TIMEOUT_MS,
-    });
-
-const registry = new SessionRegistry(SESSION_IDLE_MS);
-
-const CHAT_PROGRESS_STAGES = {
-  understanding: "Understanding your question",
-  searching: "Searching through our scriptures",
-  preparing: "Preparing answer",
-};
-
-log.info("service_start", {
-  port: PORT,
-  provider: DEFAULT_PROVIDER,
-  model: DEFAULT_MODEL,
-  models: models.map((model) => ({ id: model.id, provider: model.provider, priority: model.priority })),
-  externalApi: EXTERNAL_API_BASE_URL,
-  externalTimeoutMs: EXTERNAL_API_TIMEOUT_MS,
-});
-
-app.get("/v1/health", (_, res) => {
-  res.json({ status: "ok" });
-});
-
-if (TEST_MODE) {
-  app.post("/v1/test/reset", (req, res) => {
-    availability.reset();
-    resetTestProviderStats();
-    resetPromptRootsForTest();
-    setTestProviderBehavior({});
-    res.json({ status: "ok" });
+  const models = getOrderedModels();
+  const availability = new ModelAvailabilityTracker({
+    windowMs: MODEL_ROUTING_CONFIG.windowMs,
+    failureRateThreshold: MODEL_ROUTING_CONFIG.failureRateThreshold,
+    minSamples: MODEL_ROUTING_CONFIG.minSamples,
   });
-
-  app.post("/v1/test/provider-behavior", (req, res) => {
-    setTestProviderBehavior(req.body?.behaviors || {});
-    res.json({ status: "ok" });
-  });
-
-  app.get("/v1/test/provider-stats", (req, res) => {
-    res.json({ calls: getTestProviderStats() });
-  });
-
-  app.get("/v1/test/prompt-root", (req, res) => {
-    const requestId = String(req.query?.request_id || "");
-    if (!requestId) return res.status(400).json({ detail: "request_id_required" });
-    const entry = getPromptRootForTest(requestId);
-    if (!entry) return res.status(404).json({ detail: "prompt_root_not_found" });
-    res.json({
-      request_id: entry.requestId,
-      model_id: entry.modelId,
-      prompt_root: entry.promptRoot,
-    });
-  });
-
-  app.get("/v1/test/session/:sessionId/history", (req, res) => {
-    const session = registry.get(req.params.sessionId);
-    if (!session) return res.status(404).json({ detail: "session_not_found" });
-    res.json({ history: session.conversationHistory || [] });
-  });
-}
-
-app.post("/v1/chat/sessions", async (req, res) => {
-  const { provider: providerId, language } = req.body || {};
-  const requestedProvider = providerId ? String(providerId).toLowerCase() : "auto";
-  if (requestedProvider !== "auto") {
-    return res.status(400).json({ detail: "provider_not_supported" });
-  }
-
-  try {
-    const sessionId = crypto.randomUUID();
-    registry.create({
-      sessionId,
-      provider: "auto",
-      providerSessionId: null,
-      language: language || "hi",
-      model: null,
-      createdAt: Date.now(),
-      lastActivityAt: Date.now(),
-      messages: [],
-      tokenCount: 0,
-      chunkIdMap: {},
-      chunkIdReverseMap: {},
-      chunkIdCounter: 0,
-      conversationHistory: [],
-      busy: false,
-    });
-
-    log.info("session_create_success", {
-      sessionId,
-      provider: "auto",
-      model: null,
-      providerSessionId: null,
-    });
-
-    res.json({ session_id: sessionId, provider: "auto" });
-  } catch (err) {
-    log.error("session_create_failed", {
-      message: err?.message || String(err),
-      stack: err?.stack,
-    });
-    res.status(500).json({ detail: "session_create_failed" });
-  }
-});
-
-app.post("/v1/chat/sessions/:sessionId/messages", async (req, res) => {
-  try {
-    const responsePayload = await executeMessageRequest({
-      sessionId: req.params.sessionId,
-      body: req.body,
-    });
-    res.json(responsePayload);
-  } catch (err) {
-    const mapped = mapMessageRequestError(err);
-    res.status(mapped.status).json(mapped.body);
-  }
-});
-
-app.post("/v1/chat/sessions/:sessionId/messages/stream", async (req, res) => {
-  const responseFormat = normalizeResponseFormat(req.body?.response_format);
-  if (responseFormat !== "structured") {
-    return res.status(400).json({ detail: "invalid_response_format" });
-  }
-
-  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  res.setHeader("X-Accel-Buffering", "no");
-  if (typeof res.flushHeaders === "function") res.flushHeaders();
-
-  try {
-    const responsePayload = await executeMessageRequest({
-      sessionId: req.params.sessionId,
-      body: req.body,
-      onStage: (event) => {
-        if (!res.writableEnded) writeSseEvent(res, { type: "stage", ...event });
-      },
-    });
-    if (!res.writableEnded) {
-      writeSseEvent(res, { type: "final", data: responsePayload });
-      res.end();
-    }
-  } catch (err) {
-    const mapped = mapMessageRequestError(err);
-    if (!res.writableEnded) {
-      writeSseEvent(res, { type: "error", status: mapped.status, detail: mapped.body?.detail || "message_failed" });
-      res.end();
-    }
-  }
-});
-
-app.get("/v1/chat/sessions/:sessionId", (req, res) => {
-  const session = registry.get(req.params.sessionId);
-  if (!session) {
-    return res.status(404).json({ detail: "session_not_found" });
-  }
-  res.json({
-    session_id: session.sessionId,
-    provider: session.provider,
-    language: session.language,
-    created_at: session.createdAt / 1000,
-    last_activity_at: session.lastActivityAt / 1000,
-    messages: session.messages,
-  });
-});
-
-app.delete("/v1/chat/sessions/:sessionId", (req, res) => {
-  registry.close(req.params.sessionId);
-  res.json({ status: "closed" });
-});
-
-app.listen(PORT, () => {
-  log.info("server_listen", { port: PORT, provider: DEFAULT_PROVIDER, model: DEFAULT_MODEL });
-});
-
-async function executeMessageRequest({ sessionId, body, onStage } = {}) {
-  const session = registry.get(sessionId);
-  if (!session) {
-    log.warn("message_session_not_found", { sessionId });
-    const err = new Error("session_not_found");
-    err.status = 404;
-    err.detail = "session_not_found";
-    throw err;
-  }
-  if (session.busy) {
-    log.warn("message_session_busy", { sessionId });
-    const err = new Error("session_busy");
-    err.status = 409;
-    err.detail = "session_busy";
-    throw err;
-  }
-
-  const { role, content, filters: uiFilters } = body || {};
-  const responseFormat = normalizeResponseFormat(body?.response_format);
-  if (role !== "user" || !content) {
-    log.warn("message_invalid", { sessionId });
-    const err = new Error("invalid_message");
-    err.status = 400;
-    err.detail = "invalid_message";
-    throw err;
-  }
-  if (!responseFormat) {
-    log.warn("message_invalid_response_format", {
-      sessionId,
-      responseFormat: body?.response_format,
-    });
-    const err = new Error("invalid_response_format");
-    err.status = 400;
-    err.detail = "invalid_response_format";
-    throw err;
-  }
-
-  if (
-    shouldRejectForTokenLimit({
-      currentTokens: session.tokenCount || 0,
-      incomingText: content,
-      limit: SESSION_TOKEN_LIMIT,
-      threshold: SESSION_TOKEN_LIMIT_THRESHOLD,
-    })
-  ) {
-    log.warn("session_token_limit_reached", { sessionId: session.sessionId, tokenCount: session.tokenCount });
-    const err = new Error("token_limit_exhausted");
-    err.status = 429;
-    err.payload = {
-      detail: "Token Limit Exhausted for the session. Please initiate a new session.",
-      customer_message: "Please start a new chat for better answer accuracy.",
-    };
-    throw err;
-  }
-
-  session.busy = true;
-  session.lastActivityAt = Date.now();
-  session.messages.push({ role: "user", content });
-  session.tokenCount = (session.tokenCount || 0) + estimateTokens(content);
-
-  const requestId = crypto.randomUUID();
-  const availableModels = router.getAvailableModels();
-  log.info("model_availability_status", {
-    requestId,
-    sessionId: session.sessionId,
-    models: models.map((model) => {
-      const stats = availability.getStats(model.id);
-      return {
-        modelId: model.id,
-        provider: model.provider,
-        available: availability.isAvailable(model.id),
-        total: stats.total,
-        failures: stats.failures,
-        failureRate: stats.failureRate,
-      };
-    }),
-  });
-  log.info("model_routing_start", {
-    requestId,
-    sessionId: session.sessionId,
-    candidates: availableModels.map((model) => model.id),
-  });
-
-  const stageEmitter = createStageEmitter(onStage);
-  const attemptWithModel = async (model) => {
-    log.info("model_routing_attempt", {
-      requestId,
-      sessionId: session.sessionId,
-      modelId: model.id,
-      provider: model.provider,
-    });
-    const provider = await providerFactory.getProvider({
-      providerId: model.provider,
-      modelId: model.id,
-    });
-    try {
-      const response = await handleMessageWithProvider({
-        provider,
-        model,
-        session,
-        content,
-        uiFilters,
-        responseFormat,
-        requestId,
-        onStage: stageEmitter,
+  const router = new ModelRouter({ models, tracker: availability, logger: log });
+  const providerFactory = testMode ? buildTestProviderFactory() : new ProviderFactory();
+  const externalApi = testMode
+    ? buildTestExternalApiClient()
+    : new ExternalApiClient({
+        baseUrl: externalApiBaseUrl,
+        timeoutMs: externalApiTimeoutMs,
       });
-      log.info("model_routing_success", {
-        requestId,
-        sessionId: session.sessionId,
-        modelId: model.id,
-        provider: model.provider,
-      });
-      return response;
-    } catch (err) {
-      log.warn("model_routing_failure", {
-        requestId,
-        sessionId: session.sessionId,
-        modelId: model.id,
-        provider: model.provider,
-        message: err?.message || String(err),
-      });
-      throw err;
-    }
+
+  cleanSessionDbForTest({
+    enabled: testMode && cleanSessionDb,
+    dbPath: sessionDbPath,
+  });
+
+  const sessionStore = sessionDbPath ? new SessionStore(sessionDbPath) : null;
+  const registry = new SessionRegistry(sessionIdleMs, sessionStore);
+  const sessionTokenLimit = resolveSessionTokenLimit({
+    explicitLimit: options.sessionTokenLimit,
+    defaultProvider,
+    defaultModel,
+  });
+
+  const CHAT_PROGRESS_STAGES = {
+    understanding: "Understanding your question",
+    searching: "Searching through our scriptures",
+    preparing: "Preparing answer",
   };
 
-  try {
-    return await router.route(attemptWithModel);
-  } catch (err) {
-    const message = err?.message || String(err);
-    log.error("message_failed", {
+  let httpServer = null;
+  let stopped = false;
+
+  log.info("service_start", {
+    port: configuredPort,
+    provider: defaultProvider,
+    model: defaultModel,
+    models: models.map((model) => ({ id: model.id, provider: model.provider, priority: model.priority })),
+    externalApi: externalApiBaseUrl,
+    externalTimeoutMs: externalApiTimeoutMs,
+    sessionDbPath: sessionDbPath || null,
+    cleanSessionDb: testMode && cleanSessionDb,
+  });
+
+  app.get("/v1/health", (_, res) => {
+    res.json({ status: "ok" });
+  });
+
+  if (testMode) {
+    app.post("/v1/test/reset", (req, res) => {
+      availability.reset();
+      resetTestProviderStats();
+      resetPromptRootsForTest();
+      setTestProviderBehavior({});
+      registry.clear();
+      sessionStore?.clear();
+      res.json({ status: "ok" });
+    });
+
+    app.post("/v1/test/provider-behavior", (req, res) => {
+      setTestProviderBehavior(req.body?.behaviors || {});
+      res.json({ status: "ok" });
+    });
+
+    app.get("/v1/test/provider-stats", (req, res) => {
+      res.json({ calls: getTestProviderStats() });
+    });
+
+    app.get("/v1/test/prompt-root", (req, res) => {
+      const requestId = String(req.query?.request_id || "");
+      if (!requestId) return res.status(400).json({ detail: "request_id_required" });
+      const entry = getPromptRootForTest(requestId);
+      if (!entry) return res.status(404).json({ detail: "prompt_root_not_found" });
+      res.json({
+        request_id: entry.requestId,
+        model_id: entry.modelId,
+        prompt_root: entry.promptRoot,
+      });
+    });
+
+    app.get("/v1/test/session/:sessionId/history", (req, res) => {
+      const session = registry.get(req.params.sessionId);
+      if (!session) return res.status(404).json({ detail: "session_not_found" });
+      res.json({ history: session.conversationHistory || [] });
+    });
+
+    app.get("/v1/test/sessions/in-memory", (req, res) => {
+      res.json({ session_ids: registry.listSessionIds() });
+    });
+
+    app.post("/v1/test/sessions/evict", (req, res) => {
+      const sessionIds = Array.isArray(req.body?.session_ids) ? req.body.session_ids : [];
+      const evicted = [];
+      for (const rawId of sessionIds) {
+        const sessionId = String(rawId || "").trim();
+        if (!sessionId) continue;
+        if (!registry.sessions.has(sessionId)) continue;
+        registry.evict(sessionId);
+        evicted.push(sessionId);
+      }
+      res.json({
+        evicted_session_ids: evicted,
+        remaining_session_ids: registry.listSessionIds(),
+      });
+    });
+  }
+
+  app.post("/v1/chat/sessions", async (req, res) => {
+    const { provider: providerId, language, user_id } = req.body || {};
+    const requestedProvider = providerId ? String(providerId).toLowerCase() : "auto";
+    if (requestedProvider !== "auto") {
+      return res.status(400).json({ detail: "provider_not_supported" });
+    }
+
+    try {
+      const sessionId = crypto.randomUUID();
+      const session = {
+        sessionId,
+        userId: user_id ? String(user_id).trim() : null,
+        provider: "auto",
+        providerSessionId: null,
+        language: language || "hi",
+        model: null,
+        createdAt: Date.now(),
+        lastActivityAt: Date.now(),
+        messages: [],
+        tokenCount: 0,
+        chunkIdMap: {},
+        chunkIdReverseMap: {},
+        chunkIdCounter: 0,
+        conversationHistory: [],
+        busy: false,
+      };
+      registry.create(session);
+
+      log.info("session_create_success", {
+        sessionId,
+        userId: session.userId ?? null,
+        provider: "auto",
+        model: null,
+        providerSessionId: null,
+      });
+
+      res.json({ session_id: sessionId, provider: "auto" });
+    } catch (err) {
+      log.error("session_create_failed", {
+        message: err?.message || String(err),
+        stack: err?.stack,
+      });
+      res.status(500).json({ detail: "session_create_failed" });
+    }
+  });
+
+  app.post("/v1/chat/sessions/:sessionId/messages", async (req, res) => {
+    try {
+      const responsePayload = await executeMessageRequest({
+        sessionId: req.params.sessionId,
+        body: req.body,
+      });
+      res.json(responsePayload);
+    } catch (err) {
+      const mapped = mapMessageRequestError(err);
+      res.status(mapped.status).json(mapped.body);
+    }
+  });
+
+  app.post("/v1/chat/sessions/:sessionId/messages/stream", async (req, res) => {
+    const responseFormat = normalizeResponseFormat(req.body?.response_format);
+    if (responseFormat !== "structured") {
+      return res.status(400).json({ detail: "invalid_response_format" });
+    }
+
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    if (typeof res.flushHeaders === "function") res.flushHeaders();
+
+    try {
+      const responsePayload = await executeMessageRequest({
+        sessionId: req.params.sessionId,
+        body: req.body,
+        onStage: (event) => {
+          if (!res.writableEnded) writeSseEvent(res, { type: "stage", ...event });
+        },
+      });
+      if (!res.writableEnded) {
+        writeSseEvent(res, { type: "final", data: responsePayload });
+        res.end();
+      }
+    } catch (err) {
+      const mapped = mapMessageRequestError(err);
+      if (!res.writableEnded) {
+        writeSseEvent(res, { type: "error", status: mapped.status, detail: mapped.body?.detail || "message_failed" });
+        res.end();
+      }
+    }
+  });
+
+  app.get("/v1/chat/sessions/:sessionId", (req, res) => {
+    const session = registry.get(req.params.sessionId);
+    if (!session) {
+      return res.status(404).json({ detail: "session_not_found" });
+    }
+    res.json({
+      session_id: session.sessionId,
+      provider: session.provider,
+      language: session.language,
+      created_at: session.createdAt / 1000,
+      last_activity_at: session.lastActivityAt / 1000,
+      messages: session.messages,
+    });
+  });
+
+  app.delete("/v1/chat/sessions/:sessionId", (req, res) => {
+    registry.close(req.params.sessionId);
+    res.json({ status: "closed" });
+  });
+
+  app.get("/v1/users/:userId/sessions", (req, res) => {
+    if (!sessionStore) {
+      return res.status(404).json({ detail: "session_persistence_not_enabled" });
+    }
+    const userId = String(req.params.userId || "").trim();
+    if (!userId) {
+      return res.status(400).json({ detail: "user_id_required" });
+    }
+    const sessions = sessionStore.listByUser(userId);
+    res.json({ sessions });
+  });
+
+  async function start({ port = configuredPort, host = configuredHost } = {}) {
+    if (stopped) {
+      throw new Error("server_stopped");
+    }
+    if (httpServer) return httpServer;
+    await new Promise((resolve, reject) => {
+      const server = app.listen(port, host, () => {
+        httpServer = server;
+        log.info("server_listen", { port, provider: defaultProvider, model: defaultModel });
+        resolve();
+      });
+      server.once("error", reject);
+    });
+    return httpServer;
+  }
+
+  async function stop() {
+    if (stopped) return;
+    stopped = true;
+    const server = httpServer;
+    httpServer = null;
+    if (server) {
+      await new Promise((resolve, reject) => {
+        server.close((err) => {
+          if (err) return reject(err);
+          resolve();
+        });
+      });
+    }
+    registry.shutdown();
+    sessionStore?.close();
+  }
+
+  function getBaseUrl() {
+    const address = httpServer?.address();
+    if (!address || typeof address === "string") return null;
+    const host = address.address === "::" ? "127.0.0.1" : address.address;
+    return `http://${host}:${address.port}`;
+  }
+
+  async function executeMessageRequest({ sessionId, body, onStage } = {}) {
+    const session = registry.get(sessionId);
+    if (!session) {
+      log.warn("message_session_not_found", { sessionId });
+      const err = new Error("session_not_found");
+      err.status = 404;
+      err.detail = "session_not_found";
+      throw err;
+    }
+    if (session.busy) {
+      log.warn("message_session_busy", { sessionId });
+      const err = new Error("session_busy");
+      err.status = 409;
+      err.detail = "session_busy";
+      throw err;
+    }
+
+    const { role, content, filters: uiFilters } = body || {};
+    const responseFormat = normalizeResponseFormat(body?.response_format, { fallback: defaultResponseFormat });
+    if (role !== "user" || !content) {
+      log.warn("message_invalid", { sessionId });
+      const err = new Error("invalid_message");
+      err.status = 400;
+      err.detail = "invalid_message";
+      throw err;
+    }
+    if (!responseFormat) {
+      log.warn("message_invalid_response_format", {
+        sessionId,
+        responseFormat: body?.response_format,
+      });
+      const err = new Error("invalid_response_format");
+      err.status = 400;
+      err.detail = "invalid_response_format";
+      throw err;
+    }
+
+    if (
+      shouldRejectForTokenLimit({
+        currentTokens: session.tokenCount || 0,
+        incomingText: content,
+        limit: sessionTokenLimit,
+        threshold: sessionTokenLimitThreshold,
+      })
+    ) {
+      log.warn("session_token_limit_reached", { sessionId: session.sessionId, tokenCount: session.tokenCount });
+      const err = new Error("token_limit_exhausted");
+      err.status = 429;
+      err.payload = {
+        detail: "Token Limit Exhausted for the session. Please initiate a new session.",
+        customer_message: "Please start a new chat for better answer accuracy.",
+      };
+      throw err;
+    }
+
+    session.busy = true;
+    session.lastActivityAt = Date.now();
+    session.messages.push({ role: "user", content });
+    session.tokenCount = (session.tokenCount || 0) + estimateTokens(content);
+
+    const requestId = crypto.randomUUID();
+    const availableModels = router.getAvailableModels();
+    log.info("model_availability_status", {
       requestId,
       sessionId: session.sessionId,
-      message,
-      stack: err?.stack,
+      models: models.map((model) => {
+        const stats = availability.getStats(model.id);
+        return {
+          modelId: model.id,
+          provider: model.provider,
+          available: availability.isAvailable(model.id),
+          total: stats.total,
+          failures: stats.failures,
+          failureRate: stats.failureRate,
+        };
+      }),
     });
-    throw err;
-  } finally {
-    session.busy = false;
+    log.info("model_routing_start", {
+      requestId,
+      sessionId: session.sessionId,
+      candidates: availableModels.map((model) => model.id),
+    });
+
+    const stageEmitter = createStageEmitter(onStage);
+    const attemptWithModel = async (model) => {
+      log.info("model_routing_attempt", {
+        requestId,
+        sessionId: session.sessionId,
+        modelId: model.id,
+        provider: model.provider,
+      });
+      const provider = await providerFactory.getProvider({
+        providerId: model.provider,
+        modelId: model.id,
+      });
+      try {
+        const response = await handleMessageWithProvider({
+          provider,
+          model,
+          session,
+          content,
+          uiFilters,
+          responseFormat,
+          requestId,
+          onStage: stageEmitter,
+        });
+        log.info("model_routing_success", {
+          requestId,
+          sessionId: session.sessionId,
+          modelId: model.id,
+          provider: model.provider,
+        });
+        return response;
+      } catch (err) {
+        log.warn("model_routing_failure", {
+          requestId,
+          sessionId: session.sessionId,
+          modelId: model.id,
+          provider: model.provider,
+          message: err?.message || String(err),
+        });
+        throw err;
+      }
+    };
+
+    try {
+      return await router.route(attemptWithModel);
+    } catch (err) {
+      const message = err?.message || String(err);
+      log.error("message_failed", {
+        requestId,
+        sessionId: session.sessionId,
+        message,
+        stack: err?.stack,
+      });
+      throw err;
+    } finally {
+      session.busy = false;
+    }
   }
+
+  function persistSession(session) {
+    registry.save(session);
+  }
+
+  async function handleMessageWithProvider({
+    provider,
+    model,
+    session,
+    content,
+    uiFilters,
+    responseFormat,
+    requestId,
+    onStage,
+  }) {
+    log.info("model_prompt_root", {
+      requestId,
+      sessionId: session.sessionId,
+      modelId: model.id,
+      promptRoot: getPromptRootForModel({ modelId: model.id }),
+    });
+    const baseHistory = Array.isArray(session.conversationHistory) ? [...session.conversationHistory] : [];
+    onStage?.("understanding");
+    let keywordResult = await runKeywordExtraction({
+      provider,
+      question: content,
+      sessionContext: {
+        conversationHistory: baseHistory,
+      },
+      requestId,
+      modelId: model.id,
+    });
+    if (testMode && String(content || "").includes("FORCE_FOLLOWUP")) {
+      keywordResult = {
+        ...keywordResult,
+        is_followup: true,
+      };
+    }
+
+    const normalizedUiFilters = normalizeUiFilters(uiFilters);
+
+    log.info("keyword_extraction_complete", {
+      requestId,
+      sessionId: session.sessionId,
+      workflow: keywordResult.workflow,
+      isFollowup: keywordResult.is_followup,
+      modelId: model.id,
+    });
+
+    const workingHistory = keywordResult.is_followup ? baseHistory : [];
+
+    if (keywordResult.workflow === "greeting_message_v1") {
+      const greeting = buildGreetingAnswer({
+        script: keywordResult.script,
+        email: process.env.GREETING_CONTACT_EMAIL,
+      });
+
+      const updatedHistory = [
+        ...workingHistory,
+        {
+          id: `set_${workingHistory.length + 1}`,
+          question: content,
+          answer: greeting,
+          chunk_ids: [],
+          chunk_scores: [],
+        },
+      ];
+
+      session.messages.push({ role: "assistant", content: greeting });
+      session.tokenCount = (session.tokenCount || 0) + estimateTokens(greeting);
+      session.lastActivityAt = Date.now();
+      session.conversationHistory = updatedHistory;
+      session.provider = model.provider;
+      session.model = model.id;
+
+      persistSession(session);
+
+      return buildResponsePayload({
+        responseFormat,
+        answer: greeting,
+        followUpQuestions: [],
+        references: [],
+        citations: [],
+        provider: session.provider,
+        requestId,
+        warnings: null,
+      });
+    }
+
+    onStage?.("searching");
+    const workflowOutcome = await retryWorkflowOnEmptyChunks({
+      initialKeywordResult: keywordResult,
+      question: content,
+      requestId,
+      provider,
+      externalApi,
+      modelId: model.id,
+      prepareKeywordResult: (result) => {
+        const prepared = { ...result };
+        if (normalizedUiFilters) {
+          prepared.filters = mergeFilters(prepared.filters, normalizedUiFilters);
+        }
+        if (prepared.is_followup && Array.isArray(prepared.expand_chunk_ids)) {
+          prepared.expand_chunk_ids = mapHashedIdsToReal(prepared.expand_chunk_ids, session);
+        }
+        return prepared;
+      },
+    });
+
+    let { workflowName, chunks, keywordResult: finalKeywordResult, keywordFixApplied } = workflowOutcome;
+    if (keywordFixApplied) {
+      log.info("keyword_fix_applied", {
+        requestId,
+        sessionId: session.sessionId,
+        workflow: finalKeywordResult.workflow,
+      });
+    }
+
+    keywordResult = finalKeywordResult;
+
+    const isMetadataWorkflow = workflowName === "metadata_question_v1";
+    const metadataByRealId = isMetadataWorkflow ? {} : buildChunkMetadataMap(chunks);
+    const cleanedChunks = isMetadataWorkflow ? (Array.isArray(chunks) ? chunks : []) : cleanChunks(chunks);
+    log.info("context_prepared", {
+      requestId,
+      sessionId: session.sessionId,
+      chunks: cleanedChunks.length,
+    });
+    const emptyTextCount = cleanedChunks.filter(
+      (chunk) => !String(chunk?.t || "").trim()
+    ).length;
+    log.info("context_sample", {
+      requestId,
+      sessionId: session.sessionId,
+      chunks_total: cleanedChunks.length,
+      chunks_empty_text: emptyTextCount,
+      sample: cleanedChunks.slice(0, 2).map((chunk) => ({
+        id: chunk?.id,
+        t: String(chunk?.t || "").slice(0, 200),
+      })),
+    });
+    const hashedChunks = isMetadataWorkflow ? cleanedChunks : buildHashedChunks(cleanedChunks, session);
+    const context = buildContext(hashedChunks);
+    const warnings = [];
+    if (!cleanedChunks.length) {
+      warnings.push("no_context_found");
+      const fallback = buildNoContextAnswer({
+        language: keywordResult.language,
+        script: keywordResult.script,
+      });
+      const answerForOutput = normalizeReferencesInAnswer(
+        normalizeAnswerTextForOutput(stripCitations(fallback))
+      );
+
+      const updatedHistory = [
+        ...workingHistory,
+        {
+          id: `set_${workingHistory.length + 1}`,
+          question: content,
+          answer: answerForOutput,
+          chunk_ids: [],
+          chunk_scores: [],
+        },
+      ];
+
+      session.messages.push({ role: "assistant", content: answerForOutput });
+      session.tokenCount = (session.tokenCount || 0) + estimateTokens(answerForOutput);
+      session.lastActivityAt = Date.now();
+      session.conversationHistory = updatedHistory;
+      session.provider = model.provider;
+      session.model = model.id;
+
+      persistSession(session);
+      scheduleHistorySummary({ provider, session, requestId });
+
+      log.info("answer_parsed", {
+        requestId,
+        sessionId: session.sessionId,
+        answerLength: answerForOutput.length,
+        referencesCount: 0,
+        citationsCount: 0,
+      });
+      log.info("conversation_history_ids", {
+        requestId,
+        sessionId: session.sessionId,
+        conversationHistoryIds: session.conversationHistory.map((entry) => entry?.id).filter(Boolean),
+      });
+
+      return buildResponsePayload({
+        responseFormat,
+        answer: answerForOutput,
+        followUpQuestions: [],
+        references: [],
+        citations: [],
+        provider: session.provider,
+        requestId,
+        warnings,
+      });
+    }
+    if (isMetadataWorkflow) {
+      log.info("metadata_context_for_llm", {
+        requestId,
+        sessionId: session.sessionId,
+        asked_info: keywordResult.asked_info || [],
+        context,
+      });
+    }
+
+    onStage?.("preparing");
+    const answerPayload = await runAnswerSynthesis({
+      provider,
+      question: content,
+      workflowName,
+      context,
+      conversationHistory: keywordResult.is_followup ? workingHistory : [],
+      followupSetIds:
+        keywordResult.is_followup && Array.isArray(keywordResult.followup_keywords)
+          ? keywordResult.followup_keywords.map((item) => item?.id).filter(Boolean)
+          : null,
+      language: keywordResult.language,
+      script: keywordResult.script,
+      requestId,
+      modelId: model.id,
+      responseFormat,
+    });
+
+    const answerRaw = String(answerPayload?.answer || "");
+    const isNoAnswer = answerRaw.trim() === "NO_ANSWER";
+    const resolvedAnswer = isNoAnswer
+      ? getNoContextTextForLocale({
+          language: keywordResult.language,
+          script: keywordResult.script,
+          isMetadata: isMetadataWorkflow,
+        })
+      : answerRaw;
+    const cleanedRaw = cleanAnswerText({
+      text: resolvedAnswer,
+      language: keywordResult.language,
+      script: keywordResult.script,
+    });
+    const normalizedForParsing = normalizeAnswerTextForParsing(cleanedRaw);
+    const cleaned = stripCitations(normalizedForParsing);
+
+    const hashedChunkIds = extractChunkIds(hashedChunks);
+    const scoring = Array.isArray(answerPayload?.scoring) ? answerPayload.scoring : [];
+    const scoredChunks = buildScoredChunks(scoring, hashedChunkIds);
+
+    let answerForOutput;
+    let followUpQuestions = [];
+    let safeReferences = [];
+    let safeCitations = [];
+
+    if (responseFormat === "structured") {
+      const { answer: answerWithoutFollowUps, followUpQuestions: extractedFollowUps } = extractFollowUpQuestionsFromAnswer(cleaned);
+      followUpQuestions = sanitizeFollowUpQuestions(extractedFollowUps);
+      const { answer: answerClean, references, citations } = extractReferences(answerWithoutFollowUps);
+      const structured = buildStructuredReferencesFromMetadata({
+        scoredChunks,
+        parsedReferencesCount: references.length,
+        hashToRealId: session.chunkIdMap,
+        metadataByRealId,
+        language: keywordResult.language,
+      });
+      safeReferences = sanitizeReferences(structured.references.length ? structured.references : references);
+      safeCitations = sanitizeCitations(structured.citations.length ? structured.citations : citations);
+      answerForOutput = normalizeAnswerTextForOutput(answerClean);
+    } else {
+      // combined: keep answer as-is (follow-ups and references remain embedded in answer text)
+      answerForOutput = normalizeAnswerTextForOutput(cleaned);
+    }
+
+    log.info("answer_parsed", {
+      requestId,
+      sessionId: session.sessionId,
+      answerLength: answerForOutput.length,
+      referencesCount: safeReferences.length,
+      citationsCount: safeCitations.length,
+    });
+
+    const updatedHistory = [
+      ...workingHistory,
+      {
+        id: `set_${workingHistory.length + 1}`,
+        question: content,
+        answer: answerForOutput,
+        chunk_ids: scoredChunks.length ? scoredChunks.map((entry) => entry.chunk_id) : hashedChunkIds,
+        chunk_scores: scoredChunks,
+      },
+    ];
+
+    session.messages.push({ role: "assistant", content: answerForOutput });
+    session.tokenCount = (session.tokenCount || 0) + estimateTokens(answerForOutput);
+    session.lastActivityAt = Date.now();
+    session.conversationHistory = updatedHistory;
+    session.provider = model.provider;
+    session.model = model.id;
+
+    persistSession(session);
+    scheduleHistorySummary({ provider, session, requestId });
+
+    log.info("conversation_history_ids", {
+      requestId,
+      sessionId: session.sessionId,
+      conversationHistoryIds: session.conversationHistory.map((entry) => entry?.id).filter(Boolean),
+    });
+
+    return buildResponsePayload({
+      responseFormat,
+      answer: answerForOutput,
+      followUpQuestions,
+      references: safeReferences,
+      citations: safeCitations,
+      provider: session.provider,
+      requestId,
+      warnings: warnings.length ? warnings : null,
+    });
+  }
+
+  function scheduleHistorySummary({ provider, session, requestId }) {
+    const threshold = getHistorySummaryThreshold();
+    const topChunks = getHistorySummaryTopChunks();
+    if (!Number.isFinite(threshold) || threshold <= 0) return;
+
+    setImmediate(async () => {
+      try {
+        const snapshot = Array.isArray(session.conversationHistory)
+          ? session.conversationHistory.slice()
+          : [];
+
+        const { didCompact, history } = await compactHistoryIfNeeded({
+          history: snapshot,
+          threshold,
+          topChunksPerSet: topChunks,
+          summarize: async (entries) => {
+            const prompt = buildSummaryPrompt(entries);
+            const messages = [
+              {
+                role: "system",
+                content:
+                  "You are a concise Hindi summarizer for Jainism Q&A. Summarize the conversation below in Hindi. Output only the summary text. Target length is 1000 tokens (soft).",
+              },
+              { role: "user", content: prompt },
+            ];
+            const text = await provider.completeText({
+              messages,
+              temperature: 0.2,
+              maxTokens: 2000,
+              requestId,
+            });
+            return String(text || "").trim();
+          },
+        });
+
+        if (!didCompact) return;
+
+        const current = Array.isArray(session.conversationHistory)
+          ? session.conversationHistory
+          : [];
+        if (current.length !== snapshot.length) return;
+
+        session.conversationHistory = history;
+        persistSession(session);
+      } catch (err) {
+        log.warn("history_summary_failed", {
+          requestId,
+          message: err?.message || String(err),
+        });
+      }
+    });
+  }
+
+  return { start, stop, getBaseUrl };
+}
+
+function cleanSessionDbForTest({ enabled, dbPath }) {
+  if (!enabled) return;
+  if (!dbPath) {
+    log.warn("session_store_test_cleanup_skipped", {
+      reason: "no_db_path",
+    });
+    return;
+  }
+  for (const target of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+    try {
+      fs.rmSync(target, { force: true });
+    } catch (err) {
+      log.warn("session_store_test_cleanup_failed", {
+        target,
+        message: err?.message || String(err),
+      });
+    }
+  }
+  log.info("session_store_test_cleanup_complete", {
+    dbPath,
+  });
 }
 
 function mapMessageRequestError(err) {
@@ -428,15 +920,19 @@ function mapMessageRequestError(err) {
   return { status: 500, body: { detail: "message_failed" } };
 }
 
-function resolveSessionTokenLimit() {
+function resolveSessionTokenLimit({ explicitLimit, defaultProvider, defaultModel } = {}) {
+  if (explicitLimit !== undefined && explicitLimit !== null) {
+    const value = Number(explicitLimit);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
   const raw = process.env.LLM_SESSION_TOKEN_LIMIT;
   if (raw !== undefined && raw !== null && String(raw).trim() !== "") {
     const value = Number(raw);
     if (Number.isFinite(value) && value > 0) return value;
   }
-  const configured = getSessionTokenLimit(DEFAULT_PROVIDER, DEFAULT_MODEL);
+  const configured = getSessionTokenLimit(defaultProvider, defaultModel);
   if (Number.isFinite(configured) && configured > 0) return configured;
-  log.warn("session_token_limit_unset", { provider: DEFAULT_PROVIDER, model: DEFAULT_MODEL });
+  log.warn("session_token_limit_unset", { provider: defaultProvider, model: defaultModel });
   return 0;
 }
 
@@ -445,375 +941,14 @@ function createStageEmitter(onStage) {
   const emitted = new Set();
   return (stage) => {
     const key = String(stage || "").trim();
-    if (!key || emitted.has(key) || !CHAT_PROGRESS_STAGES[key]) return;
+    if (!key || emitted.has(key) || !({ understanding: 1, searching: 1, preparing: 1 }[key])) return;
     emitted.add(key);
-    onStage({ stage: key, label: CHAT_PROGRESS_STAGES[key] });
+    onStage({ stage: key, label: { understanding: "Understanding your question", searching: "Searching through our scriptures", preparing: "Preparing answer" }[key] });
   };
 }
 
 function writeSseEvent(res, payload) {
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
-}
-
-async function handleMessageWithProvider({
-  provider,
-  model,
-  session,
-  content,
-  uiFilters,
-  responseFormat,
-  requestId,
-  onStage,
-}) {
-  log.info("model_prompt_root", {
-    requestId,
-    sessionId: session.sessionId,
-    modelId: model.id,
-    promptRoot: getPromptRootForModel({ modelId: model.id }),
-  });
-  const baseHistory = Array.isArray(session.conversationHistory) ? [...session.conversationHistory] : [];
-  onStage?.("understanding");
-  let keywordResult = await runKeywordExtraction({
-    provider,
-    question: content,
-    sessionContext: {
-      conversationHistory: baseHistory,
-    },
-    requestId,
-    modelId: model.id,
-  });
-  if (TEST_MODE && String(content || "").includes("FORCE_FOLLOWUP")) {
-    keywordResult = {
-      ...keywordResult,
-      is_followup: true,
-    };
-  }
-
-  const normalizedUiFilters = normalizeUiFilters(uiFilters);
-
-  log.info("keyword_extraction_complete", {
-    requestId,
-    sessionId: session.sessionId,
-    workflow: keywordResult.workflow,
-    isFollowup: keywordResult.is_followup,
-    modelId: model.id,
-  });
-
-  const workingHistory = keywordResult.is_followup ? baseHistory : [];
-
-  if (keywordResult.workflow === "greeting_message_v1") {
-    const greeting = buildGreetingAnswer({
-      script: keywordResult.script,
-      email: process.env.GREETING_CONTACT_EMAIL,
-    });
-
-    const updatedHistory = [
-      ...workingHistory,
-      {
-        id: `set_${workingHistory.length + 1}`,
-        question: content,
-        answer: greeting,
-        chunk_ids: [],
-        chunk_scores: [],
-      },
-    ];
-
-    session.messages.push({ role: "assistant", content: greeting });
-    session.tokenCount = (session.tokenCount || 0) + estimateTokens(greeting);
-    session.lastActivityAt = Date.now();
-    session.conversationHistory = updatedHistory;
-    session.provider = model.provider;
-    session.model = model.id;
-
-    return buildResponsePayload({
-      responseFormat,
-      answer: greeting,
-      followUpQuestions: [],
-      references: [],
-      citations: [],
-      provider: session.provider,
-      requestId,
-      warnings: null,
-    });
-  }
-
-  onStage?.("searching");
-  const workflowOutcome = await retryWorkflowOnEmptyChunks({
-    initialKeywordResult: keywordResult,
-    question: content,
-    requestId,
-    provider,
-    externalApi,
-    modelId: model.id,
-    prepareKeywordResult: (result) => {
-      const prepared = { ...result };
-      if (normalizedUiFilters) {
-        prepared.filters = mergeFilters(prepared.filters, normalizedUiFilters);
-      }
-      if (prepared.is_followup && Array.isArray(prepared.expand_chunk_ids)) {
-        prepared.expand_chunk_ids = mapHashedIdsToReal(prepared.expand_chunk_ids, session);
-      }
-      return prepared;
-    },
-  });
-
-  let { workflowName, chunks, keywordResult: finalKeywordResult, keywordFixApplied } = workflowOutcome;
-  if (keywordFixApplied) {
-    log.info("keyword_fix_applied", {
-      requestId,
-      sessionId: session.sessionId,
-      workflow: finalKeywordResult.workflow,
-    });
-  }
-
-  keywordResult = finalKeywordResult;
-
-  const isMetadataWorkflow = workflowName === "metadata_question_v1";
-  const metadataByRealId = isMetadataWorkflow ? {} : buildChunkMetadataMap(chunks);
-  const cleanedChunks = isMetadataWorkflow ? (Array.isArray(chunks) ? chunks : []) : cleanChunks(chunks);
-  log.info("context_prepared", {
-    requestId,
-    sessionId: session.sessionId,
-    chunks: cleanedChunks.length,
-  });
-  const emptyTextCount = cleanedChunks.filter(
-    (chunk) => !String(chunk?.t || "").trim()
-  ).length;
-  log.info("context_sample", {
-    requestId,
-    sessionId: session.sessionId,
-    chunks_total: cleanedChunks.length,
-    chunks_empty_text: emptyTextCount,
-    sample: cleanedChunks.slice(0, 2).map((chunk) => ({
-      id: chunk?.id,
-      t: String(chunk?.t || "").slice(0, 200),
-    })),
-  });
-  const hashedChunks = isMetadataWorkflow ? cleanedChunks : buildHashedChunks(cleanedChunks, session);
-  const context = buildContext(hashedChunks);
-  const warnings = [];
-  if (!cleanedChunks.length) {
-    warnings.push("no_context_found");
-    const fallback = buildNoContextAnswer({
-      language: keywordResult.language,
-      script: keywordResult.script,
-    });
-    const answerForOutput = normalizeReferencesInAnswer(
-      normalizeAnswerTextForOutput(stripCitations(fallback))
-    );
-
-    const updatedHistory = [
-      ...workingHistory,
-      {
-        id: `set_${workingHistory.length + 1}`,
-        question: content,
-        answer: answerForOutput,
-        chunk_ids: [],
-        chunk_scores: [],
-      },
-    ];
-
-    session.messages.push({ role: "assistant", content: answerForOutput });
-    session.tokenCount = (session.tokenCount || 0) + estimateTokens(answerForOutput);
-    session.lastActivityAt = Date.now();
-    session.conversationHistory = updatedHistory;
-    session.provider = model.provider;
-    session.model = model.id;
-
-    scheduleHistorySummary({ provider, session, requestId });
-
-    log.info("answer_parsed", {
-      requestId,
-      sessionId: session.sessionId,
-      answerLength: answerForOutput.length,
-      referencesCount: 0,
-      citationsCount: 0,
-    });
-    log.info("conversation_history_ids", {
-      requestId,
-      sessionId: session.sessionId,
-      conversationHistoryIds: session.conversationHistory.map((entry) => entry?.id).filter(Boolean),
-    });
-
-    return buildResponsePayload({
-      responseFormat,
-      answer: answerForOutput,
-      followUpQuestions: [],
-      references: [],
-      citations: [],
-      provider: session.provider,
-      requestId,
-      warnings,
-    });
-  }
-  if (isMetadataWorkflow) {
-    log.info("metadata_context_for_llm", {
-      requestId,
-      sessionId: session.sessionId,
-      asked_info: keywordResult.asked_info || [],
-      context,
-    });
-  }
-
-  onStage?.("preparing");
-  const answerPayload = await runAnswerSynthesis({
-    provider,
-    question: content,
-    workflowName,
-    context,
-    conversationHistory: keywordResult.is_followup ? workingHistory : [],
-    followupSetIds:
-      keywordResult.is_followup && Array.isArray(keywordResult.followup_keywords)
-        ? keywordResult.followup_keywords.map((item) => item?.id).filter(Boolean)
-        : null,
-    language: keywordResult.language,
-    script: keywordResult.script,
-    requestId,
-    modelId: model.id,
-    responseFormat,
-  });
-
-  const answerRaw = String(answerPayload?.answer || "");
-  const isNoAnswer = answerRaw.trim() === "NO_ANSWER";
-  const resolvedAnswer = isNoAnswer
-    ? getNoContextTextForLocale({
-        language: keywordResult.language,
-        script: keywordResult.script,
-        isMetadata: isMetadataWorkflow,
-      })
-    : answerRaw;
-  const cleanedRaw = cleanAnswerText({
-    text: resolvedAnswer,
-    language: keywordResult.language,
-    script: keywordResult.script,
-  });
-  const normalizedForParsing = normalizeAnswerTextForParsing(cleanedRaw);
-  const cleaned = stripCitations(normalizedForParsing);
-
-  const hashedChunkIds = extractChunkIds(hashedChunks);
-  const scoring = Array.isArray(answerPayload?.scoring) ? answerPayload.scoring : [];
-  const scoredChunks = buildScoredChunks(scoring, hashedChunkIds);
-
-  let answerForOutput;
-  let followUpQuestions = [];
-  let safeReferences = [];
-  let safeCitations = [];
-
-  if (responseFormat === "structured") {
-    const { answer: answerWithoutFollowUps, followUpQuestions: extractedFollowUps } = extractFollowUpQuestionsFromAnswer(cleaned);
-    followUpQuestions = sanitizeFollowUpQuestions(extractedFollowUps);
-    const { answer: answerClean, references, citations } = extractReferences(answerWithoutFollowUps);
-    const structured = buildStructuredReferencesFromMetadata({
-      scoredChunks,
-      parsedReferencesCount: references.length,
-      hashToRealId: session.chunkIdMap,
-      metadataByRealId,
-      language: keywordResult.language,
-    });
-    safeReferences = sanitizeReferences(structured.references.length ? structured.references : references);
-    safeCitations = sanitizeCitations(structured.citations.length ? structured.citations : citations);
-    answerForOutput = normalizeAnswerTextForOutput(answerClean);
-  } else {
-    // combined: keep answer as-is (follow-ups and references remain embedded in answer text)
-    answerForOutput = normalizeAnswerTextForOutput(cleaned);
-  }
-
-  log.info("answer_parsed", {
-    requestId,
-    sessionId: session.sessionId,
-    answerLength: answerForOutput.length,
-    referencesCount: safeReferences.length,
-    citationsCount: safeCitations.length,
-  });
-
-  const updatedHistory = [
-    ...workingHistory,
-    {
-      id: `set_${workingHistory.length + 1}`,
-      question: content,
-      answer: answerForOutput,
-      chunk_ids: scoredChunks.length ? scoredChunks.map((entry) => entry.chunk_id) : hashedChunkIds,
-      chunk_scores: scoredChunks,
-    },
-  ];
-
-  session.messages.push({ role: "assistant", content: answerForOutput });
-  session.tokenCount = (session.tokenCount || 0) + estimateTokens(answerForOutput);
-  session.lastActivityAt = Date.now();
-  session.conversationHistory = updatedHistory;
-  session.provider = model.provider;
-  session.model = model.id;
-
-  scheduleHistorySummary({ provider, session, requestId });
-
-  log.info("conversation_history_ids", {
-    requestId,
-    sessionId: session.sessionId,
-    conversationHistoryIds: session.conversationHistory.map((entry) => entry?.id).filter(Boolean),
-  });
-
-  return buildResponsePayload({
-    responseFormat,
-    answer: answerForOutput,
-    followUpQuestions,
-    references: safeReferences,
-    citations: safeCitations,
-    provider: session.provider,
-    requestId,
-    warnings: warnings.length ? warnings : null,
-  });
-}
-
-function scheduleHistorySummary({ provider, session, requestId }) {
-  const threshold = getHistorySummaryThreshold();
-  const topChunks = getHistorySummaryTopChunks();
-  if (!Number.isFinite(threshold) || threshold <= 0) return;
-
-  setImmediate(async () => {
-    try {
-      const snapshot = Array.isArray(session.conversationHistory)
-        ? session.conversationHistory.slice()
-        : [];
-
-      const { didCompact, history } = await compactHistoryIfNeeded({
-        history: snapshot,
-        threshold,
-        topChunksPerSet: topChunks,
-        summarize: async (entries) => {
-          const prompt = buildSummaryPrompt(entries);
-          const messages = [
-            {
-              role: "system",
-              content:
-                "You are a concise Hindi summarizer for Jainism Q&A. Summarize the conversation below in Hindi. Output only the summary text. Target length is 1000 tokens (soft).",
-            },
-            { role: "user", content: prompt },
-          ];
-          const text = await provider.completeText({
-            messages,
-            temperature: 0.2,
-            maxTokens: 2000,
-            requestId,
-          });
-          return String(text || "").trim();
-        },
-      });
-
-      if (!didCompact) return;
-
-      const current = Array.isArray(session.conversationHistory)
-        ? session.conversationHistory
-        : [];
-      if (current.length !== snapshot.length) return;
-
-      session.conversationHistory = history;
-    } catch (err) {
-      log.warn("history_summary_failed", {
-        requestId,
-        message: err?.message || String(err),
-      });
-    }
-  });
 }
 
 function normalizeUiFilters(filters) {
@@ -847,7 +982,7 @@ function sanitizeContentType(value) {
   return normalized.length ? normalized : undefined;
 }
 
-function normalizeResponseFormat(value, { fallback = DEFAULT_RESPONSE_FORMAT } = {}) {
+function normalizeResponseFormat(value, { fallback = null } = {}) {
   const raw = value === undefined || value === null || String(value).trim() === "" ? fallback : value;
   const normalized = String(raw || "").trim().toLowerCase();
   if (normalized === "structured") return "structured";
@@ -927,6 +1062,10 @@ function normalizePravachankar(chunk, metadata) {
   );
 }
 
+function readBooleanEnv(name) {
+  return String(process.env[name] || "").toLowerCase() === "true";
+}
+
 export function buildHashedChunksForTest(chunks, session) {
   return buildHashedChunks(chunks, session);
 }
@@ -937,4 +1076,12 @@ export function getChunkHashForTest(session, realId) {
 
 export function mapHashedIdsToRealForTest(ids, session) {
   return mapHashedIdsToReal(ids, session);
+}
+
+// Auto-start when run as the main module
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  createServer().start().catch((err) => {
+    console.error("Failed to start server:", err);
+    process.exit(1);
+  });
 }

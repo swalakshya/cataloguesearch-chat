@@ -1,20 +1,37 @@
 services:
   chat-service:
     build:
-      context: ./service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: service/Dockerfile
     container_name: cataloguesearch-chat-service
     env_file:
       - ./service/.env.local
+    environment:
+      - LOGS_DIR=/app/logs
+      - SESSION_DB_PATH=/app/data/sessions.db
+      - EXTERNAL_API_BASE_URL=http://cataloguesearch-api:8000
     volumes:
       - ./service/.env.local:/app/.env.local:ro
       - /opt/cataloguesearch/secrets/sa-key.json:/run/secrets/gcp-sa-key.json:ro
+      - chat-data:/app/data
+      - chat-logs:/app/logs
     ports:
       - "${CHAT_SERVICE_PORT:-8012}:8012"
     restart: ${RESTART_POLICY:-no}
+    networks:
+      - cataloguesearch-net
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8012/v1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
+
+volumes:
+  chat-data:
+  chat-logs:
+
+networks:
+  cataloguesearch-net:
+    external: true
+    name: cataloguesearch_opensearch-net

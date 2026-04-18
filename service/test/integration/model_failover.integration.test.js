@@ -1,8 +1,10 @@
-import { test, before } from "node:test";
+import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
+import { acquireIntegrationLock } from "../../test_support/integration_lock.js";
 
 const BASE = process.env.INTEGRATION_BASE_URL || "";
 const INTEGRATION_ENABLED = Boolean(BASE);
+let releaseLock = null;
 
 async function post(path, body) {
   const res = await fetch(`${BASE}${path}`, {
@@ -42,7 +44,12 @@ async function waitForHealthy() {
 
 before(async () => {
   if (!INTEGRATION_ENABLED) return;
+  releaseLock = await acquireIntegrationLock();
   await waitForHealthy();
+});
+
+after(async () => {
+  await releaseLock?.();
 });
 
 const integrationTest = INTEGRATION_ENABLED ? test : test.skip;
@@ -193,4 +200,19 @@ integrationTest("records model-specific prompt root per request", async () => {
   const promptRoot = await getPromptRoot(message.json.tool_trace_id);
   assert.equal(promptRoot.res.status, 200);
   assert.ok(String(promptRoot.json.prompt_root).includes("prompts_v2_gemini-3-flash-preview"));
+});
+
+integrationTest("response_format=combined omits follow_up_questions field", async () => {
+  await post("/v1/test/reset");
+
+  const session = await post("/v1/chat/sessions", { provider: "auto" });
+  const message = await post(`/v1/chat/sessions/${session.json.session_id}/messages`, {
+    role: "user",
+    content: "combined-format",
+    response_format: "combined",
+  });
+
+  assert.equal(message.res.status, 200);
+  assert.equal(typeof message.json.answer, "string");
+  assert.equal("follow_up_questions" in message.json, false);
 });

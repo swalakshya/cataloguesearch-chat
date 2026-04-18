@@ -66,7 +66,7 @@ Base fields:
     "granth": "<optional>", #en
     "anuyog": "<optional>", #en
     "contributor": "<optional>", #en
-    "content_type": ["Granth", "Books"] #fixed
+    "content_type": <DEFAULT_CONTENT_TYPES_JSON> #fixed default, allowed values: <ALLOWED_CONTENT_TYPES_JSON>
   },
   "is_followup": true|false
 }

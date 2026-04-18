@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node --env-file=.env.local src/server.js",
-    "test": "node --test",
+    "test": "node --test test/agent_api test/config test/orchestrator test/providers test/routing test/secrets test/sessions test/utils test/server_chunk_hashing.test.js",
     "test:docker": "sh scripts/run-tests-docker.sh",
     "test:integration:docker": "sh scripts/run-integration-tests-docker.sh"
   },

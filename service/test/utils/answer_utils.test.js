@@ -2,6 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  appendReferencesSection,
+  buildStructuredReferencesFromMetadata,
+  extractFollowUpQuestionsFromAnswer,
+  sanitizeFollowUpQuestions,
   stripCitations,
   extractReferences,
   normalizeAnswerTextForParsing,
@@ -142,4 +146,152 @@ test("cleanAnswerText keeps parentheses with non-chunk text", () => {
   const input = "Keep this (c4, other) intact";
   const output = cleanAnswerText({ text: input });
   assert.equal(output, input);
+});
+
+test("buildStructuredReferencesFromMetadata formats Pravachan references from metadata", () => {
+  const { references, citations } = buildStructuredReferencesFromMetadata({
+    scoredChunks: [{ chunk_id: "c1", score: 100 }],
+    parsedReferencesCount: 2,
+    hashToRealId: { c1: "real-1" },
+    metadataByRealId: {
+      "real-1": {
+        chunk_id: "real-1",
+        category: "Pravachan",
+        granth: "Pravachansaar",
+        pravachankar: "पूज्य गुरुदेव श्री कानजी स्वामी",
+        pravachan_number: "265",
+        series: "1979 Series",
+        volume: 11,
+        shlok: "271-272",
+        page_number: 254,
+        date: "1979-09-08",
+        file_url: "https://example.com/p",
+      },
+    },
+    language: "hi",
+  });
+
+  assert.equal(references.length, 1);
+  assert.equal(
+    references[0],
+    'पूज्य गुरुदेव श्री कानजी स्वामी द्वारा "Pravachansaar प्रवचन", क्रमांक 265, Volume 11, श्लोक 271-272, पृष्ठ 254, दिनांक 08-09-1979, https://example.com/p/254'
+  );
+  assert.equal(citations[0].category, "Pravachan");
+  assert.equal(citations[0].pravachankar, "पूज्य गुरुदेव श्री कानजी स्वामी");
+  assert.equal(citations[0].date, "08-09-1979");
+  assert.equal(citations[0].series, "1979 Series");
+});
+
+test("buildStructuredReferencesFromMetadata formats Granth references from metadata", () => {
+  const { references, citations } = buildStructuredReferencesFromMetadata({
+    scoredChunks: [{ chunk_id: "c1", score: 90 }],
+    parsedReferencesCount: 1,
+    hashToRealId: { c1: "real-1" },
+    metadataByRealId: {
+      "real-1": {
+        chunk_id: "real-1",
+        category: "Granth",
+        granth: "Samaysaar",
+        gatha: "12",
+        page_number: 145,
+        file_url: "https://example.com/g",
+      },
+    },
+    language: "hi",
+  });
+
+  assert.equal(references[0], "Samaysaar, गाथा 12, पृष्ठ 145, https://example.com/g/145");
+  assert.equal(citations[0].gatha, "12");
+});
+
+test("buildStructuredReferencesFromMetadata respects zero parsed reference count", () => {
+  const { references, citations } = buildStructuredReferencesFromMetadata({
+    scoredChunks: [{ chunk_id: "c1", score: 90 }],
+    parsedReferencesCount: 0,
+    hashToRealId: { c1: "real-1" },
+    metadataByRealId: {
+      "real-1": {
+        chunk_id: "real-1",
+        category: "Pravachan",
+        granth: "Pravachansaar",
+        page_number: 145,
+        file_url: "https://example.com/p",
+      },
+    },
+    language: "hi",
+  });
+
+  assert.deepEqual(references, []);
+  assert.deepEqual(citations, []);
+});
+
+test("appendReferencesSection rebuilds Hindi references section", () => {
+  const output = appendReferencesSection("उत्तर", ["पहला संदर्भ", "दूसरा संदर्भ"], "hi");
+  assert.equal(output, "उत्तर\n\nसंदर्भ\n\n1. पहला संदर्भ\n\n2. दूसरा संदर्भ");
+});
+
+test("extractFollowUpQuestionsFromAnswer extracts English follow-ups", () => {
+  const text = [
+    "Main answer text.",
+    "_If you want I can answer this in detail or I can also answer -_",
+    "- What is karma?",
+    "- What is moksha?",
+  ].join("\n");
+
+  const { answer, followUpQuestions } = extractFollowUpQuestionsFromAnswer(text);
+  assert.equal(answer, "Main answer text.");
+  assert.deepEqual(followUpQuestions, ["What is karma?", "What is moksha?"]);
+});
+
+test("extractFollowUpQuestionsFromAnswer extracts Hindi follow-ups", () => {
+  const text = [
+    "मुख्य उत्तर।",
+    "_अगर आप चाहें तो मैं और विस्तार से उत्तर दे सकता हूँ अथवा मैं इन सवालों के जवाब भी दे सकता हूँ_",
+    "- कर्म क्या है?",
+    "- मोक्ष क्या है?",
+  ].join("\n");
+
+  const { answer, followUpQuestions } = extractFollowUpQuestionsFromAnswer(text);
+  assert.equal(answer, "मुख्य उत्तर।");
+  assert.deepEqual(followUpQuestions, ["कर्म क्या है?", "मोक्ष क्या है?"]);
+});
+
+test("extractFollowUpQuestionsFromAnswer returns original answer when no marker found", () => {
+  const text = "Answer with no follow-ups.";
+  const { answer, followUpQuestions } = extractFollowUpQuestionsFromAnswer(text);
+  assert.equal(answer, text);
+  assert.deepEqual(followUpQuestions, []);
+});
+
+test("extractFollowUpQuestionsFromAnswer strips trailing blanks before follow-up section", () => {
+  const text = [
+    "Main answer.",
+    "",
+    "_If you want I can answer this in detail or I can also answer -_",
+    "- Question 1?",
+  ].join("\n");
+
+  const { answer, followUpQuestions } = extractFollowUpQuestionsFromAnswer(text);
+  assert.equal(answer, "Main answer.");
+  assert.deepEqual(followUpQuestions, ["Question 1?"]);
+});
+
+test("extractFollowUpQuestionsFromAnswer preserves text after follow-up section", () => {
+  const text = [
+    "Main answer.",
+    "_If you want I can answer this in detail or I can also answer -_",
+    "- Question 1?",
+    "",
+    "References",
+    "1. Samaysaar http://example.com",
+  ].join("\n");
+
+  const { answer, followUpQuestions } = extractFollowUpQuestionsFromAnswer(text);
+  assert.ok(answer.includes("References"));
+  assert.deepEqual(followUpQuestions, ["Question 1?"]);
+});
+
+test("sanitizeFollowUpQuestions trims, dedupes and caps items", () => {
+  const output = sanitizeFollowUpQuestions([" q1 ", "", "q2", "q1", "q3", "q4"]);
+  assert.deepEqual(output, ["q1", "q2", "q3"]);
 });

@@ -12,6 +12,35 @@ test("getKeywordPrompt injects conversation history", () => {
   assert.ok(prompt.trim().endsWith('[{"id":"set_1"}]'));
 });
 
+test("getKeywordPrompt injects configured content type defaults", () => {
+  const prompt = getKeywordPrompt("What is Atma?", "[]", {
+    env: {
+      LLM_DEFAULT_CONTENT_TYPES: "Pravachan,Granth",
+      LLM_ALLOWED_CONTENT_TYPES: "Pravachan,Granth,Books",
+    },
+  });
+  assert.ok(prompt.includes('"content_type": ["Pravachan","Granth"]'));
+  assert.ok(prompt.includes('allowed values: ["Pravachan","Granth","Books"]'));
+});
+
+test("getKeywordPrompt interpolation cache respects env changes", () => {
+  const promptA = getKeywordPrompt("What is Atma?", "[]", {
+    env: {
+      LLM_DEFAULT_CONTENT_TYPES: "Pravachan,Granth",
+      LLM_ALLOWED_CONTENT_TYPES: "Pravachan,Granth,Books",
+    },
+  });
+  const promptB = getKeywordPrompt("What is Atma?", "[]", {
+    env: {
+      LLM_DEFAULT_CONTENT_TYPES: "Granth,Books",
+      LLM_ALLOWED_CONTENT_TYPES: "Pravachan,Granth,Books",
+    },
+  });
+
+  assert.ok(promptA.includes('"content_type": ["Pravachan","Granth"]'));
+  assert.ok(promptB.includes('"content_type": ["Granth","Books"]'));
+});
+
 test("getAnswerPrompt injects conversation history and context", () => {
   const prompt = getAnswerPrompt("Q?", "CTX", "GUIDE", '[{"id":"set_2"}]', "basic_question_v1");
   assert.ok(prompt.includes("Q?"));
@@ -37,4 +66,20 @@ test("getAnswerPrompt omits history when empty", () => {
 test("getAnswerPrompt uses metadata base prompt", () => {
   const prompt = getAnswerPrompt("Q?", "CTX", "", "[]", "metadata_question_v1");
   assert.ok(prompt.includes("Metadata Answer Synthesis"));
+});
+
+test("getAnswerPrompt uses follow-up section in answer text for structured format", () => {
+  const prompt = getAnswerPrompt("Q?", "CTX", "", "", "basic_question_v1");
+  assert.equal(prompt.includes('"follow_up_questions": ["<question 1>", "<question 2>"]'), false);
+  assert.ok(prompt.includes("If you want I can answer this in detail or I can also answer"));
+  assert.ok(prompt.includes("<full answer text including citations, follow-ups, references>"));
+});
+
+test("getAnswerPrompt uses combined answer template when requested", () => {
+  const prompt = getAnswerPrompt("Q?", "CTX", "", "", "basic_question_v1", "", "", {
+    responseFormat: "combined",
+  });
+  assert.equal(prompt.includes('"follow_up_questions": ["<question 1>", "<question 2>"]'), false);
+  assert.ok(prompt.includes("If you want I can answer this in detail or I can also answer"));
+  assert.ok(prompt.includes("<full answer text including citations, follow-ups, references>"));
 });

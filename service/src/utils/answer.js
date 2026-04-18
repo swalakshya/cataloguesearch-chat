@@ -88,6 +88,116 @@ export function normalizeReferencesInAnswer(text) {
   return lines.join("\n");
 }
 
+export function appendReferencesSection(answer, references, language = "") {
+  const body = String(answer || "").trim();
+  const safeReferences = Array.isArray(references)
+    ? references.map((ref) => String(ref || "").trim()).filter(Boolean)
+    : [];
+  if (!safeReferences.length) return body;
+  const heading = String(language || "").toLowerCase() === "hi" ? "संदर्भ" : "References";
+  const lines = [body, heading, ...safeReferences.map((ref, index) => `${index + 1}. ${ref}`)].filter(Boolean);
+  return lines.join("\n\n").trim();
+}
+
+const FOLLOWUP_HEADER_PATTERNS = [
+  /If you want I can/i,
+  /अगर आप चाहें/,
+];
+
+export function extractFollowUpQuestionsFromAnswer(text) {
+  if (!text) return { answer: "", followUpQuestions: [] };
+  const lines = String(text).split(/\r?\n/);
+  let headerIndex = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    if (FOLLOWUP_HEADER_PATTERNS.some((pattern) => pattern.test(lines[i]))) {
+      headerIndex = i;
+      break;
+    }
+  }
+
+  if (headerIndex === -1) {
+    return { answer: text, followUpQuestions: [] };
+  }
+
+  const questions = [];
+  let endIndex = headerIndex + 1;
+  while (endIndex < lines.length) {
+    const line = lines[endIndex].trim();
+    if (!line) {
+      endIndex++;
+      continue;
+    }
+    if (line.startsWith("- ")) {
+      questions.push(line.slice(2).trim());
+      endIndex++;
+    } else {
+      break;
+    }
+  }
+
+  // Strip the follow-up section and surrounding blank lines
+  const beforeLines = lines.slice(0, headerIndex);
+  const afterLines = lines.slice(endIndex);
+  while (beforeLines.length && !beforeLines[beforeLines.length - 1].trim()) beforeLines.pop();
+  const answer = [...beforeLines, ...afterLines].join("\n").trim();
+
+  return { answer, followUpQuestions: questions };
+}
+
+export function sanitizeFollowUpQuestions(questions, maxItems = 3) {
+  if (!Array.isArray(questions)) return [];
+  const seen = new Set();
+  const cleaned = [];
+  for (const question of questions) {
+    const value = String(question || "").trim();
+    if (!value) continue;
+    if (seen.has(value)) continue;
+    seen.add(value);
+    cleaned.push(value);
+    if (cleaned.length >= maxItems) break;
+  }
+  return cleaned;
+}
+
+export function buildStructuredReferencesFromMetadata({
+  scoredChunks,
+  parsedReferencesCount,
+  hashToRealId,
+  metadataByRealId,
+  language = "",
+} = {}) {
+  const hashMap = hashToRealId && typeof hashToRealId === "object" ? hashToRealId : {};
+  const metadataMap = metadataByRealId && typeof metadataByRealId === "object" ? metadataByRealId : {};
+  const scored = Array.isArray(scoredChunks) ? scoredChunks : [];
+  const targetCount = resolveReferenceCount(parsedReferencesCount, scored.length);
+  if (targetCount === 0) {
+    return { references: [], citations: [] };
+  }
+  const references = [];
+  const citations = [];
+  const seen = new Set();
+
+  for (const entry of scored) {
+    const hash = String(entry?.chunk_id || "").trim();
+    if (!hash) continue;
+    const realId = hashMap[hash] || hash;
+    const metadata = metadataMap[realId];
+    if (!metadata) continue;
+    const reference = formatReferenceFromMetadata(metadata, { language });
+    const citation = buildCitationFromMetadata(metadata, reference);
+    if (!reference || !citation?.file_url) continue;
+    const key = `${citation.category || ""}|${citation.granth || ""}|${citation.page_number || ""}|${citation.file_url}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    references.push(reference);
+    citations.push(citation);
+    if (references.length >= targetCount) break;
+  }
+
+  return { references, citations };
+}
+
 export function extractReferences(text) {
   const lines = text.split(/\r?\n/).map((line) => line.trim());
   let inRefs = false;
@@ -247,6 +357,122 @@ function stripQuotes(text) {
   return text.replace(/["“”]/g, "").trim();
 }
 
+function formatReferenceFromMetadata(metadata, { language = "" } = {}) {
+  if (!metadata || typeof metadata !== "object") return "";
+  const category = String(metadata.category || "").trim();
+  if (category === "Pravachan") {
+    return formatPravachanReference(metadata, { language });
+  }
+  return formatGranthReference(metadata, { language });
+}
+
+function formatPravachanReference(metadata, { language = "" } = {}) {
+  const isHindi = String(language || "").toLowerCase() === "hi";
+  const granth = String(metadata.granth || "").trim();
+  const pravachankar = String(metadata.pravachankar || "").trim();
+  const head = pravachankar
+    ? isHindi
+      ? `${pravachankar} द्वारा "${granth} प्रवचन"`
+      : `"${granth} Pravachan" by ${pravachankar}`
+    : isHindi
+      ? `"${granth} प्रवचन"`
+      : `"${granth} Pravachan"`;
+  const segments = [
+    head,
+    formatLabeledValue({ labelHi: "क्रमांक", labelEn: "Number", value: metadata.pravachan_number, isHindi }),
+    formatLabeledValue({ labelHi: "Series Number", labelEn: "Series Number", value: metadata.series_number, isHindi }),
+    formatLabeledValue({ labelHi: "Volume", labelEn: "Volume", value: metadata.volume, isHindi }),
+    ...formatLocatorSegments(metadata, { isHindi }),
+    formatLabeledValue({ labelHi: "पृष्ठ", labelEn: "Page", value: metadata.page_number, isHindi }),
+    formatLabeledValue({ labelHi: "दिनांक", labelEn: "Date", value: formatDateValue(metadata.date), isHindi }),
+  ].filter(Boolean);
+  const fileUrl = withPageSuffix(metadata.file_url, metadata.page_number);
+  return [segments.join(", "), fileUrl].filter(Boolean).join(", ").trim();
+}
+
+function formatGranthReference(metadata, { language = "" } = {}) {
+  const isHindi = String(language || "").toLowerCase() === "hi";
+  const granth = String(metadata.granth || "").trim();
+  const segments = [
+    granth,
+    ...formatLocatorSegments(metadata, { isHindi }),
+    formatLabeledValue({ labelHi: "पृष्ठ", labelEn: "Page", value: metadata.page_number, isHindi }),
+  ].filter(Boolean);
+  const fileUrl = withPageSuffix(metadata.file_url, metadata.page_number);
+  return [segments.join(", "), fileUrl].filter(Boolean).join(", ").trim();
+}
+
+function formatLocatorSegments(metadata, { isHindi }) {
+  return [
+    formatLabeledValue({ labelHi: "गाथा", labelEn: "Gatha", value: metadata.gatha, isHindi }),
+    formatLabeledValue({ labelHi: "कलश", labelEn: "Kalash", value: metadata.kalash, isHindi }),
+    formatLabeledValue({ labelHi: "श्लोक", labelEn: "Shlok", value: metadata.shlok, isHindi }),
+    formatLabeledValue({ labelHi: "दोहा", labelEn: "Dohra", value: metadata.dohra, isHindi }),
+  ].filter(Boolean);
+}
+
+function formatLabeledValue({ labelHi, labelEn, value, isHindi }) {
+  if (value === undefined || value === null || String(value).trim() === "") return "";
+  const label = isHindi ? labelHi : labelEn;
+  return `${label} ${String(value).trim()}`;
+}
+
+function formatDateValue(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  // Backend contract is expected to be YYYY-MM-DD; preserve unknown formats verbatim.
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return raw;
+  return `${match[3]}-${match[2]}-${match[1]}`;
+}
+
+function withPageSuffix(fileUrl, pageNumber) {
+  const url = String(fileUrl || "").trim();
+  const page = Number(pageNumber);
+  if (!url) return "";
+  if (!Number.isFinite(page) || page <= 0) return url;
+  return url.endsWith(`/${page}`) ? url : `${url}/${page}`;
+}
+
+function buildCitationFromMetadata(metadata, reference) {
+  if (!metadata || typeof metadata !== "object") return null;
+  return {
+    chunk_id: String(metadata.chunk_id || "").trim() || undefined,
+    granth: String(metadata.granth || "").trim() || extractGranth(String(reference || "").trim()),
+    author: String(metadata.author || "").trim() || undefined,
+    category: String(metadata.category || "").trim() || undefined,
+    page_number: toPositiveNumber(metadata.page_number),
+    file_url: withPageSuffix(metadata.file_url, metadata.page_number),
+    pravachankar: String(metadata.pravachankar || "").trim() || undefined,
+    date: formatDateValue(metadata.date) || undefined,
+    pravachan_number: String(metadata.pravachan_number || "").trim() || undefined,
+    series: String(metadata.series || "").trim() || undefined,
+    series_number: String(metadata.series_number || "").trim() || undefined,
+    volume: toPositiveNumber(metadata.volume),
+    gatha: String(metadata.gatha || "").trim() || undefined,
+    kalash: String(metadata.kalash || "").trim() || undefined,
+    shlok: String(metadata.shlok || "").trim() || undefined,
+    dohra: String(metadata.dohra || "").trim() || undefined,
+    reference,
+  };
+}
+
+function toPositiveNumber(value) {
+  const num = Number(value);
+  return Number.isFinite(num) && num > 0 ? num : undefined;
+}
+
+function resolveReferenceCount(parsedReferencesCount, scoredLength) {
+  const parsedCount =
+    parsedReferencesCount === undefined || parsedReferencesCount === null || parsedReferencesCount === ""
+      ? undefined
+      : Number(parsedReferencesCount);
+  if (Number.isFinite(parsedCount)) {
+    return Math.max(0, Math.min(MAX_REFERENCES, Math.trunc(parsedCount)));
+  }
+  return Math.max(1, Math.min(MAX_REFERENCES, Math.min(Number(scoredLength) || 0, 2)));
+}
+
 function extractPage(prefix) {
   const match =
     prefix.match(/p\.?\s*(\d+)/i) ||
@@ -295,7 +521,25 @@ export function sanitizeCitations(citations) {
     const key = `${citation.granth || ""}|${citation.category || ""}|${citation.page_number || ""}|${citation.file_url}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    cleaned.push(citation);
+    cleaned.push({
+      chunk_id: citation.chunk_id || undefined,
+      granth: citation.granth || undefined,
+      author: citation.author || undefined,
+      category: citation.category || undefined,
+      page_number: citation.page_number,
+      file_url: citation.file_url,
+      pravachankar: citation.pravachankar || undefined,
+      date: citation.date || undefined,
+      pravachan_number: citation.pravachan_number || undefined,
+      series: citation.series || undefined,
+      series_number: citation.series_number || undefined,
+      volume: citation.volume,
+      gatha: citation.gatha || undefined,
+      kalash: citation.kalash || undefined,
+      shlok: citation.shlok || undefined,
+      dohra: citation.dohra || undefined,
+      reference: citation.reference || undefined,
+    });
     if (cleaned.length >= MAX_CITATIONS) break;
   }
   return cleaned;

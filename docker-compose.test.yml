@@ -23,4 +23,13 @@ services:
       INTEGRATION_BASE_URL: "http://chat-service-test:8012"
     depends_on:
       - chat-service-test
-    command: ["node", "--test", "test/integration"]
+    command: ["node", "--test", "--test-concurrency=1", "test/integration"]
+
+  # When node --test test/integration runs, Node 20 spawns each test file as a child process with its own module scope. Our integration_lock.js uses an in-memory Promise chain — this is       
+  # process-local, so each file gets its own independent tail. The lock is a no-op for cross-file serialization.                                                                                                       
+                                                                                                                                                                                                                     
+  # Result: chat_progress, history_summary, and model_failover all run concurrently. The model_failover test calls /v1/test/reset and sets model behaviors like server_error mid-execution. When this lands while      
+  # history_summary is sending its 4 messages, those messages get 503'd. The test's post() helper doesn't check HTTP status, so it silently proceeds — but the session history never reaches 4 entries, so the summary 
+  # is never triggered, and waitForSummary times out after 10 seconds.                                                                                                                                                 
+                                                                                                                                                                                                                     
+  # Fix: --test-concurrency=1 (available since Node 20.1.0) forces sequential file execution.

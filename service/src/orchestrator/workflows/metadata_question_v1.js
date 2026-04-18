@@ -1,12 +1,10 @@
-import { mergeMetadataOptions, normalizeContentTypes } from "../../utils/metadata.js";
+import { normalizeContentTypes } from "../../config/content_types.js";
+import { mergeMetadataOptions } from "../../utils/metadata.js";
 import { log } from "../../utils/log.js";
 
 export async function runMetadataQuestion({ externalApi, params, requestId, toolBudget }) {
   const askedInfo = Array.isArray(params.asked_info) ? params.asked_info : [];
-  const normalizedTypes = normalizeContentTypes(params.filters?.content_type);
-  const contentTypes = normalizedTypes.length ? normalizedTypes : ["Granth", "Books"];
-  if (!contentTypes.includes("Granth")) contentTypes.push("Granth");
-  if (!contentTypes.includes("Books")) contentTypes.push("Books");
+  const contentTypes = normalizeContentTypes(params.filters?.content_type);
 
   for (const _ of contentTypes) {
     if (toolBudget.remaining() <= 0) {

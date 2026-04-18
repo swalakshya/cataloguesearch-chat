@@ -34,13 +34,12 @@ Request:
 {
   "role": "user",
   "content": "string",
+  "response_format": "structured|combined",
   "filters": {
-    "content_type": ["Granth", "Books"],
+    "content_type": ["Pravachan", "Granth"],
     "granth": "string",
     "anuyog": "string",
-    "contributor": "string",
-    "year_from": 1990,
-    "year_to": 2024
+    "contributor": "string"
   }
 }
 ```
@@ -54,13 +53,25 @@ Response:
 ```json
 {
   "answer": "string",
+  "follow_up_questions": ["string"],
   "references": ["string"],
   "citations": [
     {
       "granth": "string",
       "category": "string",
       "page_number": 123,
-      "file_url": "string"
+      "file_url": "string",
+      "pravachankar": "string",
+      "date": "DD-MM-YYYY",
+      "pravachan_number": "string",
+      "series": "string",
+      "series_number": "string",
+      "volume": 1,
+      "gatha": "string",
+      "kalash": "string",
+      "shlok": "string",
+      "dohra": "string",
+      "reference": "string"
     }
   ],
   "provider": "auto|<resolved-provider>",
@@ -68,6 +79,10 @@ Response:
   "warnings": ["string"] | null
 }
 ```
+
+`response_format` behavior:
+- `structured`: returns `answer` (compacted) plus `follow_up_questions`, `references`, and `citations`.
+- `combined` (default): returns a single WhatsApp-ready `answer` string that already includes follow-up questions inline; `follow_up_questions`, `references` and `citations` are omitted.- If `response_format` is omitted, the service uses `DEFAULT_ANSWER_FORMAT` from env or fallbacks to `combined`. Supported env values are `structured` and `combined` (`combined` maps to the single-message combined mode).
 
 ### `GET /v1/chat/sessions/{id}`
 Response:
@@ -131,6 +146,9 @@ Configuration order:
 3. Defaults in `src/config/token_limits.js`
 
 Other env:
+- `LLM_DEFAULT_CONTENT_TYPES` (comma-separated default retrieval categories, example: `Pravachan,Granth`)
+- `LLM_ALLOWED_CONTENT_TYPES` (comma-separated allowed category values for prompts and filters, example: `Pravachan,Granth,Books`)
+- When these env vars are unset or invalid, the service falls back to `Granth,Books`.
 - `GREETING_CONTACT_EMAIL` (default: `projectjinam@gmail.com`)
 Workflow tuning now lives in `src/config/model_config.js` under `workflowDefaults` and per-model `workflowOverrides`.
 

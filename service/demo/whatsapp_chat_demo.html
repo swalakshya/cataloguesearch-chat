@@ -1,0 +1,886 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JINAM Chat Demo</title>
+    <style>
+      :root {
+        --bg: #e5ddd5;
+        --panel: #f0f2f5;
+        --header: #0b141a;
+        --header-accent: #202c33;
+        --bubble-user: #d9fdd3;
+        --bubble-bot: #ffffff;
+        --border: #d1d7db;
+        --text: #111b21;
+        --muted: #667781;
+        --green: #005c4b;
+        --green-2: #128c7e;
+        --orange: #e67e22;
+        --red: #c0392b;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        font-family: "Segoe UI", "Noto Sans Devanagari", "Noto Sans Gujarati", sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(18, 140, 126, 0.18), transparent 25%),
+          linear-gradient(180deg, #0b141a 0 10rem, var(--bg) 10rem 100%);
+        color: var(--text);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+      }
+
+      .app {
+        width: min(1200px, 100%);
+        height: min(880px, calc(100vh - 3rem));
+        display: grid;
+        grid-template-columns: 300px 1fr;
+        border-radius: 18px;
+        overflow: hidden;
+        box-shadow: 0 24px 80px rgba(11, 20, 26, 0.24);
+        background: var(--panel);
+      }
+
+      /* ── Sidebar ─────────────────────────────────────────── */
+      .sidebar {
+        background: #f7f8fa;
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      .sidebar-header {
+        padding: 1rem 1.1rem;
+        background: var(--header-accent);
+        color: #fff;
+        flex-shrink: 0;
+      }
+
+      .sidebar-header h1 { margin: 0; font-size: 1rem; font-weight: 600; }
+      .sidebar-header p { margin: 0.35rem 0 0; color: rgba(255,255,255,0.7); font-size: 0.83rem; }
+
+      .controls {
+        padding: 1rem;
+        display: grid;
+        gap: 0.9rem;
+        overflow-y: auto;
+        flex: 1;
+      }
+
+      label {
+        display: grid;
+        gap: 0.35rem;
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+
+      .label-title {
+        font-size: 0.82rem;
+        color: var(--muted);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 0.2rem;
+      }
+
+      select, input, textarea, button { font: inherit; }
+
+      select, input {
+        width: 100%;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0.65rem 0.75rem;
+        background: #fff;
+        color: var(--text);
+      }
+
+      /* ── Checkbox group ──────────────────────────────────── */
+      .checkbox-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0.6rem 0.8rem;
+      }
+
+      .checkbox-group label {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.88rem;
+        color: var(--text);
+        cursor: pointer;
+        font-weight: normal;
+        letter-spacing: 0;
+        text-transform: none;
+      }
+
+      .checkbox-group input[type="checkbox"] {
+        width: 1rem;
+        height: 1rem;
+        border-radius: 4px;
+        margin: 0;
+        padding: 0;
+        cursor: pointer;
+        accent-color: var(--green-2);
+      }
+
+      /* ── Radio group ─────────────────────────────────────── */
+      .radio-group {
+        display: flex;
+        gap: 0.5rem;
+      }
+
+      .radio-group label {
+        flex: 1;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: center;
+        gap: 0.4rem;
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0.55rem 0.5rem;
+        font-size: 0.85rem;
+        color: var(--text);
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s;
+      }
+
+      .radio-group input[type="radio"] { display: none; }
+
+      .radio-group input[type="radio"]:checked + span {
+        font-weight: 700;
+      }
+
+      .radio-group label:has(input:checked) {
+        background: #e8f5e9;
+        border-color: var(--green-2);
+        color: var(--green);
+      }
+
+      /* ── Buttons ─────────────────────────────────────────── */
+      .button-row { display: flex; gap: 0.55rem; }
+
+      button {
+        border: 0;
+        border-radius: 999px;
+        padding: 0.65rem 1rem;
+        cursor: pointer;
+        font-size: 0.88rem;
+      }
+
+      .primary   { background: var(--green); color: #fff; flex: 1; }
+      .secondary { background: #fff; color: var(--text); border: 1px solid var(--border); }
+      .danger    { background: #fff; color: var(--red); border: 1px solid var(--border); }
+
+      .small-note { font-size: 0.76rem; color: var(--muted); }
+
+      /* ── Chat panel ──────────────────────────────────────── */
+      .chat {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        overflow: hidden;
+      }
+
+      .chat-header {
+        padding: 0.85rem 1.1rem;
+        background: var(--header-accent);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-shrink: 0;
+      }
+
+      .chat-header h2 { margin: 0; font-size: 1rem; font-weight: 600; }
+      .chat-header p  { margin: 0.25rem 0 0; color: rgba(255,255,255,0.7); font-size: 0.8rem; }
+
+      .status-pill {
+        font-size: 0.78rem;
+        color: #d1f5ee;
+        background: rgba(18,140,126,0.24);
+        border: 1px solid rgba(18,140,126,0.4);
+        border-radius: 999px;
+        padding: 0.3rem 0.65rem;
+        white-space: nowrap;
+      }
+
+      .status-pill.busy {
+        color: #fff3cd;
+        background: rgba(230,126,34,0.2);
+        border-color: rgba(230,126,34,0.4);
+      }
+
+      .status-pill.error {
+        color: #ffd5d5;
+        background: rgba(192,57,43,0.2);
+        border-color: rgba(192,57,43,0.4);
+      }
+
+      /* ── Messages ────────────────────────────────────────── */
+      .messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1.2rem;
+        background:
+          linear-gradient(rgba(229,221,213,0.88), rgba(229,221,213,0.88)),
+          repeating-linear-gradient(0deg, rgba(255,255,255,0.2) 0 1px, transparent 1px 48px),
+          repeating-linear-gradient(90deg, rgba(255,255,255,0.2) 0 1px, transparent 1px 48px);
+      }
+
+      .message {
+        max-width: min(84%, 820px);
+        margin-bottom: 1rem;
+        padding: 0.9rem 1rem;
+        border-radius: 14px;
+        line-height: 1.55;
+        box-shadow: 0 1px 2px rgba(11,20,26,0.08);
+        word-wrap: break-word;
+      }
+
+      .message.user {
+        margin-left: auto;
+        background: var(--bubble-user);
+        border-top-right-radius: 4px;
+        white-space: pre-wrap;
+      }
+
+      .message.assistant {
+        background: var(--bubble-bot);
+        border-top-left-radius: 4px;
+      }
+
+      .message .meta {
+        display: block;
+        margin-top: 0.55rem;
+        color: var(--muted);
+        font-size: 0.74rem;
+      }
+
+      .message .subsection {
+        margin-top: 0.9rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid rgba(17,27,33,0.08);
+      }
+
+      .subsection-title {
+        display: block;
+        margin-bottom: 0.45rem;
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        color: var(--muted);
+        text-transform: uppercase;
+      }
+
+      /* ── Answer text ─────────────────────────────────────── */
+      .answer-text {
+        white-space: pre-wrap;
+        line-height: 1.65;
+      }
+
+      .answer-text sub { font-size: 0.72em; }
+
+      /* ── Follow-up chips ─────────────────────────────────── */
+      .followup-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        margin-top: 0.3rem;
+      }
+
+      .chip {
+        display: inline-block;
+        background: #e8f5e9;
+        border: 1px solid #a5d6a7;
+        border-radius: 999px;
+        padding: 0.3rem 0.75rem;
+        font-size: 0.82rem;
+        color: var(--green);
+        cursor: pointer;
+        transition: background 0.12s;
+      }
+
+      .chip:hover { background: #c8e6c9; }
+
+      /* ── References list ─────────────────────────────────── */
+      .message ul {
+        margin: 0;
+        padding-left: 1.1rem;
+      }
+
+      .message li { margin-bottom: 0.2rem; font-size: 0.88rem; }
+
+      /* ── Citations panel ─────────────────────────────────── */
+      .citations-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        margin-top: 0.6rem;
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.25rem 0.6rem;
+        font-size: 0.78rem;
+        color: var(--muted);
+        cursor: pointer;
+      }
+
+      .citations-toggle:hover { background: #f5f5f5; color: var(--text); }
+
+      .citations-list {
+        display: none;
+        margin-top: 0.6rem;
+        display: none;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+
+      .citations-list.open { display: flex; }
+
+      .citation-card {
+        background: #fafafa;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.6rem 0.75rem;
+        font-size: 0.8rem;
+        color: var(--text);
+        line-height: 1.5;
+      }
+
+      .citation-card .citation-title {
+        font-weight: 600;
+        font-size: 0.82rem;
+        margin-bottom: 0.3rem;
+        color: var(--green);
+      }
+
+      .citation-card .citation-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.3rem 1rem;
+        color: var(--muted);
+      }
+
+      .citation-card .citation-link {
+        color: var(--green-2);
+        text-decoration: none;
+        font-size: 0.78rem;
+      }
+
+      .citation-card .citation-link:hover { text-decoration: underline; }
+
+      /* ── Warnings ────────────────────────────────────────── */
+      .warning-banner {
+        background: #fff8e1;
+        border: 1px solid #ffe082;
+        border-radius: 8px;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.82rem;
+        color: #7b5800;
+        margin-top: 0.6rem;
+      }
+
+      /* ── Raw JSON toggle ─────────────────────────────────── */
+      .raw-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.25rem 0.6rem;
+        font-size: 0.78rem;
+        color: var(--muted);
+        cursor: pointer;
+        margin-left: 0.4rem;
+      }
+
+      .raw-toggle:hover { background: #f5f5f5; color: var(--text); }
+
+      .raw-json {
+        display: none;
+        margin-top: 0.6rem;
+        background: #1e1e2e;
+        color: #cdd6f4;
+        border-radius: 8px;
+        padding: 0.75rem;
+        font-family: "Fira Code", "Cascadia Code", monospace;
+        font-size: 0.76rem;
+        white-space: pre-wrap;
+        overflow: auto;
+        max-height: 320px;
+      }
+
+      .raw-json.open { display: block; }
+
+      /* ── Typing indicator ────────────────────────────────── */
+      .typing {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+      }
+
+      .typing span {
+        width: 0.42rem;
+        height: 0.42rem;
+        border-radius: 999px;
+        background: #90a4ae;
+        animation: blink 1s infinite ease-in-out;
+      }
+
+      .typing span:nth-child(2) { animation-delay: 0.15s; }
+      .typing span:nth-child(3) { animation-delay: 0.3s;  }
+
+      @keyframes blink {
+        0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+        40%            { opacity: 1;    transform: translateY(-2px); }
+      }
+
+      /* ── Composer ────────────────────────────────────────── */
+      .composer {
+        border-top: 1px solid var(--border);
+        background: #f0f2f5;
+        padding: 0.85rem 1rem;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 0.75rem;
+        flex-shrink: 0;
+      }
+
+      .composer textarea {
+        resize: none;
+        min-height: 56px;
+        max-height: 160px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 0.72rem 0.8rem;
+        background: #fff;
+        color: var(--text);
+      }
+
+      .composer button {
+        align-self: end;
+        min-width: 110px;
+        background: var(--green-2);
+        color: #fff;
+      }
+
+      /* ── Responsive ──────────────────────────────────────── */
+      @media (max-width: 900px) {
+        body { padding: 0; }
+        .app { width: 100%; height: 100vh; border-radius: 0; grid-template-columns: 1fr; }
+        .sidebar { display: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+
+      <!-- ── Sidebar ──────────────────────────────────────── -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <h1>JINAM Chat Demo</h1>
+          <p>Local test UI · <span id="sessionInfo">No session</span></p>
+        </div>
+
+        <div class="controls">
+
+          <label>
+            Service URL
+            <input id="serviceUrl" value="http://localhost:8012" />
+          </label>
+
+          <!-- Category filter (multi-select checkboxes) -->
+          <div>
+            <div class="label-title">Categories</div>
+            <div class="checkbox-group" id="categoryGroup">
+              <label><input type="checkbox" value="Pravachan" /> <span>Pravachan</span></label>
+              <label><input type="checkbox" value="Books"     /> <span>Books</span></label>
+              <label><input type="checkbox" value="Granth"    /> <span>Granth</span></label>
+            </div>
+            <div class="small-note" style="margin-top:0.3rem;">Unchecked = use service defaults</div>
+          </div>
+
+          <!-- Language -->
+          <div>
+            <div class="label-title">Language</div>
+            <div class="radio-group">
+              <label><input type="radio" name="language" value="hi" checked /><span>Hindi</span></label>
+              <label><input type="radio" name="language" value="gu" /><span>Gujarati</span></label>
+            </div>
+          </div>
+
+          <!-- Answer format -->
+          <div>
+            <div class="label-title">Answer Format</div>
+            <div class="radio-group">
+              <label><input type="radio" name="answerType" value="structured" checked /><span>Structured</span></label>
+              <label><input type="radio" name="answerType" value="combined"   /><span>Combined</span></label>
+            </div>
+          </div>
+
+          <div class="button-row">
+            <button id="newChat"     class="secondary" type="button">New Chat</button>
+            <button id="healthCheck" class="secondary" type="button">Check API</button>
+          </div>
+
+        </div>
+      </aside>
+
+      <!-- ── Chat panel ────────────────────────────────────── -->
+      <main class="chat">
+        <div class="chat-header">
+          <div>
+            <h2>WhatsApp-style Preview</h2>
+            <p>Ask a question in Hindi or Gujarati</p>
+          </div>
+          <div class="status-pill" id="statusPill">Idle</div>
+        </div>
+
+        <div class="messages" id="messages">
+          <div class="message assistant">
+            Ask something like:<br /><br />
+            <code>स्वपरप्रकाशक ज्ञान क्या है?</code>
+            <span class="meta">A session will be created automatically on first send.</span>
+          </div>
+        </div>
+
+        <form class="composer" id="composer">
+          <textarea
+            id="questionInput"
+            placeholder="Type your question here… (Shift+Enter for newline)"
+            autocomplete="off"
+          ></textarea>
+          <button id="sendButton" type="submit">Send</button>
+        </form>
+      </main>
+    </div>
+
+    <script>
+      /* ── Element refs ──────────────────────────────────────── */
+      const el = {
+        serviceUrl:    document.getElementById("serviceUrl"),
+        categoryGroup: document.getElementById("categoryGroup"),
+        sessionInfo:   document.getElementById("sessionInfo"),
+        statusPill:    document.getElementById("statusPill"),
+        messages:      document.getElementById("messages"),
+        composer:      document.getElementById("composer"),
+        questionInput: document.getElementById("questionInput"),
+        sendButton:    document.getElementById("sendButton"),
+        newChat:       document.getElementById("newChat"),
+        healthCheck:   document.getElementById("healthCheck"),
+      };
+
+      /* ── State ─────────────────────────────────────────────── */
+      const state = { sessionId: "", busy: false };
+
+      /* ── Helpers ───────────────────────────────────────────── */
+      function esc(v) {
+        return String(v ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;");
+      }
+
+      function getLanguage()    { return document.querySelector('input[name="language"]:checked')?.value  || "hi"; }
+      function getAnswerType()  { return document.querySelector('input[name="answerType"]:checked')?.value || "structured"; }
+
+      function getCheckedCategories() {
+        const checked = [...el.categoryGroup.querySelectorAll('input[type="checkbox"]:checked')];
+        return checked.map(c => c.value);
+      }
+
+      function setStatus(text, kind = "idle") {
+        el.statusPill.textContent = text;
+        el.statusPill.className = "status-pill" + (kind !== "idle" ? ` ${kind}` : "");
+      }
+
+      function buildFilters() {
+        const cats = getCheckedCategories();
+        return cats.length ? { content_type: cats } : {};
+      }
+
+      /* ── Message rendering ─────────────────────────────────── */
+      function appendRaw(kind, html, meta = "") {
+        const wrap = document.createElement("div");
+        wrap.className = `message ${kind}`;
+        wrap.innerHTML = html;
+        if (meta) {
+          const m = document.createElement("span");
+          m.className = "meta";
+          m.textContent = meta;
+          wrap.appendChild(m);
+        }
+        el.messages.appendChild(wrap);
+        el.messages.scrollTop = el.messages.scrollHeight;
+        return wrap;
+      }
+
+      function renderCitationCard(c) {
+        const title = esc(c.granth || c.reference || c.chunk_id || "Source");
+        const rows = [];
+        if (c.category)         rows.push(`<span>${esc(c.category)}</span>`);
+        if (c.pravachankar)     rows.push(`<span>Pravachankar: ${esc(c.pravachankar)}</span>`);
+        if (c.author)           rows.push(`<span>Author: ${esc(c.author)}</span>`);
+        if (c.page_number)      rows.push(`<span>Page: ${esc(c.page_number)}</span>`);
+        if (c.date)             rows.push(`<span>Date: ${esc(c.date)}</span>`);
+        if (c.volume)           rows.push(`<span>Vol: ${esc(c.volume)}</span>`);
+        if (c.language)         rows.push(`<span>Lang: ${esc(c.language)}</span>`);
+        const link = c.file_url
+          ? `<a class="citation-link" href="${esc(c.file_url)}" target="_blank" rel="noopener">Open source ↗</a>`
+          : "";
+        return `
+          <div class="citation-card">
+            <div class="citation-title">${title}</div>
+            <div class="citation-row">${rows.join("")}</div>
+            ${link}
+          </div>`;
+      }
+
+      function renderAssistantPayload(payload) {
+        const mode   = getAnswerType();
+        const answer = String(payload.answer || "").trim();
+
+        let html = `<div class="answer-text">${esc(answer)}</div>`;
+
+        if (mode === "structured") {
+          // Follow-up questions as clickable chips
+          if (Array.isArray(payload.follow_up_questions) && payload.follow_up_questions.length) {
+            const chips = payload.follow_up_questions
+              .map(q => `<button class="chip" type="button" data-q="${esc(q)}">${esc(q)}</button>`)
+              .join("");
+            html += `
+              <div class="subsection">
+                <span class="subsection-title">Follow-up Questions</span>
+                <div class="followup-chips">${chips}</div>
+              </div>`;
+          }
+
+          // References
+          if (Array.isArray(payload.references) && payload.references.length) {
+            const items = payload.references.map(r => `<li>${esc(r)}</li>`).join("");
+            html += `
+              <div class="subsection">
+                <span class="subsection-title">References</span>
+                <ul>${items}</ul>
+              </div>`;
+          }
+        }
+
+        // Warnings
+        if (Array.isArray(payload.warnings) && payload.warnings.length) {
+          html += `<div class="warning-banner">${payload.warnings.map(esc).join("<br/>")}</div>`;
+        }
+
+        // Citations panel (hidden by default)
+        const hasCitations = Array.isArray(payload.citations) && payload.citations.length;
+        if (hasCitations) {
+          const count = payload.citations.length;
+          const cardsHtml = payload.citations.map(renderCitationCard).join("");
+          html += `
+            <button class="citations-toggle" type="button" data-target="cit-{{id}}">
+              ▶ ${count} citation${count !== 1 ? "s" : ""}
+            </button>
+            <div class="citations-list" id="cit-{{id}}">${cardsHtml}</div>`;
+        }
+
+        // Raw JSON toggle
+        const jsonStr = esc(JSON.stringify(payload, null, 2));
+        html += `
+          <button class="raw-toggle" type="button" data-target="raw-{{id}}">{ } Raw JSON</button>
+          <pre class="raw-json" id="raw-{{id}}">${jsonStr}</pre>`;
+
+        const metaParts = [
+          payload.provider          ? `provider: ${payload.provider}`              : "",
+          payload.tool_trace_id     ? `trace: ${payload.tool_trace_id.slice(0,8)}` : "",
+        ].filter(Boolean).join(" · ");
+
+        const wrap = appendRaw("assistant", html, metaParts);
+
+        // Patch placeholder IDs to real unique IDs
+        const uid = Date.now();
+        wrap.querySelectorAll("[id*='{{id}}']").forEach(node => {
+          node.id = node.id.replace("{{id}}", uid);
+        });
+        wrap.querySelectorAll("[data-target*='{{id}}']").forEach(node => {
+          node.dataset.target = node.dataset.target.replace("{{id}}", uid);
+        });
+
+        // Chip click → fill textarea
+        wrap.querySelectorAll(".chip").forEach(chip => {
+          chip.addEventListener("click", () => {
+            el.questionInput.value = chip.dataset.q;
+            el.questionInput.focus();
+          });
+        });
+
+        // Citations toggle
+        wrap.querySelectorAll(".citations-toggle").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const target = document.getElementById(btn.dataset.target);
+            if (!target) return;
+            const open = target.classList.toggle("open");
+            btn.textContent = (open ? "▼" : "▶") + btn.textContent.slice(1);
+          });
+        });
+
+        // Raw JSON toggle
+        wrap.querySelectorAll(".raw-toggle").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const target = document.getElementById(btn.dataset.target);
+            if (!target) return;
+            target.classList.toggle("open");
+          });
+        });
+      }
+
+      function renderTyping() {
+        return appendRaw(
+          "assistant",
+          `<div class="typing"><span></span><span></span><span></span></div>`,
+          "typing…"
+        );
+      }
+
+      /* ── API calls ─────────────────────────────────────────── */
+      function base() {
+        return el.serviceUrl.value.trim().replace(/\/$/, "");
+      }
+
+      async function createSession() {
+        const res = await fetch(`${base()}/v1/chat/sessions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider: "auto", language: getLanguage() }),
+        });
+        if (!res.ok) {
+          const txt = await res.text();
+          throw new Error(`Session create failed: ${res.status} ${txt}`);
+        }
+        const json = await res.json();
+        state.sessionId = json.session_id;
+        el.sessionInfo.textContent = `Session: ${state.sessionId.slice(0, 8)}…`;
+      }
+
+      async function ensureSession() {
+        if (!state.sessionId) await createSession();
+      }
+
+      async function sendQuestion(question) {
+        await ensureSession();
+        const res = await fetch(`${base()}/v1/chat/sessions/${state.sessionId}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            role: "user",
+            content: question,
+            response_format: getAnswerType(),
+            filters: buildFilters(),
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.detail || `Message failed: ${res.status}`);
+        return json;
+      }
+
+      /* ── Event handlers ────────────────────────────────────── */
+      async function handleSubmit(event) {
+        event.preventDefault();
+        if (state.busy) return;
+
+        const question = el.questionInput.value.trim();
+        if (!question) return;
+
+        state.busy = true;
+        setStatus("Typing…", "busy");
+        el.sendButton.disabled  = true;
+        el.questionInput.disabled = true;
+
+        appendRaw("user", esc(question));
+        el.questionInput.value = "";
+
+        const typingNode = renderTyping();
+        try {
+          const payload = await sendQuestion(question);
+          typingNode.remove();
+          renderAssistantPayload(payload);
+          setStatus("Idle");
+        } catch (err) {
+          typingNode.remove();
+          appendRaw("assistant", `<div>${esc(err.message)}</div>`, "error");
+          setStatus("Error", "error");
+        } finally {
+          state.busy = false;
+          el.sendButton.disabled    = false;
+          el.questionInput.disabled = false;
+          el.questionInput.focus();
+        }
+      }
+
+      async function handleHealthCheck() {
+        setStatus("Checking…", "busy");
+        try {
+          const res = await fetch(`${base()}/v1/health`);
+          if (!res.ok) throw new Error(`Health: ${res.status}`);
+          const json = await res.json();
+          appendRaw("assistant", `<div>Service is healthy. ${esc(JSON.stringify(json))}</div>`, "health check");
+          setStatus("Idle");
+        } catch (err) {
+          appendRaw("assistant", `<div>${esc(err.message)}</div>`, "health check");
+          setStatus("Error", "error");
+        }
+      }
+
+      async function handleNewChat() {
+        state.sessionId = "";
+        el.messages.innerHTML = "";
+        el.sessionInfo.textContent = "No session";
+        appendRaw("assistant", "<div>New chat ready. Ask a fresh question.</div>");
+        try {
+          await createSession();
+          setStatus("Idle");
+        } catch (err) {
+          appendRaw("assistant", `<div>${esc(err.message)}</div>`, "session");
+          setStatus("Error", "error");
+        }
+      }
+
+      // Language change → reset session silently
+      document.querySelectorAll('input[name="language"]').forEach(radio => {
+        radio.addEventListener("change", () => {
+          state.sessionId = "";
+          el.sessionInfo.textContent = "No session (lang changed)";
+        });
+      });
+
+      // Shift+Enter → newline; Enter alone → send
+      el.questionInput.addEventListener("keydown", e => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          el.composer.requestSubmit();
+        }
+      });
+
+      el.composer.addEventListener("submit", handleSubmit);
+      el.healthCheck.addEventListener("click", handleHealthCheck);
+      el.newChat.addEventListener("click", handleNewChat);
+
+      el.questionInput.focus();
+    </script>
+  </body>
+</html>

@@ -1,9 +1,3 @@
-export function normalizeContentTypes(contentTypes) {
-  if (!Array.isArray(contentTypes)) return [];
-  const normalized = contentTypes.map((ct) => String(ct || "").trim()).filter(Boolean);
-  return Array.from(new Set(normalized));
-}
-
 export function mergeMetadataOptions(optionSets) {
   const merged = [];
   for (const options of optionSets || []) {

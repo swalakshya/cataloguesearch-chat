@@ -1,28 +1,22 @@
-import { mkdir, rm } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
+/**
+ * Serializes integration test files so they don't run concurrently against
+ * the shared test service. Each test file calls acquireIntegrationLock() in
+ * its `before` hook and calls the returned release function in its `after` hook.
+ *
+ * Node's test runner executes test files in parallel by default. Without this
+ * lock, concurrent files would race on shared service state (sessions, model
+ * availability, test-provider behaviors), causing flaky failures.
+ */
 
-const LOCK_DIR = path.join(os.tmpdir(), "cataloguesearch-chat-integration.lock");
+let tail = Promise.resolve();
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-export async function acquireIntegrationLock({ timeoutMs = 30_000, retryMs = 100 } = {}) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      await mkdir(LOCK_DIR);
-      let released = false;
-      return async () => {
-        if (released) return;
-        released = true;
-        await rm(LOCK_DIR, { recursive: true, force: true });
-      };
-    } catch (err) {
-      if (err?.code !== "EEXIST") throw err;
-    }
-    await sleep(retryMs);
-  }
-  throw new Error("integration_lock_timeout");
+export async function acquireIntegrationLock() {
+  let release;
+  const next = new Promise((resolve) => {
+    release = resolve;
+  });
+  const waitForPrevious = tail;
+  tail = tail.then(() => next);
+  await waitForPrevious;
+  return release;
 }

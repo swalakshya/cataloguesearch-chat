@@ -7,25 +7,21 @@ import {
   getAnswerSchema,
 } from "../../src/config/answer_schema.js";
 
-test("ANSWER_SCHEMA requires structured follow up questions", () => {
+test("ANSWER_SCHEMA requires answer and scoring, no follow_up_questions", () => {
   assert.equal(ANSWER_SCHEMA.type, "object");
-  assert.ok(ANSWER_SCHEMA.properties.follow_up_questions);
-  assert.equal(ANSWER_SCHEMA.properties.follow_up_questions.type, "array");
-  assert.deepEqual(ANSWER_SCHEMA.properties.follow_up_questions.items, { type: "string" });
-  assert.ok(ANSWER_SCHEMA.required.includes("follow_up_questions"));
+  assert.equal(ANSWER_SCHEMA.properties.follow_up_questions, undefined);
+  assert.deepEqual(ANSWER_SCHEMA.required, ["answer", "scoring"]);
 });
 
-test("COMBINED_ANSWER_SCHEMA omits follow up questions", () => {
-  assert.equal(COMBINED_ANSWER_SCHEMA.type, "object");
-  assert.equal(COMBINED_ANSWER_SCHEMA.properties.follow_up_questions, undefined);
-  assert.deepEqual(COMBINED_ANSWER_SCHEMA.required, ["answer", "scoring"]);
+test("COMBINED_ANSWER_SCHEMA is the same as ANSWER_SCHEMA", () => {
+  assert.equal(COMBINED_ANSWER_SCHEMA, ANSWER_SCHEMA);
 });
 
-test("getAnswerSchema selects schema by response format and workflow", () => {
+test("getAnswerSchema returns the same schema for all formats", () => {
   assert.equal(getAnswerSchema({ responseFormat: "structured" }), ANSWER_SCHEMA);
-  assert.equal(getAnswerSchema({ responseFormat: "combined" }), COMBINED_ANSWER_SCHEMA);
+  assert.equal(getAnswerSchema({ responseFormat: "combined" }), ANSWER_SCHEMA);
   assert.equal(
-    getAnswerSchema({ workflowName: "metadata_question_v1", responseFormat: "structured" }),
-    COMBINED_ANSWER_SCHEMA
+    getAnswerSchema({ workflowName: "metadata_question_v1", responseFormat: "combined" }),
+    ANSWER_SCHEMA
   );
 });

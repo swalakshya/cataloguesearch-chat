@@ -48,14 +48,12 @@ export class GeminiProvider extends LLMProvider {
       config.systemInstruction = systemInstruction;
     }
 
-    log.verbose("gemini_request", {
+    log.debug("gemini_request", {
       requestId,
       model: this.model,
-      payload: {
-        model: this.model,
-        contents,
-        config,
-      },
+      temperature,
+      maxTokens,
+      responseMimeType: config.responseMimeType || null,
     });
 
     const runOnce = async (apiKey) => {

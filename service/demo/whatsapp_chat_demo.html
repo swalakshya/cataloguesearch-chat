@@ -188,55 +188,6 @@
 
       .small-note { font-size: 0.76rem; color: var(--muted); }
 
-      /* ── User ID row ─────────────────────────────────────── */
-      .user-id-row {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        background: #fff;
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 0.5rem 0.75rem;
-      }
-
-      .user-id-text {
-        flex: 1;
-        font-size: 0.8rem;
-        font-family: "Fira Code", "Cascadia Code", monospace;
-        color: var(--muted);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      /* ── Past chats ──────────────────────────────────────── */
-      .past-chats-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 0.4rem;
-      }
-
-      .past-chat-item {
-        display: block;
-        width: 100%;
-        text-align: left;
-        background: #fff;
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 0.6rem 0.75rem;
-        font-size: 0.83rem;
-        cursor: pointer;
-        transition: background 0.12s, border-color 0.12s;
-        color: var(--text);
-        margin-bottom: 0.4rem;
-      }
-
-      .past-chat-item:hover  { background: #e8f5e9; border-color: var(--green-2); }
-      .past-chat-item.active { background: #e8f5e9; border-color: var(--green); }
-
-      .past-chat-meta { font-size: 0.75rem; color: var(--muted); margin-top: 0.15rem; }
-
       /* ── Chat panel ──────────────────────────────────────── */
       .chat {
         display: flex;
@@ -554,16 +505,6 @@
             <input id="serviceUrl" value="http://localhost:8012" />
           </label>
 
-          <!-- User ID -->
-          <div>
-            <div class="label-title">Your ID</div>
-            <div class="user-id-row">
-              <span id="userIdDisplay" class="user-id-text">…</span>
-              <button id="copyUserId" class="secondary" type="button" style="padding:0.3rem 0.65rem;font-size:0.78rem;border-radius:8px;flex-shrink:0;">Copy</button>
-            </div>
-            <div class="small-note" style="margin-top:0.3rem;">Paste into another browser to restore history</div>
-          </div>
-
           <!-- Category filter (multi-select checkboxes) -->
           <div>
             <div class="label-title">Categories</div>
@@ -596,15 +537,6 @@
           <div class="button-row">
             <button id="newChat"     class="secondary" type="button">New Chat</button>
             <button id="healthCheck" class="secondary" type="button">Check API</button>
-          </div>
-
-          <!-- Past Chats -->
-          <div>
-            <div class="past-chats-header">
-              <span class="label-title" style="margin:0;">Past Chats</span>
-              <button id="refreshPastChats" class="secondary" type="button" style="padding:0.2rem 0.55rem;font-size:0.78rem;border-radius:6px;">↺</button>
-            </div>
-            <div id="pastChatsList" class="small-note">—</div>
           </div>
 
         </div>
@@ -642,34 +574,20 @@
     <script>
       /* ── Element refs ──────────────────────────────────────── */
       const el = {
-        serviceUrl:       document.getElementById("serviceUrl"),
-        categoryGroup:    document.getElementById("categoryGroup"),
-        sessionInfo:      document.getElementById("sessionInfo"),
-        statusPill:       document.getElementById("statusPill"),
-        messages:         document.getElementById("messages"),
-        composer:         document.getElementById("composer"),
-        questionInput:    document.getElementById("questionInput"),
-        sendButton:       document.getElementById("sendButton"),
-        newChat:          document.getElementById("newChat"),
-        healthCheck:      document.getElementById("healthCheck"),
-        userIdDisplay:    document.getElementById("userIdDisplay"),
-        copyUserId:       document.getElementById("copyUserId"),
-        pastChatsList:    document.getElementById("pastChatsList"),
-        refreshPastChats: document.getElementById("refreshPastChats"),
+        serviceUrl:    document.getElementById("serviceUrl"),
+        categoryGroup: document.getElementById("categoryGroup"),
+        sessionInfo:   document.getElementById("sessionInfo"),
+        statusPill:    document.getElementById("statusPill"),
+        messages:      document.getElementById("messages"),
+        composer:      document.getElementById("composer"),
+        questionInput: document.getElementById("questionInput"),
+        sendButton:    document.getElementById("sendButton"),
+        newChat:       document.getElementById("newChat"),
+        healthCheck:   document.getElementById("healthCheck"),
       };
 
       /* ── State ─────────────────────────────────────────────── */
       const state = { sessionId: "", busy: false };
-
-      /* ── User ID ───────────────────────────────────────────── */
-      function getUserId() {
-        let id = localStorage.getItem("jinam_user_id");
-        if (!id) {
-          id = crypto.randomUUID();
-          localStorage.setItem("jinam_user_id", id);
-        }
-        return id;
-      }
 
       /* ── Helpers ───────────────────────────────────────────── */
       function esc(v) {
@@ -848,7 +766,7 @@
         const res = await fetch(`${base()}/v1/chat/sessions`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ provider: "auto", language: getLanguage(), user_id: getUserId() }),
+          body: JSON.stringify({ provider: "auto", language: getLanguage() }),
         });
         if (!res.ok) {
           const txt = await res.text();
@@ -878,62 +796,6 @@
         const json = await res.json();
         if (!res.ok) throw new Error(json.detail || `Message failed: ${res.status}`);
         return json;
-      }
-
-      /* ── Past chats ────────────────────────────────────────── */
-      async function loadPastChats() {
-        el.pastChatsList.textContent = "Loading…";
-        try {
-          const res = await fetch(`${base()}/v1/users/${getUserId()}/sessions`);
-          if (!res.ok) {
-            el.pastChatsList.textContent = res.status === 404 ? "Persistence not enabled" : "Failed to load";
-            return;
-          }
-          const { sessions } = await res.json();
-          if (!sessions.length) {
-            el.pastChatsList.textContent = "No past chats";
-            return;
-          }
-          el.pastChatsList.innerHTML = "";
-          for (const s of sessions) {
-            const btn = document.createElement("button");
-            btn.className = "past-chat-item" + (s.session_id === state.sessionId ? " active" : "");
-            btn.type = "button";
-            const date = new Date(s.last_activity_at * 1000).toLocaleString();
-            btn.innerHTML = `
-              <div>${esc(s.session_id.slice(0, 8))}… · ${esc(s.language.toUpperCase())}</div>
-              <div class="past-chat-meta">${s.message_count} messages · ${esc(date)}</div>`;
-            btn.addEventListener("click", () => restoreSession(s.session_id));
-            el.pastChatsList.appendChild(btn);
-          }
-        } catch {
-          el.pastChatsList.textContent = "Could not reach service";
-        }
-      }
-
-      async function restoreSession(sessionId) {
-        if (state.busy) return;
-        try {
-          const res = await fetch(`${base()}/v1/chat/sessions/${sessionId}`);
-          if (!res.ok) { appendRaw("assistant", "<div>Could not restore session.</div>", "restore"); return; }
-          const session = await res.json();
-          state.sessionId = sessionId;
-          el.sessionInfo.textContent = `Session: ${sessionId.slice(0, 8)}…`;
-          el.messages.innerHTML = "";
-          for (const msg of session.messages) {
-            if (msg.role === "user") {
-              appendRaw("user", esc(msg.content));
-            } else {
-              appendRaw("assistant", `<div class="answer-text">${esc(msg.content)}</div>`, "restored");
-            }
-          }
-          setStatus("Idle");
-          el.pastChatsList.querySelectorAll(".past-chat-item").forEach(btn => {
-            btn.classList.toggle("active", btn.textContent.startsWith(sessionId.slice(0, 8)));
-          });
-        } catch (err) {
-          appendRaw("assistant", `<div>${esc(err.message)}</div>`, "restore error");
-        }
       }
 
       /* ── Event handlers ────────────────────────────────────── */
@@ -1017,24 +879,6 @@
       el.composer.addEventListener("submit", handleSubmit);
       el.healthCheck.addEventListener("click", handleHealthCheck);
       el.newChat.addEventListener("click", handleNewChat);
-
-      el.copyUserId.addEventListener("click", () => {
-        navigator.clipboard.writeText(getUserId()).then(() => {
-          const orig = el.copyUserId.textContent;
-          el.copyUserId.textContent = "Copied!";
-          setTimeout(() => { el.copyUserId.textContent = orig; }, 1500);
-        });
-      });
-
-      el.refreshPastChats.addEventListener("click", loadPastChats);
-
-      el.serviceUrl.addEventListener("change", loadPastChats);
-
-      /* ── Init ──────────────────────────────────────────────── */
-      const userId = getUserId();
-      el.userIdDisplay.textContent = userId.slice(0, 8) + "…" + userId.slice(-4);
-      el.userIdDisplay.title = userId;
-      loadPastChats();
 
       el.questionInput.focus();
     </script>

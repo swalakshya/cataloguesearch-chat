@@ -113,7 +113,7 @@ cp service/.env.local.example service/.env.local
 docker compose up
 ```
 
-### All environment variables
+## All environment variables
 
 | Variable | Default | Description |
 |---|---|---|
@@ -134,6 +134,20 @@ docker compose up
 | `LOG_LEVEL` | `info` | Console log level (`info`, `verbose`, `debug`) |
 | `LOGS_DIR` | — | When set, writes JSON lines to `info.log` and `verbose.log` |
 | `SESSION_DB_PATH` | — | When set, enables SQLite-backed session persistence |
+
+## Session Persistence
+- Session persistence is optional and enabled only when `SESSION_DB_PATH` is set.
+- The Docker compose setup mounts `/app/data` and sets `SESSION_DB_PATH=/app/data/sessions.db`.
+- Live sessions stay in memory while active; SQLite is used for restore after eviction or restart.
+
+## Logging
+- `info.log` captures operational events at `info`, `warn`, and `error`.
+- `verbose.log` captures everything in `info.log` plus payload-heavy `verbose` traces such as request/response bodies.
+- When `LOGS_DIR` is unset, logs go only to stdout/stderr.
+
+In Docker, the compose file mounts named volumes at `/app/logs` and `/app/data`, so the chat service keeps logs plus the SQLite session database outside the container lifecycle.
+
+## Configs
 
 Workflow tuning lives in `service/src/config/model_config.js` under `workflowDefaults` and per-model `workflowOverrides`.
 Example structure:
@@ -172,7 +186,14 @@ const MODEL_ROUTING_CONFIG = {
 ```
 `workflowOverrides` is merged over `workflowDefaults` by key, so you can override only the fields you need without redefining the full config.
 
-In Docker, the compose file mounts named volumes at `/app/logs` and `/app/data`, so the chat service keeps logs plus the SQLite session database outside the container lifecycle.
+Defaults in `src/config/token_limits.js`, Example:
+```json
+{
+  "openai": { "gpt-4o": 128000, "*": 120000 },
+  "gemini": { "gemini-2.5-pro": 1048576, "gemini-2.5-flash": 1048576 },
+  "default": { "*": 120000 }
+}
+```
 
 ---
 

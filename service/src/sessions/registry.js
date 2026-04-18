@@ -73,8 +73,8 @@ export class SessionRegistry {
     if (session?.provider?.closeSession) {
       try {
         session.provider.closeSession(session.providerSessionId);
-      } catch (err) {
-        log.warn("session_close_failed", { sessionId, message: err?.message || String(err) });
+      } catch (_) {
+        // ignore
       }
     }
   }

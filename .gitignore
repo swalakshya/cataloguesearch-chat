@@ -2,6 +2,7 @@ node_modules
 .idea
 .venv
 .env.local
+.nvmrc
 dev_docs
 .worktrees/
 .cursorrules

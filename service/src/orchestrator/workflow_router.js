@@ -129,7 +129,7 @@ async function resolveFilters({ externalApi, filters, language, requestId, allow
       contributor:
         contributorMatch.matched === false && mapped.contributor ? mapped.contributor : resolved.contributor,
     };
-    log.verbose("filters_llm_mapped", { requestId, input: filters, mapped, resolved });
+    log.info("filters_llm_mapped", { requestId, input: filters, mapped, resolved });
   }
 
   log.debug("filters_resolved", { requestId, input: filters, resolved });
@@ -139,7 +139,7 @@ async function resolveFilters({ externalApi, filters, language, requestId, allow
 async function safeFetchFilterOptions(externalApi, payload, requestId, allowFailure) {
   try {
     const response = await externalApi.getFilterOptions(payload, requestId);
-    log.verbose("filter_options_response", { requestId, payload, response });
+    log.info("filter_options_response", { requestId, payload, response });
     return response;
   } catch (err) {
     if (!allowFailure) throw err;

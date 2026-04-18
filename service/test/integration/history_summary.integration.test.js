@@ -30,7 +30,7 @@ after(async () => {
 const integrationTest = INTEGRATION_ENABLED ? test : test.skip;
 
 integrationTest("summarizes history after threshold reached", async () => {
-  await harness.reset();
+  await harness.post("/v1/test/reset");
   const session = await harness.post("/v1/chat/sessions", { provider: "auto" });
   const sessionId = session.json.session_id;
 

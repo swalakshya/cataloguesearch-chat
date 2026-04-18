@@ -1,4 +1,4 @@
-# LLM Direct Service
+# Service Contract
 
 Deterministic, non-agentic LLM service for CatalogueSearch. It calls LLM providers directly and orchestrates a fixed retrieval + answer workflow using the External API.
 
@@ -81,9 +81,8 @@ Response:
 ```
 
 `response_format` behavior:
-- `structured` (default): returns `answer` plus `follow_up_questions`, `references`, and `citations`.
-- `combined`: returns a single WhatsApp-ready `answer` string that already includes follow-up questions inline; `follow_up_questions` is omitted, while `references` and `citations` are still returned structurally.
-- If `response_format` is omitted, the service uses `DEFAULT_ANSWER_FORMAT` from env. Supported env values are `structured` and `compact` (`compact` maps to the single-message combined mode).
+- `structured`: returns `answer` (compacted) plus `follow_up_questions`, `references`, and `citations`.
+- `combined` (default): returns a single WhatsApp-ready `answer` string that already includes follow-up questions inline; `follow_up_questions`, `references` and `citations` are omitted.- If `response_format` is omitted, the service uses `DEFAULT_ANSWER_FORMAT` from env or fallbacks to `combined`. Supported env values are `structured` and `combined` (`combined` maps to the single-message combined mode).
 
 ### `GET /v1/chat/sessions/{id}`
 Response:
@@ -129,73 +128,3 @@ Response:
 - Workflow prompts live under `service/prompts_sets/`.
 - External API schemas live under `tools/external_api_openapi.*`.
 - This service uses deterministic retrieval workflows defined in `llm_direct_service/docs/workflow_implementation_details.md`.
-
-## Session Token Limits
-To preserve answer accuracy, the messages API rejects requests once a session reaches 80% of its token limit.
-
-Response on limit hit:
-```json
-{
-  "detail": "Token Limit Exhausted for the session. Please initiate a new session.",
-  "customer_message": "Please start a new chat for better answer accuracy."
-}
-```
-
-Configuration order:
-1. `LLM_SESSION_TOKEN_LIMIT` (explicit override)
-2. `LLM_TOKEN_LIMITS_JSON` (provider/model mapping)
-3. Defaults in `src/config/token_limits.js`
-
-Other env:
-- `LLM_DEFAULT_CONTENT_TYPES` (comma-separated default retrieval categories, example: `Pravachan,Granth`)
-- `LLM_ALLOWED_CONTENT_TYPES` (comma-separated allowed category values for prompts and filters, example: `Pravachan,Granth,Books`)
-- When these env vars are unset or invalid, the service falls back to `Granth,Books`.
-- `GREETING_CONTACT_EMAIL` (default: `projectjinam@gmail.com`)
-- `LOG_LEVEL` (`info`, `verbose`, or `debug`; default `info`)
-- `LOGS_DIR` (when set, writes newline-delimited JSON logs to `info.log` and `verbose.log`)
-- `SESSION_DB_PATH` (when set, enables SQLite session persistence at that path)
-Workflow tuning now lives in `src/config/model_config.js` under `workflowDefaults` and per-model `workflowOverrides`.
-
-## Logging
-- `info.log` captures operational events at `info`, `warn`, and `error`.
-- `verbose.log` captures everything in `info.log` plus payload-heavy `verbose` traces such as request/response bodies.
-- When `LOGS_DIR` is unset, logs go only to stdout/stderr.
-
-## Tests
-
-Run unit tests with:
-
-```bash
-npm test
-```
-
-Integration tests spin up an in-process server automatically. Create `.env.test` with:
-
-```env
-TEST_MODE=true
-TEST_MIN_SAMPLES=2
-```
-
-Run the full suite (unit + integration) with:
-
-```bash
-node --env-file=.env.test --test
-```
-
-Notes:
-- `TEST_MODE=true` enables the `/v1/test/*` endpoints and test providers used by the integration suite.
-- `TEST_MIN_SAMPLES=2` is required for the model failover integration tests.
-
-## Session Persistence
-- Session persistence is optional and enabled only when `SESSION_DB_PATH` is set.
-- The Docker compose setup mounts `/app/data` and sets `SESSION_DB_PATH=/app/data/sessions.db`.
-- Live sessions stay in memory while active; SQLite is used for restore after eviction or restart.
-
-Example `LLM_TOKEN_LIMITS_JSON`:
-```json
-{
-  "openai": { "gpt-4o": 128000, "*": 120000 },
-  "gemini": { "gemini-2.5-pro": 1048576, "gemini-2.5-flash": 1048576 },
-  "default": { "*": 120000 }
-}
-```

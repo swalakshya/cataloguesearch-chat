@@ -17,9 +17,9 @@ services:
       - chat-logs:/app/logs
     ports:
       - "${CHAT_SERVICE_PORT:-8012}:8012"
+    restart: ${RESTART_POLICY:-no}
     networks:
       - cataloguesearch-net
-    restart: ${RESTART_POLICY:-no}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8012/v1/health"]
       interval: 30s

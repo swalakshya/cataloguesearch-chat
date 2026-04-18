@@ -18,7 +18,7 @@ after(async () => {
 const integrationTest = INTEGRATION_ENABLED ? test : test.skip;
 
 integrationTest("fails over to next model on server error", async () => {
-  await harness.reset();
+  await harness.post("/v1/test/reset");
   await harness.post("/v1/test/provider-behavior", {
     behaviors: {
       "gemini-2.5-flash": "server_error",
@@ -38,7 +38,7 @@ integrationTest("fails over to next model on server error", async () => {
 });
 
 integrationTest("returns service_unavailable when all models are unavailable", async () => {
-  await harness.reset();
+  await harness.post("/v1/test/reset");
   await harness.post("/v1/test/provider-behavior", {
     behaviors: {
       "gemini-2.5-flash": "server_error",
@@ -66,7 +66,7 @@ integrationTest("returns service_unavailable when all models are unavailable", a
 });
 
 integrationTest("client-side error does not fail over", async () => {
-  await harness.reset();
+  await harness.post("/v1/test/reset");
   await harness.post("/v1/test/provider-behavior", {
     behaviors: {
       "gemini-2.5-flash": "client_error",
@@ -88,7 +88,7 @@ integrationTest("client-side error does not fail over", async () => {
 });
 
 integrationTest("429 hard-disables model for subsequent requests", async () => {
-  await harness.reset();
+  await harness.post("/v1/test/reset");
   await harness.post("/v1/test/provider-behavior", {
     behaviors: {
       "gemini-2.5-flash": "rate_limited",
@@ -118,7 +118,7 @@ integrationTest("429 hard-disables model for subsequent requests", async () => {
 });
 
 integrationTest("availability is global across sessions", async () => {
-  await harness.reset();
+  await harness.post("/v1/test/reset");
   await harness.post("/v1/test/provider-behavior", {
     behaviors: {
       "gemini-2.5-flash": "server_error",
@@ -144,7 +144,7 @@ integrationTest("availability is global across sessions", async () => {
 });
 
 integrationTest("records model-specific prompt root per request", async () => {
-  await harness.reset();
+  await harness.post("/v1/test/reset");
   await harness.post("/v1/test/provider-behavior", {
     behaviors: {
       "gemini-2.5-flash": "rate_limited",
@@ -166,7 +166,7 @@ integrationTest("records model-specific prompt root per request", async () => {
 });
 
 integrationTest("response_format=combined omits follow_up_questions field", async () => {
-  await harness.reset();
+  await harness.post("/v1/test/reset");
 
   const session = await harness.post("/v1/chat/sessions", { provider: "auto" });
   const message = await harness.post(`/v1/chat/sessions/${session.json.session_id}/messages`, {

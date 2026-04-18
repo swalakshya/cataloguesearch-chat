@@ -18,18 +18,17 @@ after(async () => {
 const integrationTest = INTEGRATION_ENABLED ? test : test.skip;
 
 integrationTest("structured chat stream emits progress stages before final response", async () => {
-  await harness.reset();
+  await harness.post("/v1/test/reset");
   const session = await harness.post("/v1/chat/sessions", { provider: "auto" });
   const sessionId = session.json.session_id;
 
-  const stream = await harness.postStream(`/v1/chat/sessions/${sessionId}/messages/stream`, {
+  const { res, events } = await harness.postStream(`/v1/chat/sessions/${sessionId}/messages/stream`, {
     role: "user",
     content: "What is Atma?",
     response_format: "structured",
   });
-  assert.equal(stream.res.ok, true);
-  const { events } = stream;
 
+  assert.equal(res.ok, true);
   assert.equal(events.length >= 4, true);
   assert.deepEqual(
     events.slice(0, 3).map((event) => event.stage),

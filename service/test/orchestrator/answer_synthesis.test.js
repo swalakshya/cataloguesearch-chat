@@ -29,8 +29,7 @@ test("runAnswerSynthesis injects conversation history and context", async () => 
   assert.ok(capturedPrompt.includes("CTX"));
   assert.ok(capturedPrompt.includes("\"set_1\""));
   assert.equal(result.answer, "answer");
-  assert.deepEqual(result.follow_up_questions, ["q1"]);
-  assert.ok(capturedSchema.properties.follow_up_questions);
+  assert.equal(capturedSchema.properties.follow_up_questions, undefined);
 });
 
 test("runAnswerSynthesis filters history by followupSetIds", async () => {
@@ -130,7 +129,7 @@ test("runAnswerSynthesis falls back when repair fails", async () => {
 
   assert.equal(calls, 2);
   assert.ok(typeof result.answer === "string");
-  assert.deepEqual(result.follow_up_questions, []);
+  assert.equal(result.follow_up_questions, undefined);
 });
 
 test("runAnswerSynthesis tolerates control characters", async () => {

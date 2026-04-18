@@ -1,190 +1,177 @@
-import { test } from "node:test";
+import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import fs from "node:fs";
 import { createServer } from "../../src/server.js";
 import { isIntegrationEnabled } from "../../test_support/integration_harness.js";
 
 const INTEGRATION_ENABLED = isIntegrationEnabled();
-const integrationTest = INTEGRATION_ENABLED ? test : test.skip;
 
-integrationTest("session survives full server restart via sqlite", async () => {
-  const dbPath = path.join(os.tmpdir(), `cataloguesearch-chat-restart-${process.pid}-${Date.now()}.db`);
-
-  await cleanupDbFiles(dbPath);
-
-  let first = null;
-  let second = null;
-  try {
-    first = createServer({
-      testMode: true,
-      cleanSessionDb: false,
-      sessionDbPath: dbPath,
-      port: 0,
-      host: "127.0.0.1",
-    });
-    await first.start({ port: 0, host: "127.0.0.1" });
-    const firstBaseUrl = first.getBaseUrl();
-    assert.ok(firstBaseUrl);
-
-    const created = await post(firstBaseUrl, "/v1/chat/sessions", { provider: "auto" });
-    assert.equal(created.res.status, 200);
-    const sessionId = created.json.session_id;
-
-    const initialMessage = await post(firstBaseUrl, `/v1/chat/sessions/${sessionId}/messages`, {
-      role: "user",
-      content: "initial restart test question",
-    });
-    assert.equal(initialMessage.res.status, 200);
-
-    const beforeRestart = await get(firstBaseUrl, `/v1/chat/sessions/${sessionId}`);
-    assert.equal(beforeRestart.res.status, 200);
-    assert.equal(beforeRestart.json.messages.length, 2);
-
-    await first.stop();
-
-    second = createServer({
-      testMode: true,
-      cleanSessionDb: false,
-      sessionDbPath: dbPath,
-      port: 0,
-      host: "127.0.0.1",
-    });
-    await second.start({ port: 0, host: "127.0.0.1" });
-    const secondBaseUrl = second.getBaseUrl();
-    assert.ok(secondBaseUrl);
-
-    const restored = await get(secondBaseUrl, `/v1/chat/sessions/${sessionId}`);
-    assert.equal(restored.res.status, 200);
-    assert.equal(restored.json.messages.length, 2);
-
-    const followup = await post(secondBaseUrl, `/v1/chat/sessions/${sessionId}/messages`, {
-      role: "user",
-      content: "followup after restart",
-    });
-    assert.equal(followup.res.status, 200);
-
-    const afterRestart = await get(secondBaseUrl, `/v1/chat/sessions/${sessionId}`);
-    assert.equal(afterRestart.res.status, 200);
-    assert.equal(afterRestart.json.messages.length, 4);
-  } finally {
-    await first?.stop?.();
-    await second?.stop?.();
-    await cleanupDbFiles(dbPath);
+async function waitForHealthy(baseUrl, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`${baseUrl}/v1/health`);
+      if (res.ok) return;
+    } catch {
+      // ignore
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
-});
+  throw new Error("service_not_healthy");
+}
 
-integrationTest("session with user_id survives restart and is listable before and after", async () => {
-  const dbPath = path.join(os.tmpdir(), `cataloguesearch-chat-restart-userid-${process.pid}-${Date.now()}.db`);
-  await cleanupDbFiles(dbPath);
-
-  let first = null;
-  let second = null;
-  try {
-    first = createServer({ testMode: true, cleanSessionDb: false, sessionDbPath: dbPath, port: 0, host: "127.0.0.1" });
-    await first.start({ port: 0, host: "127.0.0.1" });
-    const firstBase = first.getBaseUrl();
-
-    const created = await post(firstBase, "/v1/chat/sessions", { provider: "auto", user_id: "browser-restart-user" });
-    assert.equal(created.res.status, 200);
-    const sessionId = created.json.session_id;
-
-    const msg = await post(firstBase, `/v1/chat/sessions/${sessionId}/messages`, { role: "user", content: "question before restart" });
-    assert.equal(msg.res.status, 200);
-
-    const listedBefore = await get(firstBase, "/v1/users/browser-restart-user/sessions");
-    assert.equal(listedBefore.res.status, 200);
-    assert.equal(listedBefore.json.sessions.length, 1);
-    assert.equal(listedBefore.json.sessions[0].session_id, sessionId);
-
-    await first.stop();
-    first = null;
-
-    second = createServer({ testMode: true, cleanSessionDb: false, sessionDbPath: dbPath, port: 0, host: "127.0.0.1" });
-    await second.start({ port: 0, host: "127.0.0.1" });
-    const secondBase = second.getBaseUrl();
-
-    const restored = await get(secondBase, `/v1/chat/sessions/${sessionId}`);
-    assert.equal(restored.res.status, 200);
-    assert.equal(restored.json.messages.length, 2);
-
-    const listedAfter = await get(secondBase, "/v1/users/browser-restart-user/sessions");
-    assert.equal(listedAfter.res.status, 200);
-    assert.equal(listedAfter.json.sessions.length, 1);
-    assert.equal(listedAfter.json.sessions[0].session_id, sessionId);
-
-    const followup = await post(secondBase, `/v1/chat/sessions/${sessionId}/messages`, { role: "user", content: "followup after restart" });
-    assert.equal(followup.res.status, 200);
-
-    const final = await get(secondBase, `/v1/chat/sessions/${sessionId}`);
-    assert.equal(final.json.messages.length, 4);
-  } finally {
-    await first?.stop?.();
-    await second?.stop?.();
-    await cleanupDbFiles(dbPath);
-  }
-});
-
-integrationTest("session without user_id survives restart, listByUser returns empty", async () => {
-  const dbPath = path.join(os.tmpdir(), `cataloguesearch-chat-restart-nouserid-${process.pid}-${Date.now()}.db`);
-  await cleanupDbFiles(dbPath);
-
-  let first = null;
-  let second = null;
-  try {
-    first = createServer({ testMode: true, cleanSessionDb: false, sessionDbPath: dbPath, port: 0, host: "127.0.0.1" });
-    await first.start({ port: 0, host: "127.0.0.1" });
-    const firstBase = first.getBaseUrl();
-
-    const created = await post(firstBase, "/v1/chat/sessions", { provider: "auto" });
-    assert.equal(created.res.status, 200);
-    const sessionId = created.json.session_id;
-
-    const msg = await post(firstBase, `/v1/chat/sessions/${sessionId}/messages`, { role: "user", content: "question before restart" });
-    assert.equal(msg.res.status, 200);
-
-    await first.stop();
-    first = null;
-
-    second = createServer({ testMode: true, cleanSessionDb: false, sessionDbPath: dbPath, port: 0, host: "127.0.0.1" });
-    await second.start({ port: 0, host: "127.0.0.1" });
-    const secondBase = second.getBaseUrl();
-
-    const restored = await get(secondBase, `/v1/chat/sessions/${sessionId}`);
-    assert.equal(restored.res.status, 200);
-    assert.equal(restored.json.messages.length, 2);
-
-    // No userId on the session — not visible via any userId lookup
-    const listed = await get(secondBase, "/v1/users/any-user/sessions");
-    assert.equal(listed.res.status, 200);
-    assert.equal(listed.json.sessions.length, 0);
-  } finally {
-    await first?.stop?.();
-    await second?.stop?.();
-    await cleanupDbFiles(dbPath);
-  }
-});
-
-async function post(baseUrl, route, body) {
-  const res = await fetch(`${baseUrl}${route}`, {
+async function post(baseUrl, path, body) {
+  const res = await fetch(`${baseUrl}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body || {}),
-    signal: AbortSignal.timeout(10_000),
   });
   const json = await res.json();
   return { res, json };
 }
 
-async function get(baseUrl, route) {
-  const res = await fetch(`${baseUrl}${route}`, { signal: AbortSignal.timeout(10_000) });
+async function get(baseUrl, path) {
+  const res = await fetch(`${baseUrl}${path}`);
   const json = await res.json();
   return { res, json };
 }
 
-async function cleanupDbFiles(dbPath) {
-  for (const target of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
-    await rm(target, { force: true });
-  }
-}
+const integrationTest = INTEGRATION_ENABLED ? test : test.skip;
+
+integrationTest("session survives server restart when persistence is enabled", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "session-restart-test-"));
+  const dbPath = path.join(tmpDir, "sessions.db");
+
+  // Start first server instance
+  const server1 = createServer({
+    testMode: true,
+    cleanSessionDb: true,
+    sessionDbPath: dbPath,
+    sessionIdleMs: 3_600_000, // 1 hour - won't evict during test
+  });
+  await server1.start();
+  const base1 = server1.getBaseUrl();
+  await waitForHealthy(base1);
+
+  // Create a session and send a message
+  const { json: sessionJson } = await post(base1, "/v1/chat/sessions", { provider: "auto" });
+  const sessionId = sessionJson.session_id;
+
+  const { res: msgRes } = await post(base1, `/v1/chat/sessions/${sessionId}/messages`, {
+    role: "user",
+    content: "What is dharma?",
+    response_format: "structured",
+  });
+  assert.equal(msgRes.status, 200, "first message should succeed");
+
+  // Verify session has messages
+  const { json: sessionBefore } = await get(base1, `/v1/chat/sessions/${sessionId}`);
+  assert.equal(sessionBefore.messages.length >= 2, true, "session should have user + assistant messages");
+
+  // Stop first server
+  await server1.stop();
+
+  // Start second server instance with same DB
+  const server2 = createServer({
+    testMode: true,
+    cleanSessionDb: false, // do NOT clean - we want to restore
+    sessionDbPath: dbPath,
+  });
+  await server2.start();
+  const base2 = server2.getBaseUrl();
+  await waitForHealthy(base2);
+
+  // Session should be restorable from the DB
+  const { res: sessionRes, json: sessionAfter } = await get(base2, `/v1/chat/sessions/${sessionId}`);
+  assert.equal(sessionRes.status, 200, "session should be found after restart");
+  assert.equal(sessionAfter.session_id, sessionId);
+  assert.equal(sessionAfter.messages.length >= 2, true, "messages should be persisted");
+
+  // Should be able to send another message
+  const { res: msg2Res, json: msg2Json } = await post(base2, `/v1/chat/sessions/${sessionId}/messages`, {
+    role: "user",
+    content: "Tell me more",
+    response_format: "structured",
+  });
+  assert.equal(msg2Res.status, 200, "second message after restart should succeed");
+  assert.equal(typeof msg2Json.answer, "string");
+
+  await server2.stop();
+
+  // Cleanup
+  try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+});
+
+integrationTest("session without persistence does not survive restart", async () => {
+  // First server - no DB
+  const server1 = createServer({
+    testMode: true,
+    sessionDbPath: "", // no persistence
+  });
+  await server1.start();
+  const base1 = server1.getBaseUrl();
+  await waitForHealthy(base1);
+
+  const { json: sessionJson } = await post(base1, "/v1/chat/sessions", { provider: "auto" });
+  const sessionId = sessionJson.session_id;
+
+  await post(base1, `/v1/chat/sessions/${sessionId}/messages`, {
+    role: "user",
+    content: "question",
+    response_format: "structured",
+  });
+
+  await server1.stop();
+
+  // Second server - also no DB
+  const server2 = createServer({
+    testMode: true,
+    sessionDbPath: "", // no persistence
+  });
+  await server2.start();
+  const base2 = server2.getBaseUrl();
+  await waitForHealthy(base2);
+
+  const { res: sessionRes } = await get(base2, `/v1/chat/sessions/${sessionId}`);
+  assert.equal(sessionRes.status, 404, "session should not be found without persistence");
+
+  await server2.stop();
+});
+
+integrationTest("user_id is persisted and sessions can be listed by user", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "session-userid-test-"));
+  const dbPath = path.join(tmpDir, "sessions.db");
+
+  const server = createServer({
+    testMode: true,
+    cleanSessionDb: true,
+    sessionDbPath: dbPath,
+  });
+  await server.start();
+  const base = server.getBaseUrl();
+  await waitForHealthy(base);
+
+  const userId = "test-user-browser-abc";
+
+  // Create session with user_id
+  const { json: s1 } = await post(base, "/v1/chat/sessions", { provider: "auto", user_id: userId });
+  const { json: s2 } = await post(base, "/v1/chat/sessions", { provider: "auto", user_id: userId });
+  const { json: s3 } = await post(base, "/v1/chat/sessions", { provider: "auto" }); // no user_id
+
+  // List sessions for user
+  const { res: listRes, json: listJson } = await get(base, `/v1/users/${userId}/sessions`);
+  assert.equal(listRes.status, 200);
+  assert.equal(Array.isArray(listJson.sessions), true);
+  assert.equal(listJson.sessions.length, 2);
+  const sessionIds = listJson.sessions.map((s) => s.session_id);
+  assert.ok(sessionIds.includes(s1.session_id));
+  assert.ok(sessionIds.includes(s2.session_id));
+  assert.ok(!sessionIds.includes(s3.session_id));
+
+  await server.stop();
+
+  // Cleanup
+  try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+});

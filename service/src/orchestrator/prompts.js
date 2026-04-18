@@ -117,8 +117,6 @@ export function getAnswerPrompt(
   const base =
     workflowName === "metadata_question_v1"
       ? readPrompt("step_2_metadata_answer_synthesis.md", options)
-      : options.responseFormat === "combined"
-        ? readPrompt("step_2_answer_synthesis_combined.md", options)
       : readPrompt("step_2_answer_synthesis.md", options);
   const composed = [base, workflowGuidelines].filter(Boolean).join("\n\n");
   const historyBlock = readPrompt("conversation_history.md", options);

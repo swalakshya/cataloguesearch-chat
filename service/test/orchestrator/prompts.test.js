@@ -68,15 +68,11 @@ test("getAnswerPrompt uses metadata base prompt", () => {
   assert.ok(prompt.includes("Metadata Answer Synthesis"));
 });
 
-test("getAnswerPrompt uses category-neutral reference wording", () => {
+test("getAnswerPrompt uses follow-up section in answer text for structured format", () => {
   const prompt = getAnswerPrompt("Q?", "CTX", "", "", "basic_question_v1");
-  assert.ok(prompt.includes("SourceNameOrCategory, Page N, file_url/N"));
-});
-
-test("getAnswerPrompt requests structured follow up questions", () => {
-  const prompt = getAnswerPrompt("Q?", "CTX", "", "", "basic_question_v1");
-  assert.ok(prompt.includes('"follow_up_questions": ["<question 1>", "<question 2>"]'));
-  assert.equal(prompt.includes("If you want I can answer this in detail or I can also answer"), false);
+  assert.equal(prompt.includes('"follow_up_questions": ["<question 1>", "<question 2>"]'), false);
+  assert.ok(prompt.includes("If you want I can answer this in detail or I can also answer"));
+  assert.ok(prompt.includes("<full answer text including citations, follow-ups, references>"));
 });
 
 test("getAnswerPrompt uses combined answer template when requested", () => {

@@ -5,9 +5,9 @@
 - Follow answer language section.
 - Keep answer simple and grounded in context; no guess.
 - No tables.
-- Include at least 1 direct quote as inline citation.
+- Include at least 1 inline citation using the chunk id placeholder format.
 - Always return follow-up questions in the `follow_up_questions` field and include references section in the answer.
-- Do not include chunk_id values in answer text.
+- chunk_id values MUST only appear as blockquote citation lines (`> {{c1}}`). NEVER embed them inside sentence text.
 - Scoring only for used chunk_ids from context (1-100).
 - Follow Specific Answering Guidelines section.
 
@@ -20,10 +20,10 @@
 - Inline code: `text` (for important words and granth mentions)
 - Bold: *text* (for not so important keywords and headings)
 - Italic: _text_ (for author/contributor/acharya mentions)
-- Inline citation: **always** start with "> " and include quote + reference on that line, format-
+- Inline citation: **always** a standalone line starting with "> " containing exactly one chunk id placeholder and nothing else. NEVER embed `{{chunk_id}}` inside a sentence. Format:
   E.g:
-> इसको मैं करता हूँ, यह कर्मचेतना है| (समयसार, पृष्ठ 57)
-- Ensure a single \n before and after the inline citation line. No space before ">". No new lines inside the citation.
+> {{c1}}
+- One chunk_id per citation line. Ensure a single \n before and after the citation line. Don't add space before ">". No \n inside the citation.
 - Lists should be bulled, each item as "- {item}". Headings should not be bulleted.
 
 Follow-up questions (`follow_up_questions` field):

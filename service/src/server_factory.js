@@ -793,8 +793,13 @@ export function createServer(options = {}) {
           isMetadata: isMetadataWorkflow,
         })
       : answerRaw;
+    const resolvedAnswerExpanded = responseFormat !== "combined"
+      ? resolvedAnswer.replace(/\{\{(c\d+)\}\}/g, (_, hash) =>
+          session.chunkIdMap[hash] ? `{{${session.chunkIdMap[hash]}}}` : `{{${hash}}}`
+        )
+      : resolvedAnswer;
     const cleanedRaw = cleanAnswerText({
-      text: resolvedAnswer,
+      text: resolvedAnswerExpanded,
       language: keywordResult.language,
       script: keywordResult.script,
     });

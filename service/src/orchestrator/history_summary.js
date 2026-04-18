@@ -28,7 +28,7 @@ export function buildSummaryPrompt(history) {
 
 export async function compactHistoryIfNeeded({ history, threshold, topChunksPerSet, summarize }) {
   const normalized = Array.isArray(history) ? history : [];
-  if (normalized.length !== threshold) {
+  if (normalized.length < threshold) {
     return { didCompact: false, history: normalized };
   }
 

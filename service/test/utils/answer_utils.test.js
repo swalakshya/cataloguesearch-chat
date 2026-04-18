@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 import {
   appendReferencesSection,
   buildStructuredReferencesFromMetadata,
-  extractFollowUpQuestionsFromAnswer,
   sanitizeFollowUpQuestions,
   stripCitations,
   extractReferences,
@@ -228,67 +227,6 @@ test("buildStructuredReferencesFromMetadata respects zero parsed reference count
 test("appendReferencesSection rebuilds Hindi references section", () => {
   const output = appendReferencesSection("उत्तर", ["पहला संदर्भ", "दूसरा संदर्भ"], "hi");
   assert.equal(output, "उत्तर\n\nसंदर्भ\n\n1. पहला संदर्भ\n\n2. दूसरा संदर्भ");
-});
-
-test("extractFollowUpQuestionsFromAnswer extracts English follow-ups", () => {
-  const text = [
-    "Main answer text.",
-    "_If you want I can answer this in detail or I can also answer -_",
-    "- What is karma?",
-    "- What is moksha?",
-  ].join("\n");
-
-  const { answer, followUpQuestions } = extractFollowUpQuestionsFromAnswer(text);
-  assert.equal(answer, "Main answer text.");
-  assert.deepEqual(followUpQuestions, ["What is karma?", "What is moksha?"]);
-});
-
-test("extractFollowUpQuestionsFromAnswer extracts Hindi follow-ups", () => {
-  const text = [
-    "मुख्य उत्तर।",
-    "_अगर आप चाहें तो मैं और विस्तार से उत्तर दे सकता हूँ अथवा मैं इन सवालों के जवाब भी दे सकता हूँ_",
-    "- कर्म क्या है?",
-    "- मोक्ष क्या है?",
-  ].join("\n");
-
-  const { answer, followUpQuestions } = extractFollowUpQuestionsFromAnswer(text);
-  assert.equal(answer, "मुख्य उत्तर।");
-  assert.deepEqual(followUpQuestions, ["कर्म क्या है?", "मोक्ष क्या है?"]);
-});
-
-test("extractFollowUpQuestionsFromAnswer returns original answer when no marker found", () => {
-  const text = "Answer with no follow-ups.";
-  const { answer, followUpQuestions } = extractFollowUpQuestionsFromAnswer(text);
-  assert.equal(answer, text);
-  assert.deepEqual(followUpQuestions, []);
-});
-
-test("extractFollowUpQuestionsFromAnswer strips trailing blanks before follow-up section", () => {
-  const text = [
-    "Main answer.",
-    "",
-    "_If you want I can answer this in detail or I can also answer -_",
-    "- Question 1?",
-  ].join("\n");
-
-  const { answer, followUpQuestions } = extractFollowUpQuestionsFromAnswer(text);
-  assert.equal(answer, "Main answer.");
-  assert.deepEqual(followUpQuestions, ["Question 1?"]);
-});
-
-test("extractFollowUpQuestionsFromAnswer preserves text after follow-up section", () => {
-  const text = [
-    "Main answer.",
-    "_If you want I can answer this in detail or I can also answer -_",
-    "- Question 1?",
-    "",
-    "References",
-    "1. Samaysaar http://example.com",
-  ].join("\n");
-
-  const { answer, followUpQuestions } = extractFollowUpQuestionsFromAnswer(text);
-  assert.ok(answer.includes("References"));
-  assert.deepEqual(followUpQuestions, ["Question 1?"]);
 });
 
 test("sanitizeFollowUpQuestions trims, dedupes and caps items", () => {

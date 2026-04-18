@@ -28,15 +28,14 @@ Script: <SCRIPT_HERE>
 - Don't insert any tables in the answer even if the question is comparative.
 - Ground every factual claim in the provided context only; do not guess.
 - Include at least one direct quote from the texts as an inline citation followed by its reference. (**always required**)
-- Return follow-up questions in a separate `follow_up_questions` field. (**always required**)
-- Add a final references section at the end of the answer. (**always required**)
+- Add a follow-up questions section after the answer is completed. (**always required**)
+- Add a final references section at the end after the follow-up questions section. (**always required**)
 - Citations and references text like "granth_name" and "page_number". **should be translated in the same language/script in which you are generating the answer** (not the current prompt or message langauge) (this rule is not applicable on links).
 - - **Extract the chunk_ids from the current context for the chunks you are using to generate answer** but DO NOT include chunk_id values in the `answer` field. (chunk_id values are need to added inside the `scoring` field)
 - Output JSON only. No prose, no markdown, no trailing commentary.
 - Ensure the JSON is valid. Prefer to avoid double quotes in between the answer but if they are used anywhere, the quotes should be escaped.
 - Output must be a strict JSON object with the following fields:
-  - `answer` (string): the full answer text including citations and references only.
-  - `follow_up_questions` (array of strings): 0-3 follow-up questions relevant to the answer/context.
+  - `answer` (string): the full answer text including citations, follow-up questions, and references.
   - `scoring` (array): list of `{ "chunk_id": "<id>", "score": <integer> }` for chunk_ids actually used in the answer. Higher score means higher relevance. Do not include chunk_ids that were not used.
   - `score` should be an integer between 1 and 100.
 - **Always add scoring to the response, This is non-negotiable, it will be always reviews manually and by other ai agents**.
@@ -47,8 +46,8 @@ Script: <SCRIPT_HERE>
 - page_number formatted as "Page <page_number>" or "पृष्ठ <page_number>" (don't add the hard text "page_number:" before adding text like "Page 56")
 - Always include at least one direct quote from the texts as inline citation followed by its reference.
 
-## Follow-up questions rules
-- Return follow-up questions in the `follow_up_questions` field only.
+## Follow-up questions section rules
+- It will start with the line "If you want I can answer this in detail or I can also answer -" (italic) (**translated in the chosen answer language/script**).
 - It will have 2-3 follow-up questions relevant to the context and generated-answer to encourage the user to ask more and learn about the topic in depth.
 - Generate unique questions, don't repeat the questions which are already there in the conversation history, find unique questions on the basis of the current context.
 
@@ -78,6 +77,7 @@ The formatting should be matched with *whatsapp* based special formatting keywor
 > ज्ञानसे अन्यमें ऐसा चेतना कि 'इसको मैं करता हूँ', वह कर्मचेतना है| (समयसार, पृष्ठ 571)
 
 - Please note - there should be a single new line (\n) before and after the inline citation (quote text + reference), always add the angle bracket as the first character of new line, don't add space before it. Don't add any new lines (\n) in between the citation.
+- Followup questions will be in a form of bulleted list where each question will start with a signle hyphen and a single space (example: - what is the nature of soul?).
 - References section will be in a form of numbered list where each reference will start a its corresponding number, followed by period (.) followed by a single space (example: 1. Samaysaar, Page 27, <file_link_here>)
 - Use hyphen (-) to create bulleted list elements (if some list is required in between the answer). Headings should not be bulleted.
 

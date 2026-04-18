@@ -99,52 +99,6 @@ export function appendReferencesSection(answer, references, language = "") {
   return lines.join("\n\n").trim();
 }
 
-const FOLLOWUP_HEADER_PATTERNS = [
-  /If you want I can/i,
-  /अगर आप चाहें/,
-];
-
-export function extractFollowUpQuestionsFromAnswer(text) {
-  if (!text) return { answer: "", followUpQuestions: [] };
-  const lines = String(text).split(/\r?\n/);
-  let headerIndex = -1;
-
-  for (let i = 0; i < lines.length; i++) {
-    if (FOLLOWUP_HEADER_PATTERNS.some((pattern) => pattern.test(lines[i]))) {
-      headerIndex = i;
-      break;
-    }
-  }
-
-  if (headerIndex === -1) {
-    return { answer: text, followUpQuestions: [] };
-  }
-
-  const questions = [];
-  let endIndex = headerIndex + 1;
-  while (endIndex < lines.length) {
-    const line = lines[endIndex].trim();
-    if (!line) {
-      endIndex++;
-      continue;
-    }
-    if (line.startsWith("- ")) {
-      questions.push(line.slice(2).trim());
-      endIndex++;
-    } else {
-      break;
-    }
-  }
-
-  // Strip the follow-up section and surrounding blank lines
-  const beforeLines = lines.slice(0, headerIndex);
-  const afterLines = lines.slice(endIndex);
-  while (beforeLines.length && !beforeLines[beforeLines.length - 1].trim()) beforeLines.pop();
-  const answer = [...beforeLines, ...afterLines].join("\n").trim();
-
-  return { answer, followUpQuestions: questions };
-}
-
 export function sanitizeFollowUpQuestions(questions, maxItems = 3) {
   if (!Array.isArray(questions)) return [];
   const seen = new Set();

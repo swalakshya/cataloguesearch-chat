@@ -82,6 +82,29 @@ npm install
 npm start
 ```
 
+### Run Tests
+
+Unit tests:
+
+```bash
+cd service
+npm test
+```
+
+Integration tests spin up an in-process server automatically. Create `service/.env.test` with:
+
+```env
+TEST_MODE=true
+TEST_MIN_SAMPLES=2
+```
+
+Then run:
+
+```bash
+cd service
+node --env-file=.env.test --test
+```
+
 ### Docker (preferred)
 
 ```bash
@@ -108,6 +131,9 @@ docker compose up
 | `LLM_SESSION_TOKEN_LIMIT_THRESHOLD` | `0.8` | % of limit after which requests are rejected |
 | `LLM_TOKEN_LIMITS_JSON` | — | JSON map of token limits by provider/model |
 | `GREETING_CONTACT_EMAIL` | `projectjinam@gmail.com` | Email shown in greeting response |
+| `LOG_LEVEL` | `info` | Console log level (`info`, `verbose`, `debug`) |
+| `LOGS_DIR` | — | When set, writes JSON lines to `info.log` and `verbose.log` |
+| `SESSION_DB_PATH` | — | When set, enables SQLite-backed session persistence |
 
 Workflow tuning lives in `service/src/config/model_config.js` under `workflowDefaults` and per-model `workflowOverrides`.
 Example structure:
@@ -145,6 +171,8 @@ const MODEL_ROUTING_CONFIG = {
 };
 ```
 `workflowOverrides` is merged over `workflowDefaults` by key, so you can override only the fields you need without redefining the full config.
+
+In Docker, the compose file mounts named volumes at `/app/logs` and `/app/data`, so the chat service keeps logs plus the SQLite session database outside the container lifecycle.
 
 ---
 

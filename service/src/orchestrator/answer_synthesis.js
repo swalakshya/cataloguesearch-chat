@@ -16,7 +16,7 @@ export async function runAnswerSynthesis({
   script,
   requestId,
   modelId,
-  responseFormat = "combined",
+  responseFormat = "structured",
 }) {
   const guidelines = getWorkflowGuidelines(workflowName, { modelId, requestId });
   const useV2 = isPromptV2();
@@ -68,10 +68,10 @@ export async function runAnswerSynthesis({
 
   // Logged at info to correlate with downstream response parsing.
   // Avoid logging full answer to keep logs manageable.
-  log.info("answer_synthesis_llm_response", {
+  log.verbose("answer_synthesis_llm_response", {
     requestId,
     length: raw?.length || 0,
-    preview: String(raw || "").slice(0, 500),
+    response: String(raw || ""),
   });
   log.info("answer_synthesis_output_tokens", {
     requestId,
@@ -119,10 +119,10 @@ async function parseOrRepairJson({ raw, provider, requestId, responseJsonSchema,
       responseJsonSchema,
     });
 
-    log.info("answer_synthesis_llm_repair_response", {
+    log.verbose("answer_synthesis_llm_repair_response", {
       requestId,
       length: repairedRaw?.length || 0,
-      preview: String(repairedRaw || "").slice(0, 500),
+      response: String(repairedRaw || ""),
     });
 
     try {
@@ -144,5 +144,7 @@ async function parseOrRepairJson({ raw, provider, requestId, responseJsonSchema,
   }
 
   const fallbackAnswer = extractAnswerFallback(raw);
-  return { answer: fallbackAnswer, scoring: [] };
+  return responseFormat === "combined"
+    ? { answer: fallbackAnswer, scoring: [] }
+    : { answer: fallbackAnswer, follow_up_questions: [], scoring: [] };
 }

@@ -4,6 +4,7 @@
 - Output JSON only (no prose/markdown).
 - Follow the schema exactly and include required fields.
 - Keywords in Hindi (Devanagari). Simple verbs; keep nouns intact; no duplicate keywords.
+- Do not invent keywords if not a part of the question.
 - Do not invent filters unless explicitly requested.
 - No reasoning.
 

@@ -7,9 +7,9 @@
 - Keep the answer simple and easy to understand.
 - Keep answer grounded on context. Ground every factual claim. Don't guess
 - Do not use tables.
-- Include at least 1 direct quote as inline citation.
+- Include at least 1 citation placeholder using the {chunk_id} format (e.g. {c1}). **Max 4 citation placeholders in the answer**.
+- *Use placeholders for citations — do NOT write the actual quote text yourself. Place citations only when lines/paragraphs are completed*.
 - **Always add follow-up questions section.**
-- *DO NOT include chunk_id values in the answer text.*
 - Add scoring for used chunk_ids only from context (score 1-100).
 - Always adhere to the *Specific Answering Guidelines* section below when generating answer.
 
@@ -22,11 +22,8 @@
 - Inline code: `text` (for important words and granth mentions)
 - Bold: *text* (for not so important keywords and headings)
 - Italic: _text_ (for author/contributor/acharya mentions)
-- Inline citation: **always** start with "> " and include quote + reference on that line, format-
-  E.g:
-> इसको मैं करता हूँ, यह कर्मचेतना है| (समयसार, पृष्ठ 57)
-- Ensure a single \n before and after the inline citation line. Don't add space before angle bracket ">". Don't add any new lines (\n) in between the citation.
-- Lists should be bulled, each item as "- {item}". Headings should not be bulleted.
+- Citation placeholder: where an inline citation is needed, place {chunk_id} on its own line using the `id` field from context (e.g. \n{c1}\n).
+- Lists should be bulleted, each item as "- {item}". Headings should not be bulleted.
 
 Follow-up section:
 - Starts with italic line: "_If you want I can answer this in detail or I can also answer -_"
@@ -36,7 +33,7 @@ Follow-up section:
 ---
 ## Output Contract (JSON only)
 {
-  "answer": "<full answer text including citations and follow-ups>",
+  "answer": "<full answer text with citation placeholders and follow-ups>",
   "scoring": [ { "chunk_id": "<id>", "score": 1 }, ... ]
 }
 
@@ -69,7 +66,7 @@ Return `NO_ANSWER` as the value of the `answer` field.
 MUST:
 - Output JSON only.
 - **Always follow answer language section.**
-- *DO NOT include chunk_id values in the answer text.*
-- Include at least 1 inline citation quote.
+- *Place {chunk_id} placeholders for citations; do NOT write quote text.*
+- Include at least 1 citation placeholder. **Max 4**.
 - Include follow-up questions section.
 - Scoring includes used chunk_ids only.

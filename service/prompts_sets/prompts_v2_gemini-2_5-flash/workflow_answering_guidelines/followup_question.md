@@ -7,4 +7,3 @@ Answer may include:
 - Highlight key terms in bold
 - Summary section as bullet points with heading "Summary"
 - Follow-up section (*at least* 4 questions)
-- References section (1-5 items *max*, on your judgement)

@@ -11,4 +11,3 @@ Answer must include:
 - Highlight key terms in bold.
 - 1 inline citation
 - Followup section (atleast 3 questions)
-- References section with 1-2 items max.

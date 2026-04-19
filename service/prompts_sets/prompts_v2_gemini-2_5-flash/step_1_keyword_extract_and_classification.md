@@ -4,7 +4,9 @@
 - Output correctly, every output will be reviewed in detail manually and by other ai agents.
 - Output JSON only. No prose, no markdown.
 - Follow the output schema exactly and include required fields.
-- Keywords must be in Hindi and in Devanagari. Simple keywords for verbs. Keep nouns intact. Don't add multiple keywords for same word.
+- **Keywords must only be in Hindi and in Devanagari**.
+- Keep simple keywords for verbs, nouns intact and don't add multiple keywords for same word.
+- Do not invent keywords if not a part of the question.
 - Do not invent filters if not explicitly requested.
 - Do not output reasoning.
 

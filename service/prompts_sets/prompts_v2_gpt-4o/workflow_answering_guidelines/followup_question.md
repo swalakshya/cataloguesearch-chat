@@ -7,4 +7,3 @@ Answer may include:
 - Key terms in bold
 - Summary section as bullet points (3 *max*); heading "Summary"
 - Follow-up section (*min* 3)
-- References section (*max* 3)

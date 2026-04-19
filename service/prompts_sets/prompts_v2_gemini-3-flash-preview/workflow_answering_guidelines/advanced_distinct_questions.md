@@ -6,4 +6,3 @@ Answer **must strictly** include:
 - Highlight key terms in bold
 - Short summary section as bullet points with heading "Summary"
 - Follow-up section (*at least* 3 questions)
-- References section with *at least* one item per distinct question

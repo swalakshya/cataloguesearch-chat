@@ -1,6 +1,48 @@
 const MAX_REFERENCES = 200;
 const MAX_CITATIONS = 200;
 
+export function buildChunkCitationMap(hashedChunks, hashToRealId, metadataByRealId, language = "") {
+  const hashMap = hashToRealId && typeof hashToRealId === "object" ? hashToRealId : {};
+  const metaMap = metadataByRealId && typeof metadataByRealId === "object" ? metadataByRealId : {};
+  const isHindi = String(language || "").toLowerCase() === "hi";
+  const pravachanLabel = isHindi ? "प्रवचन" : "Pravachan";
+  const map = {};
+  for (const chunk of (Array.isArray(hashedChunks) ? hashedChunks : [])) {
+    const hash = String(chunk.id || "").trim();
+    if (!hash) continue;
+    const realId = hashMap[hash] || hash;
+    const metadata = metaMap[realId] || {};
+    const granth = String(chunk.g || metadata.granth || "").trim();
+    const category = String(metadata.category || "").trim();
+    const source = category === "Pravachan" ? `${granth} ${pravachanLabel}` : granth;
+    const pageNumber = chunk.p != null ? chunk.p : (metadata.page_number != null ? metadata.page_number : null);
+    map[hash] = {
+      text: String(chunk.t || "").trim(),
+      source,
+      pageNumber,
+    };
+  }
+  return map;
+}
+
+export function expandChunkCitations(text, chunkCitationMap, language = "") {
+  if (!text) return text;
+  const map = chunkCitationMap && typeof chunkCitationMap === "object" ? chunkCitationMap : {};
+  const isHindi = String(language || "").toLowerCase() === "hi";
+  const pageLabel = isHindi ? "पृष्ठ" : "Page";
+  return String(text).replace(/\{(c\d+)\}/g, (match, chunkId) => {
+    const entry = map[chunkId];
+    if (!entry || !entry.text) return match;
+    const chunkText = entry.text.replace(/\r?\n|\r/g, " ").replace(/\s+/g, " ").trim();
+    const parts = [
+      entry.source || "",
+      entry.pageNumber != null ? `${pageLabel} ${entry.pageNumber}` : "",
+    ].filter(Boolean);
+    const ref = parts.join(", ");
+    return `\n> ${chunkText}${ref ? ` (${ref})` : ""}\n`;
+  });
+}
+
 export function stripCitations(text) {
   if (!text) return "";
   return text.replace(/cite[^]+/g, "").trim();
@@ -95,8 +137,8 @@ export function appendReferencesSection(answer, references, language = "") {
     : [];
   if (!safeReferences.length) return body;
   const heading = String(language || "").toLowerCase() === "hi" ? "संदर्भ" : "References";
-  const lines = [body, heading, ...safeReferences.map((ref, index) => `${index + 1}. ${ref}`)].filter(Boolean);
-  return lines.join("\n\n").trim();
+  const lines = [body, ["\n" + heading], ...safeReferences.map((ref, index) => `${index + 1}. ${ref}`)].filter(Boolean);
+  return lines.join("\n").trim();
 }
 
 const FOLLOWUP_HEADER_PATTERNS = [
@@ -162,7 +204,7 @@ export function sanitizeFollowUpQuestions(questions, maxItems = 3) {
 
 export function buildStructuredReferencesFromMetadata({
   scoredChunks,
-  parsedReferencesCount,
+  maxReferences,
   hashToRealId,
   metadataByRealId,
   language = "",
@@ -170,7 +212,7 @@ export function buildStructuredReferencesFromMetadata({
   const hashMap = hashToRealId && typeof hashToRealId === "object" ? hashToRealId : {};
   const metadataMap = metadataByRealId && typeof metadataByRealId === "object" ? metadataByRealId : {};
   const scored = Array.isArray(scoredChunks) ? scoredChunks : [];
-  const targetCount = resolveReferenceCount(parsedReferencesCount, scored.length);
+  const targetCount = resolveReferenceCount(maxReferences, scored.length);
   if (targetCount === 0) {
     return { references: [], citations: [] };
   }
@@ -462,13 +504,13 @@ function toPositiveNumber(value) {
   return Number.isFinite(num) && num > 0 ? num : undefined;
 }
 
-function resolveReferenceCount(parsedReferencesCount, scoredLength) {
-  const parsedCount =
-    parsedReferencesCount === undefined || parsedReferencesCount === null || parsedReferencesCount === ""
+function resolveReferenceCount(maxReferences, scoredLength) {
+  const parsed =
+    maxReferences === undefined || maxReferences === null || maxReferences === ""
       ? undefined
-      : Number(parsedReferencesCount);
-  if (Number.isFinite(parsedCount)) {
-    return Math.max(0, Math.min(MAX_REFERENCES, Math.trunc(parsedCount)));
+      : Number(maxReferences);
+  if (Number.isFinite(parsed)) {
+    return Math.max(0, Math.min(MAX_REFERENCES, Math.trunc(parsed)));
   }
   return Math.max(1, Math.min(MAX_REFERENCES, Math.min(Number(scoredLength) || 0, 2)));
 }

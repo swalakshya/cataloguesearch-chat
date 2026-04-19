@@ -13,4 +13,3 @@ Answer may include:
 - Highlight key terms in bold.
 - Summary section as bullet points. Should start with the heading - "Summary".
 - Followup section (atleast 4 questions)
-- References section with 1-5 items. On your judgement.

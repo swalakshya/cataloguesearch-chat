@@ -12,4 +12,3 @@ Answer must include:
 - Highlight key terms in bold.
 - Short summary section as bullet points. Should start with the heading - "Summary".
 - Followup section (atleast 3 questions)
-- References section with 3-5 items max.

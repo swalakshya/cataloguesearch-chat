@@ -23,3 +23,17 @@ export function getWorkflowConfig(modelId) {
   const overrides = modelId ? model?.workflowOverrides || {} : {};
   return deepMerge(defaults, overrides);
 }
+
+const WORKFLOW_CONFIG_KEY_MAP = {
+  basic_question_v1: "basic",
+  followup_question_v1: "followup",
+  advanced_distinct_questions_v1: "advanced_distinct",
+  advanced_nested_questions_v1: "advanced_nested",
+};
+
+export function getWorkflowReferenceCount(workflowName, modelId) {
+  const configKey = WORKFLOW_CONFIG_KEY_MAP[workflowName];
+  if (!configKey) return undefined;
+  const config = getWorkflowConfig(modelId);
+  return config[configKey]?.referenceCount;
+}

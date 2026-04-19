@@ -1,7 +1,6 @@
 export function cleanChunk(raw) {
   if (!raw || typeof raw !== "object") return null;
   return {
-    u: raw.file_url || "",
     id: raw.chunk_id || "",
     p: raw.page_number ?? null,
     g: raw.granth || "",

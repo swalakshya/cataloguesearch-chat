@@ -6,4 +6,3 @@ Answer **must strictly** include:
 - Highlight key terms in bold
 - 1 inline citation
 - Follow-up section (*at least* 3 questions)
-- References section (1-2 items *max*)

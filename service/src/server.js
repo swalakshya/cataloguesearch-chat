@@ -21,7 +21,9 @@ import {
 } from "./orchestrator/history_summary.js";
 import {
   buildStructuredReferencesFromMetadata,
-  extractReferences,
+  buildChunkCitationMap,
+  expandChunkCitations,
+  appendReferencesSection,
   extractFollowUpQuestionsFromAnswer,
   sanitizeCitations,
   sanitizeFollowUpQuestions,
@@ -39,6 +41,7 @@ import { buildScoredChunks } from "./utils/scoring.js";
 import { estimateTokens, shouldRejectForTokenLimit, getSessionTokenLimit } from "./utils/token.js";
 import { log } from "./utils/log.js";
 import { MODEL_ROUTING_CONFIG } from "./config/model_config.js";
+import { getWorkflowReferenceCount } from "./config/workflow_config.js";
 import { getOrderedModels } from "./routing/model_registry.js";
 import { ModelAvailabilityTracker } from "./routing/model_availability.js";
 import { ModelRouter } from "./routing/model_router.js";
@@ -724,8 +727,19 @@ export function createServer(options = {}) {
           isMetadata: isMetadataWorkflow,
         })
       : answerRaw;
+    const fullCitationsEnabled =
+      !isMetadataWorkflow &&
+      String(process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS || "").toLowerCase() === "true";
+    const expandedAnswer = fullCitationsEnabled
+      ? expandChunkCitations(
+          resolvedAnswer,
+          buildChunkCitationMap(hashedChunks, session.chunkIdMap, metadataByRealId, keywordResult.language),
+          keywordResult.language
+        )
+      : resolvedAnswer;
+
     const cleanedRaw = cleanAnswerText({
-      text: resolvedAnswer,
+      text: expandedAnswer,
       language: keywordResult.language,
       script: keywordResult.script,
     });
@@ -741,23 +755,25 @@ export function createServer(options = {}) {
     let safeReferences = [];
     let safeCitations = [];
 
+    const referenceCount = getWorkflowReferenceCount(workflowName, model.id);
+    const structured = buildStructuredReferencesFromMetadata({
+      scoredChunks,
+      maxReferences: referenceCount,
+      hashToRealId: session.chunkIdMap,
+      metadataByRealId,
+      language: keywordResult.language,
+    });
+
     if (responseFormat === "structured") {
       const { answer: answerWithoutFollowUps, followUpQuestions: extractedFollowUps } = extractFollowUpQuestionsFromAnswer(cleaned);
       followUpQuestions = sanitizeFollowUpQuestions(extractedFollowUps);
-      const { answer: answerClean, references, citations } = extractReferences(answerWithoutFollowUps);
-      const structured = buildStructuredReferencesFromMetadata({
-        scoredChunks,
-        parsedReferencesCount: references.length,
-        hashToRealId: session.chunkIdMap,
-        metadataByRealId,
-        language: keywordResult.language,
-      });
-      safeReferences = sanitizeReferences(structured.references.length ? structured.references : references);
-      safeCitations = sanitizeCitations(structured.citations.length ? structured.citations : citations);
-      answerForOutput = normalizeAnswerTextForOutput(answerClean);
+      safeReferences = sanitizeReferences(structured.references);
+      safeCitations = sanitizeCitations(structured.citations);
+      answerForOutput = normalizeAnswerTextForOutput(answerWithoutFollowUps);
     } else {
-      // combined: keep answer as-is (follow-ups and references remain embedded in answer text)
-      answerForOutput = normalizeAnswerTextForOutput(cleaned);
+      // combined: append service-built references at the end of the answer
+      const answerWithRefs = appendReferencesSection(cleaned, structured.references, keywordResult.language);
+      answerForOutput = normalizeAnswerTextForOutput(answerWithRefs);
     }
 
     log.info("answer_parsed", {

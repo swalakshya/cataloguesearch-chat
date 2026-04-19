@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import {
   appendReferencesSection,
   buildStructuredReferencesFromMetadata,
+  buildChunkCitationMap,
+  expandChunkCitations,
   extractFollowUpQuestionsFromAnswer,
   sanitizeFollowUpQuestions,
   stripCitations,
@@ -151,7 +153,7 @@ test("cleanAnswerText keeps parentheses with non-chunk text", () => {
 test("buildStructuredReferencesFromMetadata formats Pravachan references from metadata", () => {
   const { references, citations } = buildStructuredReferencesFromMetadata({
     scoredChunks: [{ chunk_id: "c1", score: 100 }],
-    parsedReferencesCount: 2,
+    maxReferences: 2,
     hashToRealId: { c1: "real-1" },
     metadataByRealId: {
       "real-1": {
@@ -185,7 +187,7 @@ test("buildStructuredReferencesFromMetadata formats Pravachan references from me
 test("buildStructuredReferencesFromMetadata formats Granth references from metadata", () => {
   const { references, citations } = buildStructuredReferencesFromMetadata({
     scoredChunks: [{ chunk_id: "c1", score: 90 }],
-    parsedReferencesCount: 1,
+    maxReferences: 1,
     hashToRealId: { c1: "real-1" },
     metadataByRealId: {
       "real-1": {
@@ -207,7 +209,7 @@ test("buildStructuredReferencesFromMetadata formats Granth references from metad
 test("buildStructuredReferencesFromMetadata respects zero parsed reference count", () => {
   const { references, citations } = buildStructuredReferencesFromMetadata({
     scoredChunks: [{ chunk_id: "c1", score: 90 }],
-    parsedReferencesCount: 0,
+    maxReferences: 0,
     hashToRealId: { c1: "real-1" },
     metadataByRealId: {
       "real-1": {
@@ -225,9 +227,56 @@ test("buildStructuredReferencesFromMetadata respects zero parsed reference count
   assert.deepEqual(citations, []);
 });
 
+test("buildStructuredReferencesFromMetadata limits output to maxReferences count", () => {
+  const chunks = [
+    { chunk_id: "c1", score: 90 },
+    { chunk_id: "c2", score: 80 },
+    { chunk_id: "c3", score: 70 },
+  ];
+  const hashToRealId = { c1: "r1", c2: "r2", c3: "r3" };
+  const metadataByRealId = {
+    "r1": { chunk_id: "r1", category: "Granth", granth: "Samaysaar", page_number: 1, file_url: "https://example.com/a" },
+    "r2": { chunk_id: "r2", category: "Granth", granth: "Pravachansaar", page_number: 2, file_url: "https://example.com/b" },
+    "r3": { chunk_id: "r3", category: "Granth", granth: "Niyamsaar", page_number: 3, file_url: "https://example.com/c" },
+  };
+
+  const { references: refs2 } = buildStructuredReferencesFromMetadata({
+    scoredChunks: chunks, maxReferences: 2, hashToRealId, metadataByRealId,
+  });
+  assert.equal(refs2.length, 2);
+
+  const { references: refs5 } = buildStructuredReferencesFromMetadata({
+    scoredChunks: chunks, maxReferences: 5, hashToRealId, metadataByRealId,
+  });
+  assert.equal(refs5.length, 3); // only 3 chunks available
+});
+
+test("buildStructuredReferencesFromMetadata returns top-scored chunks first", () => {
+  const chunks = [
+    { chunk_id: "c1", score: 50 },
+    { chunk_id: "c2", score: 95 },
+    { chunk_id: "c3", score: 70 },
+  ];
+  const hashToRealId = { c1: "r1", c2: "r2", c3: "r3" };
+  const metadataByRealId = {
+    "r1": { chunk_id: "r1", category: "Granth", granth: "A", page_number: 1, file_url: "https://example.com/a" },
+    "r2": { chunk_id: "r2", category: "Granth", granth: "B", page_number: 2, file_url: "https://example.com/b" },
+    "r3": { chunk_id: "r3", category: "Granth", granth: "C", page_number: 3, file_url: "https://example.com/c" },
+  };
+
+  const { citations } = buildStructuredReferencesFromMetadata({
+    scoredChunks: chunks, maxReferences: 3, hashToRealId, metadataByRealId,
+  });
+  // scoredChunks is pre-sorted by score desc (buildScoredChunks does that), but here we pass unsorted
+  // The function iterates scoredChunks in order, so c1(50) first, then c2(95), then c3(70)
+  assert.equal(citations[0].granth, "A");
+  assert.equal(citations[1].granth, "B");
+  assert.equal(citations[2].granth, "C");
+});
+
 test("appendReferencesSection rebuilds Hindi references section", () => {
   const output = appendReferencesSection("उत्तर", ["पहला संदर्भ", "दूसरा संदर्भ"], "hi");
-  assert.equal(output, "उत्तर\n\nसंदर्भ\n\n1. पहला संदर्भ\n\n2. दूसरा संदर्भ");
+  assert.equal(output, "उत्तर\n\nसंदर्भ\n1. पहला संदर्भ\n2. दूसरा संदर्भ");
 });
 
 test("extractFollowUpQuestionsFromAnswer extracts English follow-ups", () => {
@@ -294,4 +343,77 @@ test("extractFollowUpQuestionsFromAnswer preserves text after follow-up section"
 test("sanitizeFollowUpQuestions trims, dedupes and caps items", () => {
   const output = sanitizeFollowUpQuestions([" q1 ", "", "q2", "q1", "q3", "q4"]);
   assert.deepEqual(output, ["q1", "q2", "q3"]);
+});
+
+// buildChunkCitationMap
+test("buildChunkCitationMap builds map from hashed chunks and metadata", () => {
+  const chunks = [{ id: "c1", t: "chunk text", g: "Samaysaar", p: 12 }];
+  const hashToRealId = { c1: "r1" };
+  const metadataByRealId = { r1: { category: "Granth", granth: "Samaysaar" } };
+  const map = buildChunkCitationMap(chunks, hashToRealId, metadataByRealId);
+  assert.equal(map.c1.text, "chunk text");
+  assert.equal(map.c1.source, "Samaysaar");
+  assert.equal(map.c1.pageNumber, 12);
+});
+
+test("buildChunkCitationMap appends Pravachan to source for Pravachan category (English)", () => {
+  const chunks = [{ id: "c1", t: "pravachan text", g: "Pravachansaar", p: 5 }];
+  const hashToRealId = { c1: "r1" };
+  const metadataByRealId = { r1: { category: "Pravachan" } };
+  const map = buildChunkCitationMap(chunks, hashToRealId, metadataByRealId, "en");
+  assert.equal(map.c1.source, "Pravachansaar Pravachan");
+});
+
+test("buildChunkCitationMap appends प्रवचन to source for Pravachan category when Hindi", () => {
+  const chunks = [{ id: "c1", t: "प्रवचन टेक्स्ट", g: "प्रवचनसार", p: 5 }];
+  const hashToRealId = { c1: "r1" };
+  const metadataByRealId = { r1: { category: "Pravachan" } };
+  const map = buildChunkCitationMap(chunks, hashToRealId, metadataByRealId, "hi");
+  assert.equal(map.c1.source, "प्रवचनसार प्रवचन");
+});
+
+test("buildChunkCitationMap falls back to chunk granth when metadata missing", () => {
+  const chunks = [{ id: "c1", t: "text", g: "Niyamsaar", p: 3 }];
+  const map = buildChunkCitationMap(chunks, {}, {});
+  assert.equal(map.c1.source, "Niyamsaar");
+  assert.equal(map.c1.pageNumber, 3);
+});
+
+// expandChunkCitations
+test("expandChunkCitations replaces {c1} with full chunk text and source", () => {
+  const map = { c1: { text: "chunk text here", source: "Samaysaar", pageNumber: 12 } };
+  const result = expandChunkCitations("Answer\n\n{c1}\n\nMore", map, "en");
+  assert.ok(result.includes("> chunk text here (Samaysaar, Page 12)"));
+  assert.ok(result.includes("Answer"));
+  assert.ok(result.includes("More"));
+});
+
+test("expandChunkCitations uses Hindi page label for hi language", () => {
+  const map = { c1: { text: "आत्मा नित्य है", source: "समयसार", pageNumber: 5 } };
+  const result = expandChunkCitations("{c1}", map, "hi");
+  assert.ok(result.includes("> आत्मा नित्य है (समयसार, पृष्ठ 5)"));
+});
+
+test("expandChunkCitations strips newlines from chunk text", () => {
+  const map = { c1: { text: "line one\nline two\r\nline three", source: "Samaysaar", pageNumber: 1 } };
+  const result = expandChunkCitations("{c1}", map, "en");
+  assert.ok(result.includes("> line one line two line three (Samaysaar, Page 1)"));
+  assert.ok(!result.includes("\n> line one\n"));
+});
+
+test("expandChunkCitations leaves unknown placeholders unchanged", () => {
+  const result = expandChunkCitations("text {c99} end", {}, "en");
+  assert.ok(result.includes("{c99}"));
+});
+
+test("expandChunkCitations handles missing page number", () => {
+  const map = { c1: { text: "some text", source: "Granth", pageNumber: null } };
+  const result = expandChunkCitations("{c1}", map, "en");
+  assert.ok(result.includes("> some text (Granth)"));
+});
+
+test("expandChunkCitations handles missing source", () => {
+  const map = { c1: { text: "some text", source: "", pageNumber: 7 } };
+  const result = expandChunkCitations("{c1}", map, "en");
+  assert.ok(result.includes("> some text (Page 7)"));
 });

@@ -114,10 +114,15 @@ export function getAnswerPrompt(
   script = "",
   options = {}
 ) {
-  const base =
+  const isFullCitations =
+    String(process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS || "").toLowerCase() === "true";
+  const answerPromptFile =
     workflowName === "metadata_question_v1"
-      ? readPrompt("step_2_metadata_answer_synthesis.md", options)
-      : readPrompt("step_2_answer_synthesis.md", options);
+      ? "step_2_metadata_answer_synthesis.md"
+      : isFullCitations
+        ? "step_2_answer_synthesis_full_citations.md"
+        : "step_2_answer_synthesis.md";
+  const base = readPrompt(answerPromptFile, options);
   const composed = [base, workflowGuidelines].filter(Boolean).join("\n\n");
   const historyBlock = readPrompt("conversation_history.md", options);
   const historySection = conversationHistory && String(conversationHistory).trim() ? historyBlock : "";

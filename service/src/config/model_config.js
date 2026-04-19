@@ -20,6 +20,7 @@ export const MODEL_ROUTING_CONFIG = {
       page: 1,
       page_size: 15,
       rerank: true,
+      referenceCount: 2,
     },
     followup: {
       page: 1,
@@ -28,16 +29,19 @@ export const MODEL_ROUTING_CONFIG = {
       navigate_steps: 3,
       navigate_direction: "both",
       expand_limit: 10,
+      referenceCount: 5,
     },
     advanced_distinct: {
       page: 1,
       page_size: 10,
       rerank: true,
+      referenceCount: 5,
     },
     advanced_nested: {
       page: 1,
       page_size: 10,
       rerank: true,
+      referenceCount: 5,
     },
   },
   models: [

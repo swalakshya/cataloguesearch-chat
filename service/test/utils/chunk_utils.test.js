@@ -6,7 +6,6 @@ import { cleanChunk, cleanChunks, buildContext, extractChunkIds } from "../../sr
 test("cleanChunk normalizes fields", () => {
   const chunk = cleanChunk({ chunk_id: "c1", file_url: "u", page_number: 1, text_content: "t" });
   assert.equal(chunk.id, "c1");
-  assert.equal(chunk.u, "u");
   assert.equal(chunk.t, "t");
   assert.equal(chunk.gatha, undefined);
   assert.equal(chunk.category, undefined);

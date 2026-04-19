@@ -6,7 +6,7 @@
 - Keep answer simple and grounded in context; no guess.
 - No tables.
 - Include at least 1 direct quote as inline citation.
-- Always include follow-up section and references section.
+- Always include follow-up section.
 - Do not include chunk_id values in answer text.
 - Scoring only for used chunk_ids from context (1-100).
 - Follow Specific Answering Guidelines section.
@@ -31,23 +31,10 @@ Follow-up section:
 - 2-3 relevant questions as bulleted list, each as "- {q1}"
 - follow‑ups must be unique and not repeat history questions but grounded on the context
 
-References section:
-- Heading "References"
-- Numbered list: "1. source, Page N, file_url + "/" + N" (N is page_number) (e.g. https://ab.com/64) 
-- Translate granth name/page text to answer language (links stay as-is)
-
----
-## Citation/References counts (Must follow)
-- Follow the *Specific Answering Guidelines* for counts.
-- If it does not specify counts, use:
-  - min 1 and up to *5* max inline citations total, don't add more.
-  - min 1 and up to *5* max references total, don't add more.
-- Provide most relevant references first in the references section.
-
 ---
 ## Output Contract (JSON only)
 {
-  "answer": "<full answer text including citations, follow-ups, references>",
+  "answer": "<full answer text including citations and follow-ups>",
   "scoring": [ { "chunk_id": "<id>", "score": 1 }, ... ]
 }
 
@@ -68,7 +55,6 @@ Return `NO_ANSWER` as the value of the `answer` field.
 ---
 ## Context Field Mapping
 - id: chunk_id
-- u: file_url
 - p: page_number
 - g: source
 - a: author

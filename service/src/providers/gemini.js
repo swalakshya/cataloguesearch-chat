@@ -70,7 +70,7 @@ export class GeminiProvider extends LLMProvider {
         const response = await client.models.generateContent({
           model: this.model,
           contents,
-          config: { ...config, signal: controller.signal },
+          config: { ...config, abortSignal: controller.signal },
         });
         const text = response?.text;
         if (!text) {

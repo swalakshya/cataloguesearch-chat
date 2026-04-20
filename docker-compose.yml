@@ -1,8 +1,11 @@
 services:
   chat-service:
+    image: swalakshya/cataloguesearch-chat:latest
     build:
       context: .
       dockerfile: service/Dockerfile
+      platforms:
+        - linux/amd64
     container_name: cataloguesearch-chat-service
     env_file:
       - ./service/.env.local
@@ -21,7 +24,7 @@ services:
     networks:
       - cataloguesearch-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8012/v1/health"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8012/v1/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3

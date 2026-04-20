@@ -88,7 +88,7 @@ export class GeminiProvider extends LLMProvider {
       return await runOnce(primaryKey);
     } catch (err) {
       const message = err?.message || String(err);
-      log.warn("gemini_request_failed", { requestId, message });
+      log.warn("gemini_request_failed", { requestId, err_message: message });
       if (err && !err.provider) err.provider = "gemini";
       if (this.keyManager && isAuthError(err)) {
         await this.keyManager.refresh();

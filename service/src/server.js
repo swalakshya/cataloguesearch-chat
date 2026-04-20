@@ -492,7 +492,7 @@ export function createServer(options = {}) {
           sessionId: session.sessionId,
           modelId: model.id,
           provider: model.provider,
-          message: err?.message || String(err),
+          err_message: err?.message || String(err),
         });
         throw err;
       }
@@ -501,11 +501,10 @@ export function createServer(options = {}) {
     try {
       return await router.route(attemptWithModel);
     } catch (err) {
-      const message = err?.message || String(err);
       log.error("message_failed", {
         requestId,
         sessionId: session.sessionId,
-        message,
+        err_message: err?.message || String(err),
         stack: err?.stack,
       });
       throw err;

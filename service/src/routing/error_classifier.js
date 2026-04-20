@@ -10,6 +10,11 @@ export function classifyProviderError(err) {
   }
 
   const message = String(err?.message || "").toLowerCase();
+  // The Google GenAI SDK wraps AbortError as a plain Error with message
+  // "exception AbortError: This operation was aborted", so check by message too.
+  if (message.includes("aborterror") || message.includes("operation was aborted")) {
+    return { kind: "server", reason: "timeout" };
+  }
   if (
     message.includes("unavailable") ||
     message.includes("resource_exhausted") ||

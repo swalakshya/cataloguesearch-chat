@@ -114,8 +114,11 @@ export function getAnswerPrompt(
   script = "",
   options = {}
 ) {
+  const { fullCitations } = options;
   const isFullCitations =
-    String(process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS || "").toLowerCase() === "true";
+    fullCitations !== undefined && fullCitations !== null
+      ? Boolean(fullCitations)
+      : String(process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS || "").toLowerCase() === "true";
   const answerPromptFile =
     workflowName === "metadata_question_v1"
       ? "step_2_metadata_answer_synthesis.md"

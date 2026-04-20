@@ -1,46 +1,64 @@
 const MAX_REFERENCES = 200;
 const MAX_CITATIONS = 200;
 
-export function buildChunkCitationMap(hashedChunks, hashToRealId, metadataByRealId, language = "") {
+export function buildChunkCitationMap(hashedChunks, hashToRealId, metadataByRealId) {
   const hashMap = hashToRealId && typeof hashToRealId === "object" ? hashToRealId : {};
   const metaMap = metadataByRealId && typeof metadataByRealId === "object" ? metadataByRealId : {};
-  const isHindi = String(language || "").toLowerCase() === "hi";
-  const pravachanLabel = isHindi ? "प्रवचन" : "Pravachan";
   const map = {};
   for (const chunk of (Array.isArray(hashedChunks) ? hashedChunks : [])) {
     const hash = String(chunk.id || "").trim();
     if (!hash) continue;
     const realId = hashMap[hash] || hash;
     const metadata = metaMap[realId] || {};
-    const granth = String(chunk.g || metadata.granth || "").trim();
-    const category = String(metadata.category || "").trim();
-    const source = category === "Pravachan" ? `${granth} ${pravachanLabel}` : granth;
-    const pageNumber = chunk.p != null ? chunk.p : (metadata.page_number != null ? metadata.page_number : null);
     map[hash] = {
       text: String(chunk.t || "").trim(),
-      source,
-      pageNumber,
+      granth: String(chunk.g || metadata.granth || "").trim(),
+      category: String(metadata.category || "").trim(),
+      pageNumber: chunk.p != null ? chunk.p : (metadata.page_number != null ? metadata.page_number : null),
+      volume: metadata.volume ?? null,
+      series: String(metadata.series || "").trim() || null,
+      series_number: String(metadata.series_number || "").trim() || null,
+      pravachan_number: String(metadata.pravachan_number || "").trim() || null,
+      date: String(metadata.date || "").trim() || null,
+      gatha: String(metadata.gatha || "").trim() || null,
+      kalash: String(metadata.kalash || "").trim() || null,
+      shlok: String(metadata.shlok || "").trim() || null,
+      dohra: String(metadata.dohra || "").trim() || null,
+      pravachankar: String(metadata.pravachankar || "").trim() || null,
+      file_url: String(metadata.file_url || "").trim() || null,
     };
   }
   return map;
 }
 
-export function expandChunkCitations(text, chunkCitationMap, language = "") {
+export function expandChunkCitations(text, chunkCitationMap) {
   if (!text) return text;
   const map = chunkCitationMap && typeof chunkCitationMap === "object" ? chunkCitationMap : {};
-  const isHindi = String(language || "").toLowerCase() === "hi";
-  const pageLabel = isHindi ? "पृष्ठ" : "Page";
   return String(text).replace(/\{(c\d+)\}/g, (match, chunkId) => {
     const entry = map[chunkId];
     if (!entry || !entry.text) return match;
-    const chunkText = entry.text.replace(/\r?\n|\r/g, " ").replace(/\s+/g, " ").trim();
-    const parts = [
-      entry.source || "",
-      entry.pageNumber != null ? `${pageLabel} ${entry.pageNumber}` : "",
-    ].filter(Boolean);
-    const ref = parts.join(", ");
-    return `\n> ${chunkText}${ref ? ` (${ref})` : ""}\n`;
+    return `\n<citation ${buildCitationAttrs(entry)}>\n${entry.text}\n</citation>\n`;
   });
+}
+
+function buildCitationAttrs(entry) {
+  const esc = (v) => String(v || "").replace(/"/g, "&quot;");
+  const parts = [];
+  if (entry.granth) parts.push(`granth="${esc(entry.granth)}"`);
+  if (entry.category) parts.push(`category="${esc(entry.category)}"`);
+  if (entry.pageNumber != null) parts.push(`page="${entry.pageNumber}"`);
+  if (entry.volume != null) parts.push(`volume="${entry.volume}"`);
+  if (entry.series) parts.push(`series="${esc(entry.series)}"`);
+  if (entry.series_number) parts.push(`series_number="${esc(entry.series_number)}"`);
+  if (entry.pravachan_number) parts.push(`pravachan_number="${esc(entry.pravachan_number)}"`);
+  if (entry.pravachankar) parts.push(`pravachankar="${esc(entry.pravachankar)}"`);
+  if (entry.date) parts.push(`date="${esc(entry.date)}"`);
+  if (entry.gatha) parts.push(`gatha="${esc(entry.gatha)}"`);
+  if (entry.kalash) parts.push(`kalash="${esc(entry.kalash)}"`);
+  if (entry.shlok) parts.push(`shlok="${esc(entry.shlok)}"`);
+  if (entry.dohra) parts.push(`dohra="${esc(entry.dohra)}"`);
+  if (entry.file_url) parts.push(`file_url="${esc(entry.file_url)}"`);
+  return parts.join(" ");
 }
 
 export function stripCitations(text) {

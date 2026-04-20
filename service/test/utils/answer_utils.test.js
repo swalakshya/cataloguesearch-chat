@@ -349,71 +349,83 @@ test("sanitizeFollowUpQuestions trims, dedupes and caps items", () => {
 test("buildChunkCitationMap builds map from hashed chunks and metadata", () => {
   const chunks = [{ id: "c1", t: "chunk text", g: "Samaysaar", p: 12 }];
   const hashToRealId = { c1: "r1" };
-  const metadataByRealId = { r1: { category: "Granth", granth: "Samaysaar" } };
+  const metadataByRealId = { r1: { category: "Granth", granth: "Samaysaar", volume: 2, series: "S1" } };
   const map = buildChunkCitationMap(chunks, hashToRealId, metadataByRealId);
   assert.equal(map.c1.text, "chunk text");
-  assert.equal(map.c1.source, "Samaysaar");
+  assert.equal(map.c1.granth, "Samaysaar");
+  assert.equal(map.c1.category, "Granth");
   assert.equal(map.c1.pageNumber, 12);
+  assert.equal(map.c1.volume, 2);
+  assert.equal(map.c1.series, "S1");
 });
 
-test("buildChunkCitationMap appends Pravachan to source for Pravachan category (English)", () => {
+test("buildChunkCitationMap stores category and granth separately for Pravachan", () => {
   const chunks = [{ id: "c1", t: "pravachan text", g: "Pravachansaar", p: 5 }];
   const hashToRealId = { c1: "r1" };
-  const metadataByRealId = { r1: { category: "Pravachan" } };
-  const map = buildChunkCitationMap(chunks, hashToRealId, metadataByRealId, "en");
-  assert.equal(map.c1.source, "Pravachansaar Pravachan");
-});
-
-test("buildChunkCitationMap appends प्रवचन to source for Pravachan category when Hindi", () => {
-  const chunks = [{ id: "c1", t: "प्रवचन टेक्स्ट", g: "प्रवचनसार", p: 5 }];
-  const hashToRealId = { c1: "r1" };
-  const metadataByRealId = { r1: { category: "Pravachan" } };
-  const map = buildChunkCitationMap(chunks, hashToRealId, metadataByRealId, "hi");
-  assert.equal(map.c1.source, "प्रवचनसार प्रवचन");
+  const metadataByRealId = { r1: { category: "Pravachan", pravachan_number: "42", series_number: "3" } };
+  const map = buildChunkCitationMap(chunks, hashToRealId, metadataByRealId);
+  assert.equal(map.c1.granth, "Pravachansaar");
+  assert.equal(map.c1.category, "Pravachan");
+  assert.equal(map.c1.pravachan_number, "42");
+  assert.equal(map.c1.series_number, "3");
 });
 
 test("buildChunkCitationMap falls back to chunk granth when metadata missing", () => {
   const chunks = [{ id: "c1", t: "text", g: "Niyamsaar", p: 3 }];
   const map = buildChunkCitationMap(chunks, {}, {});
-  assert.equal(map.c1.source, "Niyamsaar");
+  assert.equal(map.c1.granth, "Niyamsaar");
   assert.equal(map.c1.pageNumber, 3);
 });
 
 // expandChunkCitations
-test("expandChunkCitations replaces {c1} with full chunk text and source", () => {
-  const map = { c1: { text: "chunk text here", source: "Samaysaar", pageNumber: 12 } };
-  const result = expandChunkCitations("Answer\n\n{c1}\n\nMore", map, "en");
-  assert.ok(result.includes("> chunk text here (Samaysaar, Page 12)"));
+test("expandChunkCitations replaces {c1} with a <citation> tag containing full text", () => {
+  const map = { c1: { text: "chunk text here", granth: "Samaysaar", category: "Granth", pageNumber: 12 } };
+  const result = expandChunkCitations("Answer\n\n{c1}\n\nMore", map);
+  assert.ok(result.includes("<citation"));
+  assert.ok(result.includes("granth=\"Samaysaar\""));
+  assert.ok(result.includes("page=\"12\""));
+  assert.ok(result.includes("chunk text here"));
+  assert.ok(result.includes("</citation>"));
   assert.ok(result.includes("Answer"));
   assert.ok(result.includes("More"));
 });
 
-test("expandChunkCitations uses Hindi page label for hi language", () => {
-  const map = { c1: { text: "आत्मा नित्य है", source: "समयसार", pageNumber: 5 } };
-  const result = expandChunkCitations("{c1}", map, "hi");
-  assert.ok(result.includes("> आत्मा नित्य है (समयसार, पृष्ठ 5)"));
-});
-
-test("expandChunkCitations strips newlines from chunk text", () => {
-  const map = { c1: { text: "line one\nline two\r\nline three", source: "Samaysaar", pageNumber: 1 } };
-  const result = expandChunkCitations("{c1}", map, "en");
-  assert.ok(result.includes("> line one line two line three (Samaysaar, Page 1)"));
-  assert.ok(!result.includes("\n> line one\n"));
+test("expandChunkCitations preserves newlines in chunk text", () => {
+  const map = { c1: { text: "line one\nline two\r\nline three", granth: "Samaysaar", category: "Granth", pageNumber: 1 } };
+  const result = expandChunkCitations("{c1}", map);
+  assert.ok(result.includes("line one\nline two\r\nline three"));
 });
 
 test("expandChunkCitations leaves unknown placeholders unchanged", () => {
-  const result = expandChunkCitations("text {c99} end", {}, "en");
+  const result = expandChunkCitations("text {c99} end", {});
   assert.ok(result.includes("{c99}"));
 });
 
 test("expandChunkCitations handles missing page number", () => {
-  const map = { c1: { text: "some text", source: "Granth", pageNumber: null } };
-  const result = expandChunkCitations("{c1}", map, "en");
-  assert.ok(result.includes("> some text (Granth)"));
+  const map = { c1: { text: "some text", granth: "Granth", category: "Granth", pageNumber: null } };
+  const result = expandChunkCitations("{c1}", map);
+  assert.ok(result.includes("<citation"));
+  assert.ok(!result.includes("page="));
 });
 
-test("expandChunkCitations handles missing source", () => {
-  const map = { c1: { text: "some text", source: "", pageNumber: 7 } };
-  const result = expandChunkCitations("{c1}", map, "en");
-  assert.ok(result.includes("> some text (Page 7)"));
+test("expandChunkCitations handles missing granth", () => {
+  const map = { c1: { text: "some text", granth: "", category: "Granth", pageNumber: 7 } };
+  const result = expandChunkCitations("{c1}", map);
+  assert.ok(result.includes("page=\"7\""));
+  assert.ok(!result.includes("granth="));
+});
+
+test("expandChunkCitations includes rich metadata as attributes", () => {
+  const map = { c1: {
+    text: "text", granth: "G", category: "Pravachan",
+    pageNumber: 1, volume: 3, series: "MySeries", series_number: "5",
+    pravachan_number: "10", pravachankar: "Guruji", date: "1990-01-01",
+    gatha: "2", shlok: "4", file_url: "http://example.com/file.pdf",
+  }};
+  const result = expandChunkCitations("{c1}", map);
+  assert.ok(result.includes("volume=\"3\""));
+  assert.ok(result.includes("series=\"MySeries\""));
+  assert.ok(result.includes("pravachan_number=\"10\""));
+  assert.ok(result.includes("pravachankar=\"Guruji\""));
+  assert.ok(result.includes("file_url=\"http://example.com/file.pdf\""));
 });

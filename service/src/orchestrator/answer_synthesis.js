@@ -17,6 +17,7 @@ export async function runAnswerSynthesis({
   requestId,
   modelId,
   responseFormat = "combined",
+  fullCitations,
 }) {
   const guidelines = getWorkflowGuidelines(workflowName, { modelId, requestId });
   const useV2 = isPromptV2();
@@ -46,7 +47,7 @@ export async function runAnswerSynthesis({
     workflowName,
     language,
     promptScript,
-    { modelId, requestId, responseFormat }
+    { modelId, requestId, responseFormat, fullCitations }
   );
   const responseJsonSchema = getAnswerSchema({ workflowName, responseFormat });
   log.info("answer_synthesis_prompt_tokens", {

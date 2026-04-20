@@ -3,7 +3,15 @@ export function parseJsonStrict(raw) {
   const trimmed = String(raw).trim();
   try {
     return JSON.parse(trimmed);
-  } catch {
+  } catch (e1) {
+    // Gemini sometimes appends text after the closing }. The error position
+    // tells us exactly where the valid JSON ends — slice there and retry.
+    const posMatch = String(e1?.message || "").match(/position (\d+)/);
+    if (posMatch) {
+      try {
+        return JSON.parse(trimmed.slice(0, Number(posMatch[1])));
+      } catch {}
+    }
     const extracted = extractJsonBlock(trimmed);
     try {
       return JSON.parse(extracted);

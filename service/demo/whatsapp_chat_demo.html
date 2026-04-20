@@ -872,6 +872,7 @@
             role: "user",
             content: question,
             response_format: getAnswerType(),
+            ...(getAnswerType() === "combined" ? { full_citations: false } : {}),
             filters: buildFilters(),
           }),
         });

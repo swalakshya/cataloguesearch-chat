@@ -382,6 +382,7 @@ export function createServer(options = {}) {
 
     const { role, content, filters: uiFilters } = body || {};
     const responseFormat = normalizeResponseFormat(body?.response_format, { fallback: defaultResponseFormat });
+    const fullCitationsParam = body?.full_citations;
     if (role !== "user" || !content) {
       log.warn("message_invalid", { sessionId });
       const err = new Error("invalid_message");
@@ -474,6 +475,7 @@ export function createServer(options = {}) {
           content,
           uiFilters,
           responseFormat,
+          fullCitationsParam,
           requestId,
           onStage: stageEmitter,
         });
@@ -523,6 +525,7 @@ export function createServer(options = {}) {
     content,
     uiFilters,
     responseFormat,
+    fullCitationsParam,
     requestId,
     onStage,
   }) {
@@ -735,6 +738,7 @@ export function createServer(options = {}) {
       requestId,
       modelId: model.id,
       responseFormat,
+      fullCitations: fullCitationsParam,
     });
 
     const answerRaw = String(answerPayload?.answer || "");
@@ -748,12 +752,13 @@ export function createServer(options = {}) {
       : answerRaw;
     const fullCitationsEnabled =
       !isMetadataWorkflow &&
-      String(process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS || "").toLowerCase() === "true";
+      (fullCitationsParam !== undefined && fullCitationsParam !== null
+        ? Boolean(fullCitationsParam)
+        : String(process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS || "").toLowerCase() === "true");
     const expandedAnswer = fullCitationsEnabled
       ? expandChunkCitations(
           resolvedAnswer,
-          buildChunkCitationMap(hashedChunks, session.chunkIdMap, metadataByRealId, keywordResult.language),
-          keywordResult.language
+          buildChunkCitationMap(hashedChunks, session.chunkIdMap, metadataByRealId)
         )
       : resolvedAnswer;
 

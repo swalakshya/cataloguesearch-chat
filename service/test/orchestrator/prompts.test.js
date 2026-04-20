@@ -83,3 +83,47 @@ test("getAnswerPrompt uses combined answer template when requested", () => {
   assert.ok(prompt.includes("If you want I can answer this in detail or I can also answer"));
   assert.ok(prompt.includes("<full answer text including citations and follow-ups>"));
 });
+
+test("getAnswerPrompt uses full citations prompt when fullCitations=true in options", () => {
+  const prompt = getAnswerPrompt("Q?", "CTX", "", "", "basic_question_v1", "", "", {
+    fullCitations: true,
+  });
+  assert.ok(prompt.includes("do NOT write the actual quote text yourself"));
+});
+
+test("getAnswerPrompt uses standard prompt when fullCitations=false even if env var is true", () => {
+  const original = process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS;
+  process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS = "true";
+  try {
+    const prompt = getAnswerPrompt("Q?", "CTX", "", "", "basic_question_v1", "", "", {
+      fullCitations: false,
+    });
+    assert.equal(prompt.includes("do NOT write the actual quote text yourself"), false);
+  } finally {
+    if (original === undefined) delete process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS;
+    else process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS = original;
+  }
+});
+
+test("getAnswerPrompt falls back to env var when fullCitations not in options", () => {
+  const original = process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS;
+  process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS = "true";
+  try {
+    const prompt = getAnswerPrompt("Q?", "CTX", "", "", "basic_question_v1");
+    assert.ok(prompt.includes("do NOT write the actual quote text yourself"));
+  } finally {
+    if (original === undefined) delete process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS;
+    else process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS = original;
+  }
+});
+
+test("getAnswerPrompt defaults to standard prompt when fullCitations not set and env var not set", () => {
+  const original = process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS;
+  delete process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS;
+  try {
+    const prompt = getAnswerPrompt("Q?", "CTX", "", "", "basic_question_v1");
+    assert.equal(prompt.includes("do NOT write the actual quote text yourself"), false);
+  } finally {
+    if (original !== undefined) process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS = original;
+  }
+});

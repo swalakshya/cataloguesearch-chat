@@ -178,3 +178,53 @@ test("runAnswerSynthesis supports combined response format", async () => {
   assert.equal(capturedPrompt.includes("If you want I can answer this in detail or I can also answer"), true);
   assert.equal(capturedSchema.properties.follow_up_questions, undefined);
 });
+
+test("runAnswerSynthesis threads fullCitations=true into prompt", async () => {
+  let capturedPrompt = "";
+  const provider = {
+    completeJson: async ({ messages }) => {
+      capturedPrompt = messages[1].content;
+      return JSON.stringify({ answer: "answer", scoring: [] });
+    },
+  };
+
+  await runAnswerSynthesis({
+    provider,
+    question: "Q?",
+    workflowName: "basic_question_v1",
+    context: "CTX",
+    conversationHistory: [],
+    requestId: "r1",
+    fullCitations: true,
+  });
+
+  assert.ok(capturedPrompt.includes("do NOT write the actual quote text yourself"));
+});
+
+test("runAnswerSynthesis threads fullCitations=false into prompt overriding env var", async () => {
+  const original = process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS;
+  process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS = "true";
+  let capturedPrompt = "";
+  const provider = {
+    completeJson: async ({ messages }) => {
+      capturedPrompt = messages[1].content;
+      return JSON.stringify({ answer: "answer", scoring: [] });
+    },
+  };
+
+  try {
+    await runAnswerSynthesis({
+      provider,
+      question: "Q?",
+      workflowName: "basic_question_v1",
+      context: "CTX",
+      conversationHistory: [],
+      requestId: "r1",
+      fullCitations: false,
+    });
+    assert.equal(capturedPrompt.includes("do NOT write the actual quote text yourself"), false);
+  } finally {
+    if (original === undefined) delete process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS;
+    else process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS = original;
+  }
+});

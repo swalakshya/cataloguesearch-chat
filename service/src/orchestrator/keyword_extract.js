@@ -46,7 +46,13 @@ export async function runKeywordExtraction({
     tokens: estimateTokens(raw),
   });
 
-  const parsed = parseJsonStrict(raw);
+  let parsed;
+  try {
+    parsed = parseJsonStrict(raw);
+  } catch (err) {
+    log.warn("keyword_extract_parse_failed", { requestId, error: err?.message || String(err), raw: String(raw || "").slice(0, 500) });
+    throw err;
+  }
   log.debug("keyword_extract_parsed", { requestId, workflow: parsed.workflow });
   return parsed;
 }

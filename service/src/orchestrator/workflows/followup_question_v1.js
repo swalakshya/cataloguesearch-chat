@@ -1,5 +1,6 @@
 import { getWorkflowConfig } from "../../config/workflow_config.js";
 import { normalizeContentTypes } from "../../config/content_types.js";
+import { log } from "../../utils/log.js";
 
 export async function runFollowupQuestion({ externalApi, params, requestId, toolBudget, modelId }) {
   const results = [];
@@ -124,15 +125,6 @@ async function safePush(results, fn, requestId) {
     const data = await fn();
     if (Array.isArray(data)) results.push(...data);
   } catch (err) {
-    const message = err?.message || String(err);
-    console.warn(
-      JSON.stringify({
-        ts: new Date().toISOString(),
-        level: "warn",
-        message: "workflow_call_failed",
-        requestId,
-        error: message,
-      })
-    );
+    log.warn("workflow_call_failed", { requestId, error: err?.message || String(err) });
   }
 }

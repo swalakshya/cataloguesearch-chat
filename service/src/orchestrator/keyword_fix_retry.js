@@ -1,5 +1,6 @@
 import { runWorkflow } from "./workflow_router.js";
 import { runKeywordFix } from "./keyword_fix.js";
+import { log } from "../utils/log.js";
 
 export async function retryWorkflowOnEmptyChunks({
   initialKeywordResult,
@@ -24,6 +25,12 @@ export async function retryWorkflowOnEmptyChunks({
   if (initialChunks.length > 0) {
     return { ...first, keywordResult: preparedInitial, keywordFixApplied: false };
   }
+
+  log.info("keyword_fix_retry_triggered", {
+    requestId,
+    reason: "empty_chunks",
+    workflow: initialKeywordResult?.workflow,
+  });
 
   const fixedKeywordResult = await runKeywordFixFn({
     provider,

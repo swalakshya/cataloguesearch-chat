@@ -213,6 +213,7 @@ export function createServer(options = {}) {
         chunkIdCounter: 0,
         conversationHistory: [],
         busy: false,
+        questionCount: 0,
       };
       registry.create(session);
 
@@ -240,6 +241,11 @@ export function createServer(options = {}) {
         sessionId: req.params.sessionId,
         body: req.body,
       });
+      log.info("api_response", {
+        requestId: responsePayload.tool_trace_id,
+        sessionId: req.params.sessionId,
+        response: responsePayload,
+      });
       res.json(responsePayload);
     } catch (err) {
       const mapped = mapMessageRequestError(err);
@@ -266,6 +272,11 @@ export function createServer(options = {}) {
         onStage: (event) => {
           if (!res.writableEnded) writeSseEvent(res, { type: "stage", ...event });
         },
+      });
+      log.info("api_response", {
+        requestId: responsePayload.tool_trace_id,
+        sessionId: req.params.sessionId,
+        response: responsePayload,
       });
       if (!res.writableEnded) {
         writeSseEvent(res, { type: "final", data: responsePayload });
@@ -411,8 +422,16 @@ export function createServer(options = {}) {
     session.lastActivityAt = Date.now();
     session.messages.push({ role: "user", content });
     session.tokenCount = (session.tokenCount || 0) + estimateTokens(content);
+    session.questionCount = (session.questionCount || 0) + 1;
 
     const requestId = crypto.randomUUID();
+    const questionIndex = session.questionCount;
+    log.info("message_received", {
+      requestId,
+      questionIndex,
+      sessionId: session.sessionId,
+      request: { role, content, response_format: body?.response_format, filters: uiFilters || null },
+    });
     const availableModels = router.getAvailableModels();
     log.info("model_availability_status", {
       requestId,

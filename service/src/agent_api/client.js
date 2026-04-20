@@ -6,38 +6,38 @@ export class ExternalApiClient {
     this.timeoutMs = timeoutMs;
   }
 
-  async search(payload, requestId) {
-    return this.#post("/api/agent/search", payload, requestId);
+  async search(payload, questionId) {
+    return this.#post("/api/agent/search", payload, questionId);
   }
 
-  async navigate(payload, requestId) {
-    return this.#post("/api/agent/navigate", payload, requestId);
+  async navigate(payload, questionId) {
+    return this.#post("/api/agent/navigate", payload, questionId);
   }
 
-  async findSimilar(payload, requestId) {
-    return this.#post("/api/agent/find_similar", payload, requestId);
+  async findSimilar(payload, questionId) {
+    return this.#post("/api/agent/find_similar", payload, questionId);
   }
 
-  async getFilterOptions(payload, requestId) {
-    return this.#post("/api/agent/get_filter_options", payload, requestId);
+  async getFilterOptions(payload, questionId) {
+    return this.#post("/api/agent/get_filter_options", payload, questionId);
   }
 
-  async getMetadataOptions(payload, requestId) {
-    return this.#post("/api/agent/get_metadata_options", payload, requestId);
+  async getMetadataOptions(payload, questionId) {
+    return this.#post("/api/agent/get_metadata_options", payload, questionId);
   }
 
-  async getPravachan(payload, requestId) {
-    return this.#post("/api/agent/get_pravachan", payload, requestId);
+  async getPravachan(payload, questionId) {
+    return this.#post("/api/agent/get_pravachan", payload, questionId);
   }
 
-  async #post(path, payload, requestId) {
+  async #post(path, payload, questionId) {
     const url = `${this.baseUrl}${path}`;
     const normalizedPayload = normalizeLanguage(payload);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
       const startedAt = Date.now();
-      log.info("external_api_request", { requestId, path, payload: normalizedPayload });
+      log.info("external_api_request", { questionId, path, payload: normalizedPayload });
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -47,7 +47,7 @@ export class ExternalApiClient {
       const text = await res.text();
       if (!res.ok) {
         log.warn("external_api_failed", {
-          requestId,
+          questionId,
           path,
           status: res.status,
           body: text.slice(0, 800),
@@ -58,7 +58,7 @@ export class ExternalApiClient {
       try {
         const parsed = JSON.parse(text);
         log.info("external_api_response", {
-          requestId,
+          questionId,
           path,
           status: res.status,
           durationMs: Date.now() - startedAt,
@@ -66,7 +66,7 @@ export class ExternalApiClient {
         });
         return parsed;
       } catch (err) {
-        log.warn("external_api_parse_failed", { requestId, path, body: text.slice(0, 800) });
+        log.warn("external_api_parse_failed", { questionId, path, body: text.slice(0, 800) });
         throw err;
       }
     } finally {

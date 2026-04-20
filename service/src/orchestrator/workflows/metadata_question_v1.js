@@ -2,7 +2,7 @@ import { normalizeContentTypes } from "../../config/content_types.js";
 import { mergeMetadataOptions } from "../../utils/metadata.js";
 import { log } from "../../utils/log.js";
 
-export async function runMetadataQuestion({ externalApi, params, requestId, toolBudget }) {
+export async function runMetadataQuestion({ externalApi, params, questionId, toolBudget }) {
   const askedInfo = Array.isArray(params.asked_info) ? params.asked_info : [];
   const contentTypes = normalizeContentTypes(params.filters?.content_type);
 
@@ -17,7 +17,7 @@ export async function runMetadataQuestion({ externalApi, params, requestId, tool
   for (const ct of contentTypes) {
     const options = await externalApi.getMetadataOptions(
       { language: params.language || "hi", content_type: ct },
-      requestId
+      questionId
     );
     const mappedResponse = Array.isArray(options)
       ? options.map((item) => ({
@@ -28,7 +28,7 @@ export async function runMetadataQuestion({ externalApi, params, requestId, tool
         }))
       : options;
     log.info("metadata_options_response", {
-      requestId,
+      questionId,
       content_type: ct,
       response: mappedResponse,
     });

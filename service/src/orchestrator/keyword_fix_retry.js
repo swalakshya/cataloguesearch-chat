@@ -4,7 +4,7 @@ import { runKeywordFix } from "./keyword_fix.js";
 export async function retryWorkflowOnEmptyChunks({
   initialKeywordResult,
   question,
-  requestId,
+  questionId,
   provider,
   externalApi,
   modelId,
@@ -16,7 +16,7 @@ export async function retryWorkflowOnEmptyChunks({
   const first = await runWorkflowFn({
     externalApi,
     keywordResult: preparedInitial,
-    requestId,
+    questionId,
     provider,
     modelId,
   });
@@ -29,14 +29,14 @@ export async function retryWorkflowOnEmptyChunks({
     provider,
     question,
     step1Json: initialKeywordResult,
-    requestId,
+    questionId,
     modelId,
   });
   const preparedFixed = prepareKeywordResult(fixedKeywordResult);
   const second = await runWorkflowFn({
     externalApi,
     keywordResult: preparedFixed,
-    requestId,
+    questionId,
     provider,
     modelId,
   });

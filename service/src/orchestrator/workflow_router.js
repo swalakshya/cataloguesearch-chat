@@ -21,14 +21,14 @@ export class ToolBudget {
   }
 }
 
-export async function runWorkflow({ externalApi, keywordResult, requestId, provider = null, modelId = null }) {
+export async function runWorkflow({ externalApi, keywordResult, questionId, provider = null, modelId = null }) {
   const workflowName = keywordResult.workflow || "basic_question_v1";
   const runner = workflowRegistry[workflowName];
   if (!runner) {
     throw new Error(`Unknown workflow: ${workflowName}`);
   }
 
-  log.info("workflow_start", { requestId, workflow: workflowName });
+  log.info("workflow_start", { questionId, workflow: workflowName });
 
   const isMetadataWorkflow = workflowName === "metadata_question_v1";
   const resolvedFilters = isMetadataWorkflow
@@ -37,7 +37,7 @@ export async function runWorkflow({ externalApi, keywordResult, requestId, provi
       externalApi,
       filters: keywordResult.filters || {},
       language: keywordResult.language || "hi",
-      requestId,
+      questionId,
       allowFailure: workflowName !== "basic_question_v1",
       provider,
     });
@@ -50,10 +50,10 @@ export async function runWorkflow({ externalApi, keywordResult, requestId, provi
   const toolBudgetLimit = Number(process.env.WORKFLOW_TOOL_CALL_BUDGET || 25);
   const toolBudget = new ToolBudget(toolBudgetLimit);
 
-  const chunks = await runner({ externalApi, params, requestId, toolBudget, modelId });
+  const chunks = await runner({ externalApi, params, questionId, toolBudget, modelId });
 
   log.info("workflow_complete", {
-    requestId,
+    questionId,
     workflow: workflowName,
     retrievedChunks: Array.isArray(chunks) ? chunks.length : 0,
     toolCallsUsed: toolBudget.used,
@@ -63,7 +63,7 @@ export async function runWorkflow({ externalApi, keywordResult, requestId, provi
   return { workflowName, chunks };
 }
 
-async function resolveFilters({ externalApi, filters, language, requestId, allowFailure, provider }) {
+async function resolveFilters({ externalApi, filters, language, questionId, allowFailure, provider }) {
   if (!filters || typeof filters !== "object") return {};
   const hasExplicitFilter = Boolean(
     filters.granth ||
@@ -89,7 +89,7 @@ async function resolveFilters({ externalApi, filters, language, requestId, allow
 
   for (const ct of typesToFetch) {
     optionSets.push(
-      await safeFetchFilterOptions(externalApi, { language: "hi", content_type: ct }, requestId, allowFailure)
+      await safeFetchFilterOptions(externalApi, { language: "hi", content_type: ct }, questionId, allowFailure)
     );
   }
 
@@ -114,7 +114,7 @@ async function resolveFilters({ externalApi, filters, language, requestId, allow
   if (shouldMap) {
     const mapped = await mapFiltersWithLlm({
       provider,
-      requestId,
+      questionId,
       original: {
         granth: filters.granth || "",
         anuyog: filters.anuyog || "",
@@ -129,22 +129,22 @@ async function resolveFilters({ externalApi, filters, language, requestId, allow
       contributor:
         contributorMatch.matched === false && mapped.contributor ? mapped.contributor : resolved.contributor,
     };
-    log.info("filters_llm_mapped", { requestId, input: filters, mapped, resolved });
+    log.info("filters_llm_mapped", { questionId, input: filters, mapped, resolved });
   }
 
-  log.debug("filters_resolved", { requestId, input: filters, resolved });
+  log.debug("filters_resolved", { questionId, input: filters, resolved });
   return stripEmpty(resolved);
 }
 
-async function safeFetchFilterOptions(externalApi, payload, requestId, allowFailure) {
+async function safeFetchFilterOptions(externalApi, payload, questionId, allowFailure) {
   try {
-    const response = await externalApi.getFilterOptions(payload, requestId);
-    log.info("filter_options_response", { requestId, payload, response });
+    const response = await externalApi.getFilterOptions(payload, questionId);
+    log.info("filter_options_response", { questionId, payload, response });
     return response;
   } catch (err) {
     if (!allowFailure) throw err;
     log.warn("filter_options_failed", {
-      requestId,
+      questionId,
       error: err?.message || String(err),
       payload,
     });
@@ -199,7 +199,7 @@ function resolveMatchWithFlag(value, options) {
   return { value, matched: false };
 }
 
-async function mapFiltersWithLlm({ provider, requestId, original, options }) {
+async function mapFiltersWithLlm({ provider, questionId, original, options }) {
   const system = "You map filter values to the closest valid option. Output JSON only.";
   const user = [
     "Map each provided filter to the best matching option from the lists.",
@@ -229,14 +229,14 @@ async function mapFiltersWithLlm({ provider, requestId, original, options }) {
       { role: "user", content: user },
     ],
     temperature: 0,
-    requestId,
+    questionId,
     responseJsonSchema: schema,
   });
 
   try {
     return JSON.parse(raw);
   } catch (err) {
-    log.warn("filters_llm_map_parse_failed", { requestId, error: err?.message || String(err) });
+    log.warn("filters_llm_map_parse_failed", { questionId, error: err?.message || String(err) });
     return { granth: "", anuyog: "", contributor: "" };
   }
 }

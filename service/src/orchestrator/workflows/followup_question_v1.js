@@ -1,7 +1,7 @@
 import { getWorkflowConfig } from "../../config/workflow_config.js";
 import { normalizeContentTypes } from "../../config/content_types.js";
 
-export async function runFollowupQuestion({ externalApi, params, requestId, toolBudget, modelId }) {
+export async function runFollowupQuestion({ externalApi, params, questionId, toolBudget, modelId }) {
   const results = [];
   const language = params.language || "hi";
   const filters = params.filters || {};
@@ -34,14 +34,14 @@ export async function runFollowupQuestion({ externalApi, params, requestId, tool
     for (const query of queries) {
       if (toolBudget.remaining() <= 0) break;
       toolBudget.consume();
-      await safePush(results, () => externalApi.search(searchPayload(query.keywords), requestId), requestId);
+      await safePush(results, () => externalApi.search(searchPayload(query.keywords), questionId), questionId);
     }
   } else if (subQueries.length || (mainQuery && Array.isArray(mainQuery.keywords))) {
     const mainKeywords = Array.isArray(mainQuery.keywords) ? mainQuery.keywords : [];
     if (!subQueries.length) {
       if (toolBudget.remaining() > 0) {
         toolBudget.consume();
-        await safePush(results, () => externalApi.search(searchPayload(mainKeywords), requestId), requestId);
+        await safePush(results, () => externalApi.search(searchPayload(mainKeywords), questionId), questionId);
       }
     } else {
       for (const query of subQueries) {
@@ -49,20 +49,20 @@ export async function runFollowupQuestion({ externalApi, params, requestId, tool
         const subKeywords = Array.isArray(query.keywords) ? query.keywords : [];
         const combined = [...mainKeywords, ...subKeywords].filter(Boolean);
         toolBudget.consume();
-        await safePush(results, () => externalApi.search(searchPayload(combined), requestId), requestId);
+        await safePush(results, () => externalApi.search(searchPayload(combined), questionId), questionId);
       }
     }
   } else if (params.keywords) {
     toolBudget.consume();
-    await safePush(results, () => externalApi.search(searchPayload(params.keywords), requestId), requestId);
+    await safePush(results, () => externalApi.search(searchPayload(params.keywords), questionId), questionId);
   }
 
   for (const keywordSet of followupKeywordSets) {
     toolBudget.consume();
     await safePush(
       results,
-      () => externalApi.search(searchPayload(keywordSet), requestId),
-      requestId
+      () => externalApi.search(searchPayload(keywordSet), questionId),
+      questionId
     );
   }
 
@@ -76,9 +76,9 @@ export async function runFollowupQuestion({ externalApi, params, requestId, tool
       () =>
         externalApi.navigate(
           { chunk_id: chunkId, direction: config.navigate_direction, steps: config.navigate_steps, language: "hi" },
-          requestId
+          questionId
         ),
-      requestId
+      questionId
     );
   }
 
@@ -119,7 +119,7 @@ function countUserSearches({ queries, mainQuery, subQueries, keywords }) {
   return 0;
 }
 
-async function safePush(results, fn, requestId) {
+async function safePush(results, fn, questionId) {
   try {
     const data = await fn();
     if (Array.isArray(data)) results.push(...data);
@@ -130,7 +130,7 @@ async function safePush(results, fn, requestId) {
         ts: new Date().toISOString(),
         level: "warn",
         message: "workflow_call_failed",
-        requestId,
+        questionId,
         error: message,
       })
     );

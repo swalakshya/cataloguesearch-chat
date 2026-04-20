@@ -14,11 +14,11 @@ export async function runAnswerSynthesis({
   followupSetIds,
   language,
   script,
-  requestId,
+  questionId,
   modelId,
   responseFormat = "combined",
 }) {
-  const guidelines = getWorkflowGuidelines(workflowName, { modelId, requestId });
+  const guidelines = getWorkflowGuidelines(workflowName, { modelId, questionId });
   const useV2 = isPromptV2();
   const filteredHistory =
     Array.isArray(followupSetIds) && followupSetIds.length
@@ -46,11 +46,11 @@ export async function runAnswerSynthesis({
     workflowName,
     language,
     promptScript,
-    { modelId, requestId, responseFormat }
+    { modelId, questionId, responseFormat }
   );
   const responseJsonSchema = getAnswerSchema({ workflowName, responseFormat });
   log.info("answer_synthesis_prompt_tokens", {
-    requestId,
+    questionId,
     tokens: estimateTokens(prompt),
   });
 
@@ -62,42 +62,42 @@ export async function runAnswerSynthesis({
   const raw = await provider.completeJson({
     messages,
     temperature: Number(process.env.LLM_TEMPERATURE || 0.75),
-    requestId,
+    questionId,
     responseJsonSchema,
   });
 
   // Logged at info to correlate with downstream response parsing.
   // Avoid logging full answer to keep logs manageable.
   log.info("answer_synthesis_llm_response", {
-    requestId,
+    questionId,
     length: raw?.length || 0,
     preview: String(raw || "").slice(0, 500),
   });
   log.info("answer_synthesis_output_tokens", {
-    requestId,
+    questionId,
     tokens: estimateTokens(raw),
   });
 
   const parsed = await parseOrRepairJson({
     raw,
     provider,
-    requestId,
+    questionId,
     responseJsonSchema,
     responseFormat,
   });
   log.info("answer_synthesis_scoring", {
-    requestId,
+    questionId,
     scoring: Array.isArray(parsed?.scoring) ? parsed.scoring : [],
   });
   return parsed;
 }
 
-async function parseOrRepairJson({ raw, provider, requestId, responseJsonSchema, responseFormat }) {
+async function parseOrRepairJson({ raw, provider, questionId, responseJsonSchema, responseFormat }) {
   try {
     return parseJsonStrict(raw);
   } catch (err) {
     log.warn("answer_synthesis_json_parse_failed", {
-      requestId,
+      questionId,
       message: err?.message || String(err),
       preview: String(raw || "").slice(0, 500),
     });
@@ -115,12 +115,12 @@ async function parseOrRepairJson({ raw, provider, requestId, responseJsonSchema,
     const repairedRaw = await provider.completeJson({
       messages: repairMessages,
       temperature: 0,
-      requestId,
+      questionId,
       responseJsonSchema,
     });
 
     log.info("answer_synthesis_llm_repair_response", {
-      requestId,
+      questionId,
       length: repairedRaw?.length || 0,
       preview: String(repairedRaw || "").slice(0, 500),
     });
@@ -129,7 +129,7 @@ async function parseOrRepairJson({ raw, provider, requestId, responseJsonSchema,
       return parseJsonStrict(repairedRaw);
     } catch (err) {
       log.warn("answer_synthesis_json_repair_parse_failed", {
-        requestId,
+        questionId,
         message: err?.message || String(err),
         preview: String(repairedRaw || "").slice(0, 500),
       });
@@ -138,7 +138,7 @@ async function parseOrRepairJson({ raw, provider, requestId, responseJsonSchema,
     }
   } catch (err) {
     log.warn("answer_synthesis_json_repair_failed", {
-      requestId,
+      questionId,
       message: err?.message || String(err),
     });
   }

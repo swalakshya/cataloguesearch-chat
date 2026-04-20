@@ -15,28 +15,28 @@ export class OpenAIProvider extends LLMProvider {
     return "openai";
   }
 
-  async completeText({ messages, temperature, maxTokens, requestId }) {
+  async completeText({ messages, temperature, maxTokens, questionId }) {
     return this.#chatCompletion({
       messages,
       temperature,
       maxTokens,
-      requestId,
+      questionId,
       responseFormat: null,
     });
   }
 
-  async completeJson({ messages, temperature, maxTokens, requestId }) {
+  async completeJson({ messages, temperature, maxTokens, questionId }) {
     const responseFormat = this.jsonMode ? { type: "json_object" } : null;
     return this.#chatCompletion({
       messages,
       temperature,
       maxTokens,
-      requestId,
+      questionId,
       responseFormat,
     });
   }
 
-  async #chatCompletion({ messages, temperature, maxTokens, requestId, responseFormat }) {
+  async #chatCompletion({ messages, temperature, maxTokens, questionId, responseFormat }) {
     if (!this.apiKey) {
       const err = new Error("OPENAI_API_KEY is required");
       err.status = 401;
@@ -56,7 +56,7 @@ export class OpenAIProvider extends LLMProvider {
 
     const url = `${this.baseUrl}/chat/completions`;
     log.debug("openai_request", {
-      requestId,
+      questionId,
       url,
       model: this.model,
       temperature,
@@ -77,7 +77,7 @@ export class OpenAIProvider extends LLMProvider {
       const text = await res.text();
       if (!res.ok) {
         log.warn("openai_request_failed", {
-          requestId,
+          questionId,
           status: res.status,
           body: text.slice(0, 800),
         });
@@ -91,13 +91,13 @@ export class OpenAIProvider extends LLMProvider {
       try {
         json = JSON.parse(text);
       } catch (err) {
-        log.warn("openai_response_parse_failed", { requestId, body: text.slice(0, 800) });
+        log.warn("openai_response_parse_failed", { questionId, body: text.slice(0, 800) });
         throw err;
       }
 
       const content = json?.choices?.[0]?.message?.content;
       if (!content) {
-        log.warn("openai_empty_response", { requestId, response: summarize(json) });
+        log.warn("openai_empty_response", { questionId, response: summarize(json) });
         throw new Error("OpenAI response missing content");
       }
       return content.trim();

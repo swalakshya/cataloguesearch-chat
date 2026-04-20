@@ -9,7 +9,7 @@ export async function runKeywordExtraction({
   provider,
   question,
   sessionContext,
-  requestId,
+  questionId,
   modelId,
 }) {
   const useV2 = isPromptV2();
@@ -18,9 +18,9 @@ export async function runKeywordExtraction({
     includeAnswers: true,
     compact: useV2,
   });
-  const prompt = getKeywordPrompt(question, history, { modelId, requestId });
+  const prompt = getKeywordPrompt(question, history, { modelId, questionId });
   log.info("keyword_extract_prompt_tokens", {
-    requestId,
+    questionId,
     tokens: estimateTokens(prompt),
   });
 
@@ -32,21 +32,21 @@ export async function runKeywordExtraction({
   const raw = await provider.completeJson({
     messages,
     temperature: 0,
-    requestId,
+    questionId,
     responseJsonSchema: KEYWORD_EXTRACTION_SCHEMA,
   });
 
   log.info("keyword_extract_llm_response", {
-    requestId,
+    questionId,
     length: raw?.length || 0,
     response: String(raw || ""),
   });
   log.info("keyword_extract_output_tokens", {
-    requestId,
+    questionId,
     tokens: estimateTokens(raw),
   });
 
   const parsed = parseJsonStrict(raw);
-  log.debug("keyword_extract_parsed", { requestId, workflow: parsed.workflow });
+  log.debug("keyword_extract_parsed", { questionId, workflow: parsed.workflow });
   return parsed;
 }

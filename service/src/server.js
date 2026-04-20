@@ -147,12 +147,12 @@ export function createServer(options = {}) {
     });
 
     app.get("/v1/test/prompt-root", (req, res) => {
-      const requestId = String(req.query?.request_id || "");
-      if (!requestId) return res.status(400).json({ detail: "request_id_required" });
-      const entry = getPromptRootForTest(requestId);
+      const testQuestionId = String(req.query?.request_id || "");
+      if (!testQuestionId) return res.status(400).json({ detail: "request_id_required" });
+      const entry = getPromptRootForTest(testQuestionId);
       if (!entry) return res.status(404).json({ detail: "prompt_root_not_found" });
       res.json({
-        request_id: entry.requestId,
+        request_id: entry.questionId,
         model_id: entry.modelId,
         prompt_root: entry.promptRoot,
       });
@@ -210,6 +210,7 @@ export function createServer(options = {}) {
         chunkIdCounter: 0,
         conversationHistory: [],
         busy: false,
+        questionCount: 0,
       };
       registry.create(session);
 
@@ -237,6 +238,11 @@ export function createServer(options = {}) {
         sessionId: req.params.sessionId,
         body: req.body,
       });
+      log.info("api_response", {
+        questionId: responsePayload.tool_trace_id,
+        sessionId: req.params.sessionId,
+        response: responsePayload,
+      });
       res.json(responsePayload);
     } catch (err) {
       const mapped = mapMessageRequestError(err);
@@ -263,6 +269,11 @@ export function createServer(options = {}) {
         onStage: (event) => {
           if (!res.writableEnded) writeSseEvent(res, { type: "stage", ...event });
         },
+      });
+      log.info("api_response", {
+        questionId: responsePayload.tool_trace_id,
+        sessionId: req.params.sessionId,
+        response: responsePayload,
       });
       if (!res.writableEnded) {
         writeSseEvent(res, { type: "final", data: responsePayload });
@@ -408,11 +419,19 @@ export function createServer(options = {}) {
     session.lastActivityAt = Date.now();
     session.messages.push({ role: "user", content });
     session.tokenCount = (session.tokenCount || 0) + estimateTokens(content);
+    session.questionCount = (session.questionCount || 0) + 1;
 
-    const requestId = crypto.randomUUID();
+    const questionId = crypto.randomUUID();
+    const questionIndex = session.questionCount;
+    log.info("message_received", {
+      questionId,
+      questionIndex,
+      sessionId: session.sessionId,
+      request: { role, content, response_format: body?.response_format, filters: uiFilters || null },
+    });
     const availableModels = router.getAvailableModels();
     log.info("model_availability_status", {
-      requestId,
+      questionId,
       sessionId: session.sessionId,
       models: models.map((model) => {
         const stats = availability.getStats(model.id);
@@ -427,7 +446,7 @@ export function createServer(options = {}) {
       }),
     });
     log.info("model_routing_start", {
-      requestId,
+      questionId,
       sessionId: session.sessionId,
       candidates: availableModels.map((model) => model.id),
     });
@@ -435,7 +454,7 @@ export function createServer(options = {}) {
     const stageEmitter = createStageEmitter(onStage);
     const attemptWithModel = async (model) => {
       log.info("model_routing_attempt", {
-        requestId,
+        questionId,
         sessionId: session.sessionId,
         modelId: model.id,
         provider: model.provider,
@@ -452,11 +471,11 @@ export function createServer(options = {}) {
           content,
           uiFilters,
           responseFormat,
-          requestId,
+          questionId,
           onStage: stageEmitter,
         });
         log.info("model_routing_success", {
-          requestId,
+          questionId,
           sessionId: session.sessionId,
           modelId: model.id,
           provider: model.provider,
@@ -464,7 +483,7 @@ export function createServer(options = {}) {
         return response;
       } catch (err) {
         log.warn("model_routing_failure", {
-          requestId,
+          questionId,
           sessionId: session.sessionId,
           modelId: model.id,
           provider: model.provider,
@@ -479,7 +498,7 @@ export function createServer(options = {}) {
     } catch (err) {
       const message = err?.message || String(err);
       log.error("message_failed", {
-        requestId,
+        questionId,
         sessionId: session.sessionId,
         message,
         stack: err?.stack,
@@ -501,11 +520,11 @@ export function createServer(options = {}) {
     content,
     uiFilters,
     responseFormat,
-    requestId,
+    questionId,
     onStage,
   }) {
     log.info("model_prompt_root", {
-      requestId,
+      questionId,
       sessionId: session.sessionId,
       modelId: model.id,
       promptRoot: getPromptRootForModel({ modelId: model.id }),
@@ -518,7 +537,7 @@ export function createServer(options = {}) {
       sessionContext: {
         conversationHistory: baseHistory,
       },
-      requestId,
+      questionId,
       modelId: model.id,
     });
     if (testMode && String(content || "").includes("FORCE_FOLLOWUP")) {
@@ -531,7 +550,7 @@ export function createServer(options = {}) {
     const normalizedUiFilters = normalizeUiFilters(uiFilters);
 
     log.info("keyword_extraction_complete", {
-      requestId,
+      questionId,
       sessionId: session.sessionId,
       workflow: keywordResult.workflow,
       isFollowup: keywordResult.is_followup,
@@ -573,7 +592,7 @@ export function createServer(options = {}) {
         references: [],
         citations: [],
         provider: session.provider,
-        requestId,
+        questionId,
         warnings: null,
       });
     }
@@ -582,7 +601,7 @@ export function createServer(options = {}) {
     const workflowOutcome = await retryWorkflowOnEmptyChunks({
       initialKeywordResult: keywordResult,
       question: content,
-      requestId,
+      questionId,
       provider,
       externalApi,
       modelId: model.id,
@@ -601,7 +620,7 @@ export function createServer(options = {}) {
     let { workflowName, chunks, keywordResult: finalKeywordResult, keywordFixApplied } = workflowOutcome;
     if (keywordFixApplied) {
       log.info("keyword_fix_applied", {
-        requestId,
+        questionId,
         sessionId: session.sessionId,
         workflow: finalKeywordResult.workflow,
       });
@@ -613,7 +632,7 @@ export function createServer(options = {}) {
     const metadataByRealId = isMetadataWorkflow ? {} : buildChunkMetadataMap(chunks);
     const cleanedChunks = isMetadataWorkflow ? (Array.isArray(chunks) ? chunks : []) : cleanChunks(chunks);
     log.info("context_prepared", {
-      requestId,
+      questionId,
       sessionId: session.sessionId,
       chunks: cleanedChunks.length,
     });
@@ -621,7 +640,7 @@ export function createServer(options = {}) {
       (chunk) => !String(chunk?.t || "").trim()
     ).length;
     log.info("context_sample", {
-      requestId,
+      questionId,
       sessionId: session.sessionId,
       chunks_total: cleanedChunks.length,
       chunks_empty_text: emptyTextCount,
@@ -662,17 +681,17 @@ export function createServer(options = {}) {
       session.model = model.id;
 
       persistSession(session);
-      scheduleHistorySummary({ provider, session, requestId });
+      scheduleHistorySummary({ provider, session, questionId });
 
       log.info("answer_parsed", {
-        requestId,
+        questionId,
         sessionId: session.sessionId,
         answerLength: answerForOutput.length,
         referencesCount: 0,
         citationsCount: 0,
       });
       log.info("conversation_history_ids", {
-        requestId,
+        questionId,
         sessionId: session.sessionId,
         conversationHistoryIds: session.conversationHistory.map((entry) => entry?.id).filter(Boolean),
       });
@@ -684,13 +703,13 @@ export function createServer(options = {}) {
         references: [],
         citations: [],
         provider: session.provider,
-        requestId,
+        questionId,
         warnings,
       });
     }
     if (isMetadataWorkflow) {
       log.info("metadata_context_for_llm", {
-        requestId,
+        questionId,
         sessionId: session.sessionId,
         asked_info: keywordResult.asked_info || [],
         context,
@@ -710,7 +729,7 @@ export function createServer(options = {}) {
           : null,
       language: keywordResult.language,
       script: keywordResult.script,
-      requestId,
+      questionId,
       modelId: model.id,
       responseFormat,
     });
@@ -761,7 +780,7 @@ export function createServer(options = {}) {
     }
 
     log.info("answer_parsed", {
-      requestId,
+      questionId,
       sessionId: session.sessionId,
       answerLength: answerForOutput.length,
       referencesCount: safeReferences.length,
@@ -787,10 +806,10 @@ export function createServer(options = {}) {
     session.model = model.id;
 
     persistSession(session);
-    scheduleHistorySummary({ provider, session, requestId });
+    scheduleHistorySummary({ provider, session, questionId });
 
     log.info("conversation_history_ids", {
-      requestId,
+      questionId,
       sessionId: session.sessionId,
       conversationHistoryIds: session.conversationHistory.map((entry) => entry?.id).filter(Boolean),
     });
@@ -802,12 +821,12 @@ export function createServer(options = {}) {
       references: safeReferences,
       citations: safeCitations,
       provider: session.provider,
-      requestId,
+      questionId,
       warnings: warnings.length ? warnings : null,
     });
   }
 
-  function scheduleHistorySummary({ provider, session, requestId }) {
+  function scheduleHistorySummary({ provider, session, questionId }) {
     const threshold = getHistorySummaryThreshold();
     const topChunks = getHistorySummaryTopChunks();
     if (!Number.isFinite(threshold) || threshold <= 0) return;
@@ -836,7 +855,7 @@ export function createServer(options = {}) {
               messages,
               temperature: 0.2,
               maxTokens: 2000,
-              requestId,
+              questionId,
             });
             return String(text || "").trim();
           },
@@ -853,7 +872,7 @@ export function createServer(options = {}) {
         persistSession(session);
       } catch (err) {
         log.warn("history_summary_failed", {
-          requestId,
+          questionId,
           message: err?.message || String(err),
         });
       }
@@ -997,13 +1016,13 @@ function buildResponsePayload({
   references,
   citations,
   provider,
-  requestId,
+  questionId,
   warnings,
 }) {
   const payload = {
     answer,
     provider,
-    tool_trace_id: requestId,
+    tool_trace_id: questionId,
     warnings,
   };
   if (responseFormat === "structured") {

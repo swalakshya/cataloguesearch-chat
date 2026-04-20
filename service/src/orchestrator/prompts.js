@@ -17,7 +17,7 @@ function normalizeModelId(modelId) {
   return String(modelId || "").replace(/\./g, "_");
 }
 
-function resolvePromptRoots({ modelId, promptVersion, overrideRoot, requestId } = {}) {
+function resolvePromptRoots({ modelId, promptVersion, overrideRoot, questionId } = {}) {
   const version = promptVersion || (isPromptV2() ? "v2" : "v1");
   const baseFolder = version === "v2" ? "prompts_v2" : "prompts";
   const baseRoot = overrideRoot
@@ -33,8 +33,8 @@ function resolvePromptRoots({ modelId, promptVersion, overrideRoot, requestId } 
     roots.push(modelRoot);
   }
   roots.push(baseRoot);
-  if (requestId) {
-    recordPromptRootForTest({ requestId, modelId, promptRoot: roots[0] });
+  if (questionId) {
+    recordPromptRootForTest({ questionId, modelId, promptRoot: roots[0] });
   }
   return roots;
 }

@@ -1,7 +1,7 @@
 import { getWorkflowConfig } from "../../config/workflow_config.js";
 import { normalizeContentTypes } from "../../config/content_types.js";
 
-export async function runAdvancedDistinctQuestions({ externalApi, params, requestId, toolBudget, modelId }) {
+export async function runAdvancedDistinctQuestions({ externalApi, params, questionId, toolBudget, modelId }) {
   const results = [];
   const language = params.language || "hi";
   const filters = params.filters || {};
@@ -23,7 +23,7 @@ export async function runAdvancedDistinctQuestions({ externalApi, params, reques
       rerank: config.rerank,
     };
     toolBudget.consume();
-    await safePush(results, () => externalApi.search(payload, requestId), requestId);
+    await safePush(results, () => externalApi.search(payload, questionId), questionId);
   }
 
   return results;
@@ -42,7 +42,7 @@ function ensureBudget(toolBudget, needed) {
   }
 }
 
-async function safePush(results, fn, requestId) {
+async function safePush(results, fn, questionId) {
   try {
     const data = await fn();
     if (Array.isArray(data)) results.push(...data);
@@ -53,7 +53,7 @@ async function safePush(results, fn, requestId) {
         ts: new Date().toISOString(),
         level: "warn",
         message: "workflow_call_failed",
-        requestId,
+        questionId,
         error: message,
       })
     );

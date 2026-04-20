@@ -18,22 +18,22 @@ export class GeminiProvider extends LLMProvider {
     return "gemini";
   }
 
-  async completeText({ messages, temperature, maxTokens, requestId }) {
-    return this.#generate({ messages, temperature, maxTokens, requestId, jsonMode: false });
+  async completeText({ messages, temperature, maxTokens, questionId }) {
+    return this.#generate({ messages, temperature, maxTokens, questionId, jsonMode: false });
   }
 
-  async completeJson({ messages, temperature, maxTokens, requestId, responseJsonSchema }) {
+  async completeJson({ messages, temperature, maxTokens, questionId, responseJsonSchema }) {
     return this.#generate({
       messages,
       temperature,
       maxTokens,
-      requestId,
+      questionId,
       jsonMode: true,
       responseJsonSchema,
     });
   }
 
-  async #generate({ messages, temperature, maxTokens, requestId, jsonMode, responseJsonSchema }) {
+  async #generate({ messages, temperature, maxTokens, questionId, jsonMode, responseJsonSchema }) {
     const { contents, systemInstruction } = normalizeMessages(messages);
     const config = {};
     if (typeof temperature === "number") config.temperature = temperature;
@@ -49,7 +49,7 @@ export class GeminiProvider extends LLMProvider {
     }
 
     log.debug("gemini_request", {
-      requestId,
+      questionId,
       model: this.model,
       temperature,
       maxTokens,
@@ -89,7 +89,7 @@ export class GeminiProvider extends LLMProvider {
       return await runOnce(primaryKey);
     } catch (err) {
       const message = err?.message || String(err);
-      log.warn("gemini_request_failed", { requestId, message });
+      log.warn("gemini_request_failed", { questionId, message });
       if (err && !err.provider) err.provider = "gemini";
       if (this.keyManager && isAuthError(err)) {
         await this.keyManager.refresh();

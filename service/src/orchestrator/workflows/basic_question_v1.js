@@ -1,7 +1,7 @@
 import { getWorkflowConfig } from "../../config/workflow_config.js";
 import { normalizeContentTypes } from "../../config/content_types.js";
 
-export async function runBasicQuestion({ externalApi, params, requestId, toolBudget, modelId }) {
+export async function runBasicQuestion({ externalApi, params, questionId, toolBudget, modelId }) {
   ensureBudget(toolBudget, 1);
   const query = buildQuery(params.keywords);
   const config = getWorkflowConfig(modelId).basic;
@@ -17,7 +17,7 @@ export async function runBasicQuestion({ externalApi, params, requestId, toolBud
     rerank: config.rerank,
   };
   toolBudget.consume();
-  const results = await externalApi.search(payload, requestId);
+  const results = await externalApi.search(payload, questionId);
   return results;
 }
 

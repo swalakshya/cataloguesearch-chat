@@ -1,7 +1,7 @@
 import { getWorkflowConfig } from "../../config/workflow_config.js";
 import { normalizeContentTypes } from "../../config/content_types.js";
 
-export async function runAdvancedNestedQuestions({ externalApi, params, requestId, toolBudget, modelId }) {
+export async function runAdvancedNestedQuestions({ externalApi, params, questionId, toolBudget, modelId }) {
   const results = [];
   const language = params.language || "hi";
   const filters = params.filters || {};
@@ -26,14 +26,14 @@ export async function runAdvancedNestedQuestions({ externalApi, params, requestI
 
   const mainKeywords = Array.isArray(mainQuery.keywords) ? mainQuery.keywords : [];
   toolBudget.consume();
-  await safePush(results, () => externalApi.search(searchPayload(mainKeywords, config.page_size), requestId), requestId);
+  await safePush(results, () => externalApi.search(searchPayload(mainKeywords, config.page_size), questionId), questionId);
 
   for (const query of subQueries) {
     if (toolBudget.remaining() <= 0) break;
     const subKeywords = Array.isArray(query.keywords) ? query.keywords : [];
     const combined = [...mainKeywords, ...subKeywords].filter(Boolean);
     toolBudget.consume();
-    await safePush(results, () => externalApi.search(searchPayload(combined, config.page_size), requestId), requestId);
+    await safePush(results, () => externalApi.search(searchPayload(combined, config.page_size), questionId), questionId);
   }
 
   return results;
@@ -52,7 +52,7 @@ function ensureBudget(toolBudget, needed) {
   }
 }
 
-async function safeFetch(fn, requestId) {
+async function safeFetch(fn, questionId) {
   try {
     return await fn();
   } catch (err) {
@@ -62,7 +62,7 @@ async function safeFetch(fn, requestId) {
         ts: new Date().toISOString(),
         level: "warn",
         message: "workflow_call_failed",
-        requestId,
+        questionId,
         error: message,
       })
     );
@@ -70,7 +70,7 @@ async function safeFetch(fn, requestId) {
   }
 }
 
-async function safePush(results, fn, requestId) {
-  const data = await safeFetch(fn, requestId);
+async function safePush(results, fn, questionId) {
+  const data = await safeFetch(fn, questionId);
   if (Array.isArray(data)) results.push(...data);
 }

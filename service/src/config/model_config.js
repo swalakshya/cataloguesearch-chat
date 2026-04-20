@@ -48,19 +48,19 @@ export const MODEL_ROUTING_CONFIG = {
     {
       id: "gemini-2.5-flash",
       provider: "gemini",
-      priority: 1,
+      priority: 3,
       workflowOverrides: {},
     },
     {
       id: "gemini-3-flash-preview",
       provider: "gemini",
-      priority: 2,
+      priority: 1,
       workflowOverrides: {},
     },
     {
       id: "gpt-4o",
       provider: "openai",
-      priority: 3,
+      priority: 2,
       workflowOverrides: {
         basic: {
           page_size: 7,

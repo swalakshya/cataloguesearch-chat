@@ -6,6 +6,8 @@ import crypto from "crypto";
 
 import { SessionRegistry } from "./sessions/registry.js";
 import { SessionStore } from "./sessions/session_store.js";
+import { FeedbackStore } from "./feedback/feedback_store.js";
+import { registerFeedbackRoutes } from "./feedback/feedback_routes.js";
 import { ProviderFactory } from "./providers/provider_factory.js";
 import { ExternalApiClient } from "./agent_api/client.js";
 import { runKeywordExtraction } from "./orchestrator/keyword_extract.js";
@@ -70,6 +72,8 @@ export function createServer(options = {}) {
     options.sessionTokenLimitThreshold ?? process.env.LLM_SESSION_TOKEN_LIMIT_THRESHOLD ?? 0.8
   );
   const sessionDbPath = String(options.sessionDbPath ?? process.env.SESSION_DB_PATH ?? "").trim();
+  const feedbackDbPath = String(options.feedbackDbPath ?? process.env.FEEDBACK_DB_PATH ?? "").trim();
+  const adminApiKey = String(options.adminApiKey ?? process.env.ADMIN_KEY ?? "").trim();
   const defaultResponseFormat =
     normalizeResponseFormat(options.defaultResponseFormat ?? process.env.DEFAULT_ANSWER_FORMAT, { fallback: "combined" });
 
@@ -98,6 +102,7 @@ export function createServer(options = {}) {
   });
 
   const sessionStore = sessionDbPath ? new SessionStore(sessionDbPath) : null;
+  const feedbackStore = feedbackDbPath ? new FeedbackStore(feedbackDbPath) : null;
   const registry = new SessionRegistry(sessionIdleMs, sessionStore);
   const sessionTokenLimit = resolveSessionTokenLimit({
     explicitLimit: options.sessionTokenLimit,
@@ -122,12 +127,15 @@ export function createServer(options = {}) {
     externalApi: externalApiBaseUrl,
     externalTimeoutMs: externalApiTimeoutMs,
     sessionDbPath: sessionDbPath || null,
+    feedbackDbPath: feedbackDbPath || null,
     cleanSessionDb: testMode && cleanSessionDb,
   });
 
   app.get("/v1/health", (_, res) => {
     res.json({ status: "ok" });
   });
+
+  registerFeedbackRoutes(app, feedbackStore, { adminApiKey: adminApiKey || null });
 
   if (testMode) {
     app.post("/v1/test/reset", (req, res) => {

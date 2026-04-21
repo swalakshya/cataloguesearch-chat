@@ -12,6 +12,7 @@ services:
     environment:
       - LOGS_DIR=/app/logs
       - SESSION_DB_PATH=/app/data/sessions.db
+      - FEEDBACK_DB_PATH=/app/data/feedback.db
       - EXTERNAL_API_BASE_URL=http://cataloguesearch-api:8000
     volumes:
       - ./service/.env.local:/app/.env.local:ro

@@ -55,7 +55,7 @@ export class OpenAIProvider extends LLMProvider {
     if (responseFormat) payload.response_format = responseFormat;
 
     const url = `${this.baseUrl}/chat/completions`;
-    log.debug("openai_request", {
+    log.verbose("openai_request", {
       requestId,
       url,
       model: this.model,

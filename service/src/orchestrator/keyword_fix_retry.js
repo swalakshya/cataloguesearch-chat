@@ -23,7 +23,12 @@ export async function retryWorkflowOnEmptyChunks({
   });
   const initialChunks = Array.isArray(first.chunks) ? first.chunks : [];
   if (initialChunks.length > 0) {
-    return { ...first, keywordResult: preparedInitial, keywordFixApplied: false };
+    return {
+      ...first,
+      toolCallsUsed: Number(first.toolCallsUsed) || 0,
+      keywordResult: preparedInitial,
+      keywordFixApplied: false,
+    };
   }
 
   log.info("keyword_fix_retry_triggered", {
@@ -47,5 +52,10 @@ export async function retryWorkflowOnEmptyChunks({
     provider,
     modelId,
   });
-  return { ...second, keywordResult: preparedFixed, keywordFixApplied: true };
+  return {
+    ...second,
+    toolCallsUsed: (Number(first.toolCallsUsed) || 0) + (Number(second.toolCallsUsed) || 0),
+    keywordResult: preparedFixed,
+    keywordFixApplied: true,
+  };
 }

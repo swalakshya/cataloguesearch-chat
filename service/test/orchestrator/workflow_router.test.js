@@ -19,8 +19,9 @@ test("runWorkflow uses env default content types for search", async () => {
 
   process.env.LLM_DEFAULT_CONTENT_TYPES = "Pravachan,Granth";
 
+  let result;
   try {
-    await runWorkflow({
+    result = await runWorkflow({
       externalApi,
       keywordResult: {
         workflow: "basic_question_v1",
@@ -43,6 +44,8 @@ test("runWorkflow uses env default content types for search", async () => {
   const searchCall = calls.find((c) => c.type === "search");
   assert.equal(filterCalls.length, 0);
   assert.deepEqual(searchCall.payload.content_type, ["Pravachan", "Granth"]);
+  assert.equal(typeof result.toolCallsUsed, "number");
+  assert.equal(result.toolCallsUsed >= 1, true);
 });
 
 test("runWorkflow throws for unknown workflow", async () => {
@@ -75,7 +78,7 @@ test("runWorkflow resolves filters via external API", async () => {
     },
   };
 
-  await runWorkflow({
+  const result = await runWorkflow({
     externalApi,
     keywordResult: {
       workflow: "basic_question_v1",
@@ -92,6 +95,7 @@ test("runWorkflow resolves filters via external API", async () => {
   assert.equal(filterCall.language, "hi");
   assert.equal(searchCall.granth, "Samaysaar");
   assert.deepEqual(searchCall.content_type, ["Granth"]);
+  assert.equal(result.toolCallsUsed >= 1, true);
 });
 
 test("runWorkflow skips filter options when only default content_type", async () => {

@@ -48,7 +48,7 @@ integrationTest("session survives server restart when persistence is enabled", a
   const server1 = createServer({
     testMode: true,
     cleanSessionDb: true,
-    sessionDbPath: dbPath,
+    chatDbPath: dbPath,
     sessionIdleMs: 3_600_000, // 1 hour - won't evict during test
   });
   await server1.start();
@@ -77,7 +77,7 @@ integrationTest("session survives server restart when persistence is enabled", a
   const server2 = createServer({
     testMode: true,
     cleanSessionDb: false, // do NOT clean - we want to restore
-    sessionDbPath: dbPath,
+    chatDbPath: dbPath,
   });
   await server2.start();
   const base2 = server2.getBaseUrl();
@@ -108,7 +108,7 @@ integrationTest("session without persistence does not survive restart", async ()
   // First server - no DB
   const server1 = createServer({
     testMode: true,
-    sessionDbPath: "", // no persistence
+    chatDbPath: "", // no persistence
   });
   await server1.start();
   const base1 = server1.getBaseUrl();
@@ -128,7 +128,7 @@ integrationTest("session without persistence does not survive restart", async ()
   // Second server - also no DB
   const server2 = createServer({
     testMode: true,
-    sessionDbPath: "", // no persistence
+    chatDbPath: "", // no persistence
   });
   await server2.start();
   const base2 = server2.getBaseUrl();
@@ -147,7 +147,7 @@ integrationTest("user_id is persisted and sessions can be listed by user", async
   const server = createServer({
     testMode: true,
     cleanSessionDb: true,
-    sessionDbPath: dbPath,
+    chatDbPath: dbPath,
   });
   await server.start();
   const base = server.getBaseUrl();

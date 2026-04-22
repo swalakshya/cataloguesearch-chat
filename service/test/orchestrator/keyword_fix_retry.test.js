@@ -8,8 +8,8 @@ test("retryWorkflowOnEmptyChunks reruns workflow once when chunks are empty", as
   const runWorkflowFn = async ({ keywordResult, modelId }) => {
     assert.equal(modelId, "gemini-2.5-flash");
     calls.workflow += 1;
-    if (calls.workflow === 1) return { workflowName: "basic_question_v1", chunks: [] };
-    return { workflowName: "basic_question_v1", chunks: [{ id: "c1" }] };
+    if (calls.workflow === 1) return { workflowName: "basic_question_v1", chunks: [], toolCallsUsed: 2 };
+    return { workflowName: "basic_question_v1", chunks: [{ id: "c1" }], toolCallsUsed: 3 };
   };
   const runKeywordFixFn = async () => {
     calls.fix += 1;
@@ -31,4 +31,5 @@ test("retryWorkflowOnEmptyChunks reruns workflow once when chunks are empty", as
   assert.equal(calls.workflow, 2);
   assert.equal(result.keywordFixApplied, true);
   assert.equal(result.chunks.length, 1);
+  assert.equal(result.toolCallsUsed, 5);
 });

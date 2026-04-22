@@ -1,9 +1,12 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createIntegrationHarness, isIntegrationEnabled } from "../../test_support/integration_harness.js";
+import { getPromptRootForModel } from "../../src/orchestrator/prompts.js";
+import { getOrderedModels } from "../../src/routing/model_registry.js";
 
 const INTEGRATION_ENABLED = isIntegrationEnabled();
 const harness = createIntegrationHarness("model-failover");
+const [PRIMARY_MODEL, SECONDARY_MODEL, TERTIARY_MODEL] = getOrderedModels().map((model) => model.id);
 
 before(async () => {
   if (!INTEGRATION_ENABLED) return;
@@ -21,9 +24,9 @@ integrationTest("fails over to next model on server error", async () => {
   await harness.post("/v1/test/reset");
   await harness.post("/v1/test/provider-behavior", {
     behaviors: {
-      "gemini-2.5-flash": "server_error",
-      "gemini-3-flash-preview": "success",
-      "gpt-4o": "success",
+      [PRIMARY_MODEL]: "server_error",
+      [SECONDARY_MODEL]: "success",
+      [TERTIARY_MODEL]: "success",
     },
   });
 
@@ -41,9 +44,9 @@ integrationTest("returns service_unavailable when all models are unavailable", a
   await harness.post("/v1/test/reset");
   await harness.post("/v1/test/provider-behavior", {
     behaviors: {
-      "gemini-2.5-flash": "server_error",
-      "gemini-3-flash-preview": "server_error",
-      "gpt-4o": "server_error",
+      [PRIMARY_MODEL]: "server_error",
+      [SECONDARY_MODEL]: "server_error",
+      [TERTIARY_MODEL]: "server_error",
     },
   });
 
@@ -69,8 +72,8 @@ integrationTest("client-side error does not fail over", async () => {
   await harness.post("/v1/test/reset");
   await harness.post("/v1/test/provider-behavior", {
     behaviors: {
-      "gemini-2.5-flash": "client_error",
-      "gemini-3-flash-preview": "success",
+      [PRIMARY_MODEL]: "client_error",
+      [SECONDARY_MODEL]: "success",
     },
   });
 
@@ -83,16 +86,16 @@ integrationTest("client-side error does not fail over", async () => {
   assert.equal(message.res.status, 401);
 
   const stats = await harness.get("/v1/test/provider-stats");
-  assert.ok(stats.json.calls["gemini-2.5-flash"] > 0);
-  assert.equal(stats.json.calls["gemini-3-flash-preview"], undefined);
+  assert.ok(stats.json.calls[PRIMARY_MODEL] > 0);
+  assert.equal(stats.json.calls[SECONDARY_MODEL], undefined);
 });
 
 integrationTest("429 hard-disables model for subsequent requests", async () => {
   await harness.post("/v1/test/reset");
   await harness.post("/v1/test/provider-behavior", {
     behaviors: {
-      "gemini-2.5-flash": "rate_limited",
-      "gemini-3-flash-preview": "success",
+      [PRIMARY_MODEL]: "rate_limited",
+      [SECONDARY_MODEL]: "success",
     },
   });
 
@@ -103,7 +106,7 @@ integrationTest("429 hard-disables model for subsequent requests", async () => {
   });
 
   const statsAfterFirst = await harness.get("/v1/test/provider-stats");
-  const countFirst = statsAfterFirst.json.calls["gemini-2.5-flash"] || 0;
+  const countFirst = statsAfterFirst.json.calls[PRIMARY_MODEL] || 0;
 
   const next = await harness.post(`/v1/chat/sessions/${session.json.session_id}/messages`, {
     role: "user",
@@ -113,7 +116,7 @@ integrationTest("429 hard-disables model for subsequent requests", async () => {
   assert.equal(next.res.status, 200);
 
   const statsAfterSecond = await harness.get("/v1/test/provider-stats");
-  const countSecond = statsAfterSecond.json.calls["gemini-2.5-flash"] || 0;
+  const countSecond = statsAfterSecond.json.calls[PRIMARY_MODEL] || 0;
   assert.equal(countSecond, countFirst);
 });
 
@@ -121,8 +124,8 @@ integrationTest("availability is global across sessions", async () => {
   await harness.post("/v1/test/reset");
   await harness.post("/v1/test/provider-behavior", {
     behaviors: {
-      "gemini-2.5-flash": "server_error",
-      "gemini-3-flash-preview": "success",
+      [PRIMARY_MODEL]: "server_error",
+      [SECONDARY_MODEL]: "success",
     },
   });
 
@@ -131,7 +134,7 @@ integrationTest("availability is global across sessions", async () => {
   await harness.post(`/v1/chat/sessions/${s1.json.session_id}/messages`, { role: "user", content: "x2" });
 
   const statsBefore = await harness.get("/v1/test/provider-stats");
-  const countBefore = statsBefore.json.calls["gemini-2.5-flash"] || 0;
+  const countBefore = statsBefore.json.calls[PRIMARY_MODEL] || 0;
 
   const s2 = await harness.post("/v1/chat/sessions", { provider: "auto" });
   const m2 = await harness.post(`/v1/chat/sessions/${s2.json.session_id}/messages`, { role: "user", content: "x3" });
@@ -139,7 +142,7 @@ integrationTest("availability is global across sessions", async () => {
   assert.equal(m2.res.status, 200);
 
   const statsAfter = await harness.get("/v1/test/provider-stats");
-  const countAfter = statsAfter.json.calls["gemini-2.5-flash"] || 0;
+  const countAfter = statsAfter.json.calls[PRIMARY_MODEL] || 0;
   assert.equal(countAfter, countBefore);
 });
 
@@ -147,8 +150,8 @@ integrationTest("records model-specific prompt root per request", async () => {
   await harness.post("/v1/test/reset");
   await harness.post("/v1/test/provider-behavior", {
     behaviors: {
-      "gemini-2.5-flash": "rate_limited",
-      "gemini-3-flash-preview": "success",
+      [PRIMARY_MODEL]: "rate_limited",
+      [SECONDARY_MODEL]: "success",
     },
   });
 
@@ -162,7 +165,7 @@ integrationTest("records model-specific prompt root per request", async () => {
 
   const promptRoot = await harness.get(`/v1/test/prompt-root?request_id=${message.json.tool_trace_id}`);
   assert.equal(promptRoot.res.status, 200);
-  assert.ok(String(promptRoot.json.prompt_root).includes("prompts_v2_gemini-3-flash-preview"));
+  assert.equal(promptRoot.json.prompt_root, getPromptRootForModel({ modelId: SECONDARY_MODEL }));
 });
 
 integrationTest("response_format=combined omits follow_up_questions field", async () => {

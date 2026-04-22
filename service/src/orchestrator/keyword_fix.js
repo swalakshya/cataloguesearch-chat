@@ -23,12 +23,12 @@ export async function runKeywordFix({ provider, question, step1Json, requestId, 
     responseJsonSchema: KEYWORD_EXTRACTION_SCHEMA,
   });
 
-  log.info("keyword_fix_llm_response", {
+  log.verbose("keyword_fix_llm_response", {
     requestId,
     length: raw?.length || 0,
   });
 
   const parsed = parseJsonStrict(raw);
-  log.debug("keyword_fix_parsed", { requestId, workflow: parsed.workflow });
+  log.verbose("keyword_fix_parsed", { requestId, workflow: parsed.workflow });
   return parsed;
 }

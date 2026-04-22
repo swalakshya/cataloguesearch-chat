@@ -36,7 +36,7 @@ export async function runKeywordExtraction({
     responseJsonSchema: KEYWORD_EXTRACTION_SCHEMA,
   });
 
-  log.info("keyword_extract_llm_response", {
+  log.verbose("keyword_extract_llm_response", {
     requestId,
     length: raw?.length || 0,
     response: String(raw || ""),
@@ -53,6 +53,6 @@ export async function runKeywordExtraction({
     log.warn("keyword_extract_parse_failed", { requestId, error: err?.message || String(err), raw: String(raw || "").slice(0, 500) });
     throw err;
   }
-  log.debug("keyword_extract_parsed", { requestId, workflow: parsed.workflow });
+  log.verbose("keyword_extract_parsed", { requestId, workflow: parsed.workflow });
   return parsed;
 }

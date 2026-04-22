@@ -11,7 +11,7 @@ export class SessionStore {
   constructor(dbPath) {
     this.dbPath = String(dbPath || "").trim();
     if (!this.dbPath) {
-      throw new Error("SESSION_DB_PATH is required");
+      throw new Error("CHAT_DB_PATH is required");
     }
 
     fs.mkdirSync(path.dirname(this.dbPath), { recursive: true });

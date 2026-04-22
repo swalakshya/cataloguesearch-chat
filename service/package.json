@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "node $([ -f .env.local ] && echo '--env-file=.env.local') src/server.js",
-    "test": "node --test test/agent_api test/config test/orchestrator test/providers test/routing test/secrets test/sessions test/utils test/server_chunk_hashing.test.js",
+    "migrate:request-logs": "node scripts/migrate-request-logs.js",
+    "test": "node --test $(find test -name '*.test.js' -print | sort)",
     "test:docker": "sh scripts/run-tests-docker.sh",
     "test:integration:docker": "sh scripts/run-integration-tests-docker.sh"
   },

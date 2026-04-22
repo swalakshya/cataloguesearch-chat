@@ -133,11 +133,12 @@ docker compose up
 | `GREETING_CONTACT_EMAIL` | `projectjinam@gmail.com` | Email shown in greeting response |
 | `LOG_LEVEL` | `info` | Console log level (`info`, `verbose`, `debug`) |
 | `LOGS_DIR` | — | When set, writes JSON lines to `info.log` and `verbose.log` |
-| `SESSION_DB_PATH` | — | When set, enables SQLite-backed session persistence |
+| `CHAT_DB_PATH` | — | When set, enables SQLite-backed session persistence, feedback storage, and request logs |
 
 ## Session Persistence
-- Session persistence is optional and enabled only when `SESSION_DB_PATH` is set.
-- The Docker compose setup mounts `/app/data` and sets `SESSION_DB_PATH=/app/data/sessions.db`.
+- SQLite-backed storage is optional and enabled only when `CHAT_DB_PATH` is set.
+- The Docker compose setup mounts `/app/data` and sets `CHAT_DB_PATH=/app/data/cataloguesearch-chat.db`.
+- The shared SQLite file stores `sessions`, `feedback`, and `request_logs`.
 - Live sessions stay in memory while active; SQLite is used for restore after eviction or restart.
 
 ## Logging
@@ -145,7 +146,7 @@ docker compose up
 - `verbose.log` captures everything in `info.log` plus payload-heavy `verbose` traces such as request/response bodies.
 - When `LOGS_DIR` is unset, logs go only to stdout/stderr.
 
-In Docker, the compose file mounts named volumes at `/app/logs` and `/app/data`, so the chat service keeps logs plus the SQLite session database outside the container lifecycle.
+In Docker, the compose file mounts named volumes at `/app/logs` and `/app/data`, so the chat service keeps logs plus the shared SQLite database outside the container lifecycle.
 
 ## Configs
 

@@ -26,7 +26,7 @@ export function createIntegrationHarness(label) {
       server = createServer({
         testMode: true,
         cleanSessionDb: false,
-        sessionDbPath: dbPath,
+        chatDbPath: dbPath,
         port: 0,
         host: "127.0.0.1",
       });

@@ -37,7 +37,7 @@ export class ExternalApiClient {
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
       const startedAt = Date.now();
-      log.info("external_api_request", { requestId, path, payload: normalizedPayload });
+      log.verbose("external_api_request", { requestId, path, payload: normalizedPayload });
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

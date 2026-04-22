@@ -60,7 +60,7 @@ export async function runWorkflow({ externalApi, keywordResult, requestId, provi
     toolCallBudget: toolBudget.limit,
   });
 
-  return { workflowName, chunks };
+  return { workflowName, chunks, toolCallsUsed: toolBudget.used };
 }
 
 async function resolveFilters({ externalApi, filters, language, requestId, allowFailure, provider }) {
@@ -132,14 +132,14 @@ async function resolveFilters({ externalApi, filters, language, requestId, allow
     log.info("filters_llm_mapped", { requestId, input: filters, mapped, resolved });
   }
 
-  log.debug("filters_resolved", { requestId, input: filters, resolved });
+  log.verbose("filters_resolved", { requestId, input: filters, resolved });
   return stripEmpty(resolved);
 }
 
 async function safeFetchFilterOptions(externalApi, payload, requestId, allowFailure) {
   try {
     const response = await externalApi.getFilterOptions(payload, requestId);
-    log.info("filter_options_response", { requestId, payload, response });
+    log.verbose("filter_options_response", { requestId, payload, response });
     return response;
   } catch (err) {
     if (!allowFailure) throw err;

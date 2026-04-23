@@ -10,4 +10,5 @@ dev_docs
 .mcp.json
 .opencode.json
 .windsurfrules
+.claude/
 /service/logs/

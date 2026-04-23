@@ -40,7 +40,10 @@ export class ExternalApiClient {
       log.verbose("external_api_request", { requestId, path, payload: normalizedPayload });
       const res = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(requestId ? { "X-Chat-Request-Id": requestId } : {}),
+        },
         body: JSON.stringify(normalizedPayload),
         signal: controller.signal,
       });

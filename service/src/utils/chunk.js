@@ -3,6 +3,7 @@ export function cleanChunk(raw) {
   return {
     id: raw.chunk_id || "",
     p: raw.page_number ?? null,
+    pp: raw.pdf_page_number ?? null,
     g: raw.granth || "",
     a: raw.author || "",
     t: raw.text_content || "",

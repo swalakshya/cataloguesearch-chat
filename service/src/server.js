@@ -1199,6 +1199,7 @@ function toChunkMetadataRecord(chunk) {
     series_start_date: chunk.series_start_date || metadata.series_start_date || "",
     series_end_date: chunk.series_end_date || metadata.series_end_date || "",
     page_number: chunk.page_number ?? metadata.page_number ?? null,
+    pdf_page_number: chunk.pdf_page_number ?? metadata.pdf_page_number ?? null,
     file_url: chunk.file_url || metadata.file_url || "",
     pravachankar: normalizePravachankar(chunk, metadata),
   };

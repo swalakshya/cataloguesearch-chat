@@ -15,6 +15,7 @@ export function buildChunkCitationMap(hashedChunks, hashToRealId, metadataByReal
       granth: String(chunk.g || metadata.granth || "").trim(),
       category: String(metadata.category || "").trim(),
       pageNumber: chunk.p != null ? chunk.p : (metadata.page_number != null ? metadata.page_number : null),
+      pdfPageNumber: chunk.pp != null ? chunk.pp : (metadata.pdf_page_number != null ? metadata.pdf_page_number : null),
       volume: metadata.volume ?? null,
       series: String(metadata.series || "").trim() || null,
       series_number: String(metadata.series_number || "").trim() || null,
@@ -446,7 +447,7 @@ function formatPravachanReference(metadata, { language = "" } = {}) {
     formatLabeledValue({ labelHi: "पृष्ठ", labelEn: "Page", value: metadata.page_number, isHindi }),
     formatLabeledValue({ labelHi: "दिनांक", labelEn: "Date", value: formatDateValue(metadata.date), isHindi }),
   ].filter(Boolean);
-  const fileUrl = withPageSuffix(metadata.file_url, metadata.page_number);
+  const fileUrl = withPageSuffix(metadata.file_url, metadata.pdf_page_number, metadata.page_number);
   return [segments.join(", "), fileUrl].filter(Boolean).join(", ").trim();
 }
 
@@ -458,7 +459,7 @@ function formatGranthReference(metadata, { language = "" } = {}) {
     ...formatLocatorSegments(metadata, { isHindi }),
     formatLabeledValue({ labelHi: "पृष्ठ", labelEn: "Page", value: metadata.page_number, isHindi }),
   ].filter(Boolean);
-  const fileUrl = withPageSuffix(metadata.file_url, metadata.page_number);
+  const fileUrl = withPageSuffix(metadata.file_url, metadata.pdf_page_number, metadata.page_number);
   return [segments.join(", "), fileUrl].filter(Boolean).join(", ").trim();
 }
 
@@ -486,9 +487,9 @@ function formatDateValue(value) {
   return `${match[3]}-${match[2]}-${match[1]}`;
 }
 
-function withPageSuffix(fileUrl, pageNumber) {
+function withPageSuffix(fileUrl, pdfPageNumber, fallbackPageNumber) {
   const url = String(fileUrl || "").trim();
-  const page = Number(pageNumber);
+  const page = Number(pdfPageNumber ?? fallbackPageNumber);
   if (!url) return "";
   if (!Number.isFinite(page) || page <= 0) return url;
   return url.endsWith(`/${page}`) ? url : `${url}/${page}`;
@@ -502,7 +503,8 @@ function buildCitationFromMetadata(metadata, reference) {
     author: String(metadata.author || "").trim() || undefined,
     category: String(metadata.category || "").trim() || undefined,
     page_number: toPositiveNumber(metadata.page_number),
-    file_url: withPageSuffix(metadata.file_url, metadata.page_number),
+    pdf_page_number: toPositiveNumber(metadata.pdf_page_number),
+    file_url: String(metadata.file_url || "").trim() || undefined,
     pravachankar: String(metadata.pravachankar || "").trim() || undefined,
     date: formatDateValue(metadata.date) || undefined,
     pravachan_number: String(metadata.pravachan_number || "").trim() || undefined,
@@ -587,6 +589,7 @@ export function sanitizeCitations(citations) {
       author: citation.author || undefined,
       category: citation.category || undefined,
       page_number: citation.page_number,
+      pdf_page_number: citation.pdf_page_number,
       file_url: citation.file_url,
       pravachankar: citation.pravachankar || undefined,
       date: citation.date || undefined,

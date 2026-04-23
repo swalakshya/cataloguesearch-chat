@@ -25,8 +25,20 @@ export class OpenAIProvider extends LLMProvider {
     });
   }
 
-  async completeJson({ messages, temperature, maxTokens, requestId }) {
-    const responseFormat = this.jsonMode ? { type: "json_object" } : null;
+  async completeJson({ messages, temperature, maxTokens, requestId, responseJsonSchema }) {
+    let responseFormat = null;
+    if (this.jsonMode) {
+      responseFormat = responseJsonSchema
+        ? {
+            type: "json_schema",
+            json_schema: {
+              name: "response",
+              strict: true,
+              schema: responseJsonSchema,
+            },
+          }
+        : { type: "json_object" };
+    }
     return this.#chatCompletion({
       messages,
       temperature,

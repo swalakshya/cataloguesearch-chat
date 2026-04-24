@@ -9,6 +9,7 @@ export async function retryWorkflowOnEmptyChunks({
   provider,
   externalApi,
   modelId,
+  llmCallsCollector,
   runWorkflowFn = runWorkflow,
   runKeywordFixFn = runKeywordFix,
   prepareKeywordResult = (result) => result,
@@ -20,6 +21,7 @@ export async function retryWorkflowOnEmptyChunks({
     requestId,
     provider,
     modelId,
+    llmCallsCollector,
   });
   const initialChunks = Array.isArray(first.chunks) ? first.chunks : [];
   if (initialChunks.length > 0) {
@@ -43,6 +45,7 @@ export async function retryWorkflowOnEmptyChunks({
     step1Json: initialKeywordResult,
     requestId,
     modelId,
+    llmCallsCollector,
   });
   const preparedFixed = prepareKeywordResult(fixedKeywordResult);
   const second = await runWorkflowFn({
@@ -51,6 +54,7 @@ export async function retryWorkflowOnEmptyChunks({
     requestId,
     provider,
     modelId,
+    llmCallsCollector,
   });
   return {
     ...second,

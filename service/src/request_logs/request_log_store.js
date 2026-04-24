@@ -201,6 +201,82 @@ export class RequestLogStore {
     return row ? deserializeDetail(row) : null;
   }
 
+  getCostAnalysis({ from, to, requestId, sessionId, userId, steps, limit = 50, offset = 0 } = {}) {
+    const where = [];
+    const params = [];
+    const hasSessionsTable = this.#hasSessionsTable();
+
+    if (Number.isFinite(from)) { where.push("rl.created_at >= ?"); params.push(Number(from)); }
+    if (Number.isFinite(to)) { where.push("rl.created_at <= ?"); params.push(Number(to)); }
+    if (requestId) { where.push("rl.request_id = ?"); params.push(String(requestId)); }
+    if (sessionId) { where.push("rl.session_id = ?"); params.push(String(sessionId)); }
+    if (userId) {
+      if (!hasSessionsTable) return { summary: emptySummary(), by_day: [], requests: [], total: 0 };
+      where.push("s.user_id = ?"); params.push(String(userId));
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    const joinSql = hasSessionsTable ? "LEFT JOIN sessions s ON s.session_id = rl.session_id" : "";
+    const userIdSelect = hasSessionsTable ? "s.user_id AS user_id," : "NULL AS user_id,";
+
+    const safeLimit = Math.max(0, Number(limit) || 0);
+    const safeOffset = Math.max(0, Number(offset) || 0);
+
+    const rows = this.db.prepare(`
+      SELECT rl.request_id, rl.session_id, ${userIdSelect} rl.created_at, rl.details_json
+      FROM request_logs rl ${joinSql} ${whereSql}
+      ORDER BY rl.created_at DESC LIMIT ? OFFSET ?
+    `).all(...params, safeLimit, safeOffset);
+
+    const total = this.db.prepare(`
+      SELECT COUNT(*) AS total FROM request_logs rl ${joinSql} ${whereSql}
+    `).get(...params).total;
+
+    const summary = emptySummary();
+    const byDayMap = new Map();
+    const requests = [];
+
+    for (const row of rows) {
+      const details = tryParseJson(row.details_json);
+      let llmCalls = Array.isArray(details?.llm_calls) ? details.llm_calls : [];
+      if (steps && steps.length) {
+        llmCalls = llmCalls.filter((c) => steps.includes(c.step));
+      }
+      const rowSummary = emptySummary();
+      for (const call of llmCalls) {
+        const u = call.usage_normalized || {};
+        const it = u.input_tokens || 0;
+        const ot = u.output_tokens || 0;
+        const tt = u.total_tokens || 0;
+        summary.input_tokens += it;
+        summary.output_tokens += ot;
+        summary.total_tokens += tt;
+        rowSummary.input_tokens += it;
+        rowSummary.output_tokens += ot;
+        rowSummary.total_tokens += tt;
+
+        const day = new Date(row.created_at).toISOString().slice(0, 10);
+        const key = `${day}:${call.step}`;
+        if (!byDayMap.has(key)) byDayMap.set(key, { date: day, step: call.step, input_tokens: 0, output_tokens: 0, total_tokens: 0 });
+        const entry = byDayMap.get(key);
+        entry.input_tokens += it;
+        entry.output_tokens += ot;
+        entry.total_tokens += tt;
+      }
+      summary.request_count += 1;
+      requests.push({
+        request_id: row.request_id,
+        session_id: row.session_id,
+        user_id: row.user_id ?? null,
+        created_at: row.created_at,
+        llm_calls: llmCalls,
+        llm_usage_summary: rowSummary,
+      });
+    }
+
+    return { summary, by_day: [...byDayMap.values()].sort((a, b) => a.date.localeCompare(b.date)), requests, total };
+  }
+
   clear() {
     const result = this.clearStmt.run();
     log.info("request_log_store_cleared", {
@@ -251,4 +327,8 @@ function tryParseJson(value) {
   } catch {
     return null;
   }
+}
+
+function emptySummary() {
+  return { input_tokens: 0, output_tokens: 0, total_tokens: 0, request_count: 0 };
 }

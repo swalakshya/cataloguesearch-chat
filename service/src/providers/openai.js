@@ -112,7 +112,20 @@ export class OpenAIProvider extends LLMProvider {
         log.warn("openai_empty_response", { requestId, response: summarize(json) });
         throw new Error("OpenAI response missing content");
       }
-      return content.trim();
+      const usage = json.usage || {};
+      return {
+        text: content.trim(),
+        usage_raw: usage,
+        usage_normalized: {
+          input_tokens: usage.prompt_tokens ?? 0,
+          output_tokens: usage.completion_tokens ?? 0,
+          total_tokens: usage.total_tokens ?? 0,
+          cached_input_tokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+          thought_tokens: null,
+        },
+        provider_response_id: json.id ?? null,
+        model_version: json.model ?? null,
+      };
     } finally {
       clearTimeout(timeout);
     }

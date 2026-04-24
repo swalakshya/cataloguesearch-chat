@@ -76,7 +76,20 @@ export class GeminiProvider extends LLMProvider {
         if (!text) {
           throw new Error("Gemini response missing text");
         }
-        return String(text).trim();
+        const usage = response?.usageMetadata || {};
+        return {
+          text: String(text).trim(),
+          usage_raw: usage,
+          usage_normalized: {
+            input_tokens: usage.promptTokenCount ?? 0,
+            output_tokens: usage.candidatesTokenCount ?? 0,
+            total_tokens: usage.totalTokenCount ?? 0,
+            cached_input_tokens: usage.cachedContentTokenCount ?? 0,
+            thought_tokens: usage.thoughtsTokenCount != null ? usage.thoughtsTokenCount : null,
+          },
+          provider_response_id: response?.responseId ?? null,
+          model_version: response?.modelVersion ?? null,
+        };
       } finally {
         clearTimeout(timeout);
       }

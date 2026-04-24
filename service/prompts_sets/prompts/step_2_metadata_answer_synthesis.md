@@ -15,9 +15,12 @@ Script: <SCRIPT_HERE>
 - Answer's language decision will be based on the user question language, not the prompt language nor the conversation history language (**most important rule for you, must be followed always, will be reviewed strictly everytime, non-negotiable**). E.g "Acharya kund kund" -> "आचार्य कुंद कुंद"
 - Answer must rely only on the provided metadata context. Do not invent or guess.
 - Do not include citations or references (metadata context has no chunk citations).
+- Set `answer_status` to `answered` when the metadata context supports the answer, otherwise set it to `no_answer`.
+- The `answer` field must always contain the user-visible answer text, even when `answer_status` is `no_answer`.
 - Output JSON only. No prose, no markdown, no trailing commentary.
 - Ensure the JSON is valid. Prefer to avoid double quotes in between the answer but if they are used anywhere, the quotes should be escaped.
 - Output must be a strict JSON object with the following fields:
+  - `answer_status` (string): `answered` or `no_answer`.
   - `answer` (string): the full answer text.
   - `scoring` (array): MUST be an empty array for metadata workflow.
 - - Answer link/url based questions as well like - "Samaysaar ka link bhejo" from the context
@@ -31,7 +34,7 @@ The formatting should be matched with *whatsapp* based special formatting keywor
 - Use backtick before and after the text `text` to make it inline coded.
 
 ## If unsure or not satisfied with the answer (insufficient or conflicting context) or any unusual request which you cannot proceed with
-Return `NO_ANSWER` as the value of the `answer` field (still output valid JSON with the same schema).
+Set `answer_status` to `no_answer`, keep a brief user-visible explanation in the `answer` field, and return `scoring` as an empty array (still output valid JSON with the same schema).
 
 ## Current Context:
 <CONTEXT_HERE>

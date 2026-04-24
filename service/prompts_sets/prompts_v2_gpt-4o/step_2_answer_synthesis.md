@@ -5,10 +5,12 @@
 - Follow answer language section.
 - Keep answer simple and grounded in context; no guess.
 - No tables.
-- Include at least 1 direct quote as inline citation.
-- Always include follow-up section.
+- Set `answer_status` to `answered` when the context directly supports the final answer, otherwise set it to `no_answer`.
+- The `answer` field must always contain the user-visible answer text, even when `answer_status` is `no_answer`.
+- Include inline quote citations only when a chunk directly supports the final answer.
+- Include a follow-up section only when `answer_status` is `answered`.
 - Do not include chunk_id values in answer text.
-- Scoring only for used chunk_ids from context (1-100).
+- Scoring only for chunk_ids from context that directly support the final answer (1-100).
 - Follow Specific Answering Guidelines section.
 
 ## User Question
@@ -30,17 +32,23 @@ Follow-up section:
 - Starts with italic line: "_If you want I can answer this in detail or I can also answer -_"
 - 2-3 relevant questions as bulleted list, each as "- {q1}"
 - follow‑ups must be unique and not repeat history questions but grounded on the context
+- Do not include this section when `answer_status` is `no_answer`.
 
 ---
 ## Output Contract (JSON only)
 {
+  "answer_status": "answered",
   "answer": "<full answer text including citations and follow-ups>",
   "scoring": [ { "chunk_id": "<id>", "score": 1 }, ... ]
 }
 
 SCORING:
-- include only used chunk_ids
+- include only chunk_ids that directly support the final answer
 - score is integer 1-100
+
+ANSWER STATUS:
+- `answered`: context directly supports the answer; inline citations and follow-up questions may be included.
+- `no_answer`: context does not directly support the answer; the `answer` field should still contain a brief user-visible explanation, `scoring` must be empty, and no inline citations or follow-up questions should be included.
 
 ---
 ## Answer Language (`answer` param in output)
@@ -50,7 +58,7 @@ SCORING:
 
 ---
 ## If insufficient or conflicting context or unsure
-Return `NO_ANSWER` as the value of the `answer` field.
+Set `answer_status` to `no_answer`, keep a brief user-visible explanation in the `answer` field, return an empty `scoring` array, and do not include any inline citation or follow-up section.
 
 ---
 ## Context Field Mapping

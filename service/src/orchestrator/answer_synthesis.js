@@ -145,5 +145,7 @@ async function parseOrRepairJson({ raw, provider, requestId, responseJsonSchema,
   }
 
   const fallbackAnswer = extractAnswerFallback(raw);
-  return { answer: fallbackAnswer, scoring: [] };
+  const normalizedAnswer = String(fallbackAnswer || "");
+  const answerStatus = normalizedAnswer.trim() === "NO_ANSWER" ? "no_answer" : "answered";
+  return { answer_status: answerStatus, answer: normalizedAnswer, scoring: [] };
 }

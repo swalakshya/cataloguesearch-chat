@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createIntegrationHarness, isIntegrationEnabled } from "../../test_support/integration_harness.js";
 import { getPromptRootForModel } from "../../src/orchestrator/prompts.js";
 import { getOrderedModels } from "../../src/routing/model_registry.js";
+import { getNoContextTextForLocale } from "../../src/utils/no_context.js";
 
 const INTEGRATION_ENABLED = isIntegrationEnabled();
 const harness = createIntegrationHarness("model-failover");
@@ -180,5 +181,102 @@ integrationTest("response_format=combined omits follow_up_questions field", asyn
 
   assert.equal(message.res.status, 200);
   assert.equal(typeof message.json.answer, "string");
+  assert.equal("answer_status" in message.json, false);
   assert.equal("follow_up_questions" in message.json, false);
+});
+
+integrationTest("structured no_answer preserves model explanation and suppresses citations references and follow_up_questions", async () => {
+  await harness.post("/v1/test/reset");
+  await harness.post("/v1/test/provider-behavior", {
+    behaviors: {
+      [PRIMARY_MODEL]: "no_answer",
+    },
+  });
+
+  const session = await harness.post("/v1/chat/sessions", { provider: "auto" });
+  const message = await harness.post(`/v1/chat/sessions/${session.json.session_id}/messages`, {
+    role: "user",
+    content: "no-answer-structured",
+    response_format: "structured",
+  });
+
+  assert.equal(message.res.status, 200);
+  assert.equal("answer_status" in message.json, false);
+  assert.equal(typeof message.json.answer, "string");
+  assert.equal(message.json.answer, "किसी उपलब्ध संदर्भ में इसका स्पष्ट उत्तर नहीं मिला।");
+  assert.deepEqual(message.json.follow_up_questions, []);
+  assert.deepEqual(message.json.references, []);
+  assert.deepEqual(message.json.citations, []);
+});
+
+integrationTest("structured no_answer falls back to locale text when answer is empty", async () => {
+  await harness.post("/v1/test/reset");
+  await harness.post("/v1/test/provider-behavior", {
+    behaviors: {
+      [PRIMARY_MODEL]: "no_answer_empty",
+    },
+  });
+
+  const session = await harness.post("/v1/chat/sessions", { provider: "auto" });
+  const message = await harness.post(`/v1/chat/sessions/${session.json.session_id}/messages`, {
+    role: "user",
+    content: "no-answer-empty",
+    response_format: "structured",
+  });
+
+  assert.equal(message.res.status, 200);
+  assert.equal("answer_status" in message.json, false);
+  assert.equal(
+    message.json.answer,
+    getNoContextTextForLocale({ language: "hi", script: "roman", isMetadata: false })
+  );
+  assert.deepEqual(message.json.follow_up_questions, []);
+  assert.deepEqual(message.json.references, []);
+  assert.deepEqual(message.json.citations, []);
+});
+
+integrationTest("combined no_answer omits appended references and follow-up text", async () => {
+  await harness.post("/v1/test/reset");
+  await harness.post("/v1/test/provider-behavior", {
+    behaviors: {
+      [PRIMARY_MODEL]: "no_answer",
+    },
+  });
+
+  const session = await harness.post("/v1/chat/sessions", { provider: "auto" });
+  const message = await harness.post(`/v1/chat/sessions/${session.json.session_id}/messages`, {
+    role: "user",
+    content: "no-answer-combined",
+    response_format: "combined",
+  });
+
+  assert.equal(message.res.status, 200);
+  assert.equal("answer_status" in message.json, false);
+  assert.equal("follow_up_questions" in message.json, false);
+  assert.equal(message.json.answer.includes("References"), false);
+  assert.equal(message.json.answer.includes("संदर्भ"), false);
+  assert.equal(message.json.answer.includes("If you want I can answer this in detail or I can also answer"), false);
+});
+
+integrationTest("combined no_answer suppresses malformed scoring and follow-up text", async () => {
+  await harness.post("/v1/test/reset");
+  await harness.post("/v1/test/provider-behavior", {
+    behaviors: {
+      [PRIMARY_MODEL]: "no_answer_malformed",
+    },
+  });
+
+  const session = await harness.post("/v1/chat/sessions", { provider: "auto" });
+  const message = await harness.post(`/v1/chat/sessions/${session.json.session_id}/messages`, {
+    role: "user",
+    content: "no-answer-malformed",
+    response_format: "combined",
+  });
+
+  assert.equal(message.res.status, 200);
+  assert.equal("answer_status" in message.json, false);
+  assert.equal("follow_up_questions" in message.json, false);
+  assert.equal(message.json.answer.includes("If you want I can answer this in detail or I can also answer"), false);
+  assert.equal(message.json.answer.includes("References"), false);
+  assert.equal(message.json.answer.includes("संदर्भ"), false);
 });

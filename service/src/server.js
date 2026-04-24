@@ -821,9 +821,15 @@ export function createServer(options = {}) {
       fullCitations: fullCitationsParam,
     });
 
+    const answerStatusRaw = String(answerPayload?.answer_status || "").trim().toLowerCase();
     const answerRaw = String(answerPayload?.answer || "");
-    const isNoAnswer = answerRaw.trim() === "NO_ANSWER";
-    const resolvedAnswer = isNoAnswer
+    const isLegacyNoAnswer = answerRaw.trim() === "NO_ANSWER";
+    const isNoAnswer = answerStatusRaw === "no_answer" || isLegacyNoAnswer;
+    // Preserve model-authored no-answer explanations when provided. Only synthesize
+    // the locale fallback when the model used the legacy NO_ANSWER sentinel or did
+    // not provide any user-visible no-answer text.
+    const shouldUseLocaleNoAnswerFallback = isLegacyNoAnswer || (isNoAnswer && !answerRaw.trim());
+    const resolvedAnswer = shouldUseLocaleNoAnswerFallback
       ? getNoContextTextForLocale({
           language: keywordResult.language,
           script: keywordResult.script,
@@ -851,7 +857,7 @@ export function createServer(options = {}) {
     const cleaned = stripCitations(normalizedForParsing);
 
     const hashedChunkIds = extractChunkIds(hashedChunks);
-    const scoring = Array.isArray(answerPayload?.scoring) ? answerPayload.scoring : [];
+    const scoring = !isNoAnswer && Array.isArray(answerPayload?.scoring) ? answerPayload.scoring : [];
     const scoredChunks = buildScoredChunks(scoring, hashedChunkIds);
 
     let answerForOutput;
@@ -860,23 +866,30 @@ export function createServer(options = {}) {
     let safeCitations = [];
 
     const referenceCount = getWorkflowReferenceCount(workflowName, model.id);
-    const structured = buildStructuredReferencesFromMetadata({
-      scoredChunks,
-      maxReferences: referenceCount,
-      hashToRealId: session.chunkIdMap,
-      metadataByRealId,
-      language: keywordResult.language,
-    });
+    const structured = isNoAnswer
+      ? { references: [], citations: [] }
+      : buildStructuredReferencesFromMetadata({
+          scoredChunks,
+          maxReferences: referenceCount,
+          hashToRealId: session.chunkIdMap,
+          metadataByRealId,
+          language: keywordResult.language,
+        });
 
     if (responseFormat === "structured") {
       const { answer: answerWithoutFollowUps, followUpQuestions: extractedFollowUps } = extractFollowUpQuestionsFromAnswer(cleaned);
-      followUpQuestions = sanitizeFollowUpQuestions(extractedFollowUps);
+      followUpQuestions = isNoAnswer ? [] : sanitizeFollowUpQuestions(extractedFollowUps);
       safeReferences = sanitizeReferences(structured.references);
       safeCitations = sanitizeCitations(structured.citations);
       answerForOutput = normalizeAnswerTextForOutput(answerWithoutFollowUps);
     } else {
       // combined: append service-built references at the end of the answer
-      const answerWithRefs = appendReferencesSection(cleaned, structured.references, keywordResult.language);
+      const answerBody = isNoAnswer
+        ? extractFollowUpQuestionsFromAnswer(cleaned).answer
+        : cleaned;
+      const answerWithRefs = isNoAnswer
+        ? answerBody
+        : appendReferencesSection(answerBody, structured.references, keywordResult.language);
       answerForOutput = normalizeAnswerTextForOutput(answerWithRefs);
     }
     requestLogContext.answer = answerForOutput;
@@ -895,7 +908,7 @@ export function createServer(options = {}) {
         id: `set_${workingHistory.length + 1}`,
         question: content,
         answer: answerForOutput,
-        chunk_ids: scoredChunks.length ? scoredChunks.map((entry) => entry.chunk_id) : hashedChunkIds,
+        chunk_ids: isNoAnswer ? [] : (scoredChunks.length ? scoredChunks.map((entry) => entry.chunk_id) : hashedChunkIds),
         chunk_scores: scoredChunks,
       },
     ];

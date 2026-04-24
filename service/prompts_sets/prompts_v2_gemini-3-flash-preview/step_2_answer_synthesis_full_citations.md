@@ -7,10 +7,12 @@
 - Keep the answer simple and easy to understand.
 - Keep answer grounded on context. Ground every factual claim. Don't guess
 - Do not use tables.
-- Include at least 1 citation placeholder using the {chunk_id} format (e.g. {c1}). **Max 4 citation placeholders in the answer**.
+- Set `answer_status` to `answered` when the context directly supports the final answer, otherwise set it to `no_answer`.
+- The `answer` field must always contain the user-visible answer text, even when `answer_status` is `no_answer`.
+- Include citation placeholders only for chunks that directly support the final answer. **Max 4 citation placeholders in the answer**.
 - *Use placeholders for citations — do NOT write the actual quote text yourself. Place citations only when lines/paragraphs are completed*.
-- **Always add follow-up questions section.**
-- Add scoring for used chunk_ids only from context (score 1-100).
+- Include a follow-up questions section only when `answer_status` is `answered`.
+- Add scoring only for chunk_ids that directly support the final answer from context (score 1-100).
 - Always adhere to the *Specific Answering Guidelines* section below when generating answer.
 
 ## User Question
@@ -29,17 +31,23 @@ Follow-up section:
 - Starts with italic line: "_If you want I can answer this in detail or I can also answer -_"
 - 2-3 relevant questions as bulleted list, each as "- {q1}"
 - follow‑ups must be unique and not repeat history questions but grounded on the context
+- Do not include this section when `answer_status` is `no_answer`.
 
 ---
 ## Output Contract (JSON only)
 {
+  "answer_status": "answered",
   "answer": "<full answer text with citation placeholders and follow-ups>",
   "scoring": [ { "chunk_id": "<id>", "score": 1 }, ... ]
 }
 
 SCORING:
-- include only used chunk_ids
+- include only chunk_ids that directly support the final answer
 - score is integer 1-100
+
+ANSWER STATUS:
+- `answered`: context directly supports the answer; citations and follow-up questions may be included.
+- `no_answer`: context does not directly support the answer; the `answer` field should still contain a brief user-visible explanation, `scoring` must be empty, and no citation placeholders or follow-up questions should be included.
 
 ---
 ## Answer Language (`answer` param in output)
@@ -49,7 +57,7 @@ SCORING:
 
 ---
 ## If insufficient or conflicting context or unsure
-Return `NO_ANSWER` as the value of the `answer` field.
+Set `answer_status` to `no_answer`, keep a brief user-visible explanation in the `answer` field, return an empty `scoring` array, and do not include any citation placeholders or follow-up section.
 
 ---
 ## Context Field Mapping
@@ -67,6 +75,6 @@ MUST:
 - Output JSON only.
 - **Always follow answer language section.**
 - *Place {chunk_id} placeholders for citations; do NOT write quote text.*
-- Include at least 1 citation placeholder. **Max 4**
-- Include follow-up questions section.
-- Scoring includes used chunk_ids only.
+- Include citation placeholders only for chunks that directly support the final answer. **Max 4**
+- Include follow-up questions only when `answer_status` is `answered`.
+- Scoring includes only chunk_ids that directly support the final answer.

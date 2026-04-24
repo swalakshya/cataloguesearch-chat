@@ -1,6 +1,10 @@
 export const ANSWER_SCHEMA = {
   type: "object",
   properties: {
+    answer_status: {
+      type: "string",
+      enum: ["answered", "no_answer"],
+    },
     answer: { type: "string" },
     scoring: {
       type: "array",
@@ -15,7 +19,7 @@ export const ANSWER_SCHEMA = {
       },
     },
   },
-  required: ["answer", "scoring"],
+  required: ["answer_status", "answer", "scoring"],
   additionalProperties: false,
 };
 

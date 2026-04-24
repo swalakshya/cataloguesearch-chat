@@ -10,7 +10,8 @@ import {
 test("ANSWER_SCHEMA requires answer and scoring, no follow_up_questions", () => {
   assert.equal(ANSWER_SCHEMA.type, "object");
   assert.equal(ANSWER_SCHEMA.properties.follow_up_questions, undefined);
-  assert.deepEqual(ANSWER_SCHEMA.required, ["answer", "scoring"]);
+  assert.deepEqual(ANSWER_SCHEMA.properties.answer_status.enum, ["answered", "no_answer"]);
+  assert.deepEqual(ANSWER_SCHEMA.required, ["answer_status", "answer", "scoring"]);
 });
 
 test("COMBINED_ANSWER_SCHEMA is the same as ANSWER_SCHEMA", () => {

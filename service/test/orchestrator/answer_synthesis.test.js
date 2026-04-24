@@ -12,7 +12,7 @@ test("runAnswerSynthesis injects conversation history and context", async () => 
     completeJson: async ({ messages, responseJsonSchema }) => {
       capturedPrompt = messages[1].content;
       capturedSchema = responseJsonSchema;
-      return JSON.stringify({ answer: "answer", follow_up_questions: ["q1"], scoring: [] });
+      return JSON.stringify({ answer_status: "answered", answer: "answer", follow_up_questions: ["q1"], scoring: [] });
     },
   };
 
@@ -28,6 +28,7 @@ test("runAnswerSynthesis injects conversation history and context", async () => 
   assert.ok(capturedPrompt.includes("Q?"));
   assert.ok(capturedPrompt.includes("CTX"));
   assert.ok(capturedPrompt.includes("\"set_1\""));
+  assert.equal(result.answer_status, "answered");
   assert.equal(result.answer, "answer");
   assert.equal(capturedSchema.properties.follow_up_questions, undefined);
 });
@@ -37,7 +38,7 @@ test("runAnswerSynthesis filters history by followupSetIds", async () => {
   const provider = {
     completeJson: async ({ messages }) => {
       capturedPrompt = messages[1].content;
-      return JSON.stringify({ answer: "answer", follow_up_questions: [], scoring: [] });
+      return JSON.stringify({ answer_status: "answered", answer: "answer", follow_up_questions: [], scoring: [] });
     },
   };
 
@@ -66,7 +67,7 @@ test("runAnswerSynthesis omits history when not followup", async () => {
   const provider = {
     completeJson: async ({ messages }) => {
       capturedPrompt = messages[1].content;
-      return JSON.stringify({ answer: "answer", follow_up_questions: [], scoring: [] });
+      return JSON.stringify({ answer_status: "answered", answer: "answer", follow_up_questions: [], scoring: [] });
     },
   };
 
@@ -89,9 +90,9 @@ test("runAnswerSynthesis repairs invalid JSON", async () => {
     completeJson: async () => {
       calls += 1;
       if (calls === 1) {
-        return '{ "answer": "bad "json", "follow_up_questions": [], "scoring": [] }';
+        return '{ "answer_status": "answered", "answer": "bad "json", "follow_up_questions": [], "scoring": [] }';
       }
-      return JSON.stringify({ answer: "ok", follow_up_questions: ["q1", "q2"], scoring: [] });
+      return JSON.stringify({ answer_status: "answered", answer: "ok", follow_up_questions: ["q1", "q2"], scoring: [] });
     },
   };
 
@@ -105,6 +106,7 @@ test("runAnswerSynthesis repairs invalid JSON", async () => {
   });
 
   assert.equal(calls, 2);
+  assert.equal(result.answer_status, "answered");
   assert.equal(result.answer, "ok");
   assert.deepEqual(result.follow_up_questions, ["q1", "q2"]);
 });
@@ -114,7 +116,7 @@ test("runAnswerSynthesis falls back when repair fails", async () => {
   const provider = {
     completeJson: async () => {
       calls += 1;
-      return '{ "answer": "bad "json", "follow_up_questions": [], "scoring": [] }';
+      return '{ "answer_status": "answered", "answer": "bad "json", "follow_up_questions": [], "scoring": [] }';
     },
   };
 
@@ -135,7 +137,7 @@ test("runAnswerSynthesis falls back when repair fails", async () => {
 test("runAnswerSynthesis tolerates control characters", async () => {
   const provider = {
     completeJson: async () =>
-      '{ "answer": "Line1\u2028Line2", "follow_up_questions": ["q1"], "scoring": [] }',
+      '{ "answer_status": "answered", "answer": "Line1\u2028Line2", "follow_up_questions": ["q1"], "scoring": [] }',
   };
 
   const result = await runAnswerSynthesis({
@@ -158,7 +160,7 @@ test("runAnswerSynthesis supports combined response format", async () => {
     completeJson: async ({ messages, responseJsonSchema }) => {
       capturedPrompt = messages[1].content;
       capturedSchema = responseJsonSchema;
-      return JSON.stringify({ answer: "combined answer", scoring: [] });
+      return JSON.stringify({ answer_status: "answered", answer: "combined answer", scoring: [] });
     },
   };
 
@@ -177,6 +179,7 @@ test("runAnswerSynthesis supports combined response format", async () => {
   assert.equal(capturedPrompt.includes('"follow_up_questions"'), false);
   assert.equal(capturedPrompt.includes("If you want I can answer this in detail or I can also answer"), true);
   assert.equal(capturedSchema.properties.follow_up_questions, undefined);
+  assert.deepEqual(capturedSchema.required, ["answer_status", "answer", "scoring"]);
 });
 
 test("runAnswerSynthesis threads fullCitations=true into prompt", async () => {
@@ -184,7 +187,7 @@ test("runAnswerSynthesis threads fullCitations=true into prompt", async () => {
   const provider = {
     completeJson: async ({ messages }) => {
       capturedPrompt = messages[1].content;
-      return JSON.stringify({ answer: "answer", scoring: [] });
+      return JSON.stringify({ answer_status: "answered", answer: "answer", scoring: [] });
     },
   };
 
@@ -208,7 +211,7 @@ test("runAnswerSynthesis threads fullCitations=false into prompt overriding env 
   const provider = {
     completeJson: async ({ messages }) => {
       capturedPrompt = messages[1].content;
-      return JSON.stringify({ answer: "answer", scoring: [] });
+      return JSON.stringify({ answer_status: "answered", answer: "answer", scoring: [] });
     },
   };
 

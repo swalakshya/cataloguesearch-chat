@@ -66,12 +66,15 @@ test("getAnswerPrompt omits history when empty", () => {
 test("getAnswerPrompt uses metadata base prompt", () => {
   const prompt = getAnswerPrompt("Q?", "CTX", "", "[]", "metadata_question_v1");
   assert.ok(prompt.includes("Metadata Answer Synthesis"));
+  assert.ok(prompt.includes("answer_status"));
 });
 
 test("getAnswerPrompt uses follow-up section in answer text for structured format", () => {
   const prompt = getAnswerPrompt("Q?", "CTX", "", "", "basic_question_v1");
   assert.equal(prompt.includes('"follow_up_questions": ["<question 1>", "<question 2>"]'), false);
   assert.ok(prompt.includes("If you want I can answer this in detail or I can also answer"));
+  assert.ok(prompt.includes('"answer_status": "answered"'));
+  assert.ok(prompt.includes("only when `answer_status` is `answered`"));
   assert.ok(prompt.includes("<full answer text including citations and follow-ups>"));
 });
 
@@ -81,6 +84,8 @@ test("getAnswerPrompt uses combined answer template when requested", () => {
   });
   assert.equal(prompt.includes('"follow_up_questions": ["<question 1>", "<question 2>"]'), false);
   assert.ok(prompt.includes("If you want I can answer this in detail or I can also answer"));
+  assert.ok(prompt.includes('"answer_status": "answered"'));
+  assert.ok(prompt.includes("only when `answer_status` is `answered`"));
   assert.ok(prompt.includes("<full answer text including citations and follow-ups>"));
 });
 
@@ -89,6 +94,8 @@ test("getAnswerPrompt uses full citations prompt when fullCitations=true in opti
     fullCitations: true,
   });
   assert.ok(prompt.includes("do NOT write the actual quote text yourself"));
+  assert.ok(prompt.includes('"answer_status": "answered"'));
+  assert.ok(prompt.includes("only for chunks that directly support the final answer"));
 });
 
 test("getAnswerPrompt uses standard prompt when fullCitations=false even if env var is true", () => {

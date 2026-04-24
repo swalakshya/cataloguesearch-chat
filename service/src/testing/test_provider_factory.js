@@ -32,22 +32,6 @@ class TestProvider {
 
   async completeJson({ messages }) {
     callCounts.set(this.modelId, (callCounts.get(this.modelId) || 0) + 1);
-    if (this.behavior === "server_error") {
-      const err = new Error("Service Unavailable");
-      err.status = 503;
-      throw err;
-    }
-    if (this.behavior === "rate_limited") {
-      const err = new Error("Too Many Requests");
-      err.status = 429;
-      throw err;
-    }
-    if (this.behavior === "client_error") {
-      const err = new Error("Unauthorized");
-      err.status = 401;
-      throw err;
-    }
-
     const system = String(messages?.[0]?.content || "").toLowerCase();
     if (system.includes("keyword extractor")) {
       const userContent = String(messages?.[1]?.content || "");
@@ -64,11 +48,48 @@ class TestProvider {
     if (system.includes("you map filter values")) {
       return JSON.stringify({ granth: "", anuyog: "", contributor: "" });
     }
+    if (this.behavior === "server_error") {
+      const err = new Error("Service Unavailable");
+      err.status = 503;
+      throw err;
+    }
+    if (this.behavior === "rate_limited") {
+      const err = new Error("Too Many Requests");
+      err.status = 429;
+      throw err;
+    }
+    if (this.behavior === "client_error") {
+      const err = new Error("Unauthorized");
+      err.status = 401;
+      throw err;
+    }
+    if (this.behavior === "no_answer") {
+      return JSON.stringify({
+        answer_status: "no_answer",
+        answer: "किसी उपलब्ध संदर्भ में इसका स्पष्ट उत्तर नहीं मिला।",
+        scoring: [],
+      });
+    }
+    if (this.behavior === "no_answer_empty") {
+      return JSON.stringify({
+        answer_status: "no_answer",
+        answer: "",
+        scoring: [],
+      });
+    }
+    if (this.behavior === "no_answer_malformed") {
+      return JSON.stringify({
+        answer_status: "no_answer",
+        answer: "किसी उपलब्ध संदर्भ में इसका स्पष्ट उत्तर नहीं मिला।\n\n_If you want I can answer this in detail or I can also answer -_\n- q1",
+        scoring: [{ chunk_id: "c1", score: 91 }],
+      });
+    }
     const userContent = String(messages?.[1]?.content || "");
     if (userContent.includes('"follow_up_questions"')) {
-      return JSON.stringify({ answer: "test-answer", follow_up_questions: ["q1", "q2"], scoring: [] });
+      return JSON.stringify({ answer_status: "answered", answer: "test-answer", follow_up_questions: ["q1", "q2"], scoring: [] });
     }
     return JSON.stringify({
+      answer_status: "answered",
       answer: "test-answer\n\n_If you want I can answer this in detail or I can also answer -_\n- q1\n- q2",
       scoring: [],
     });

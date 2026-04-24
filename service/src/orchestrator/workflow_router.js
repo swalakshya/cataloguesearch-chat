@@ -21,7 +21,7 @@ export class ToolBudget {
   }
 }
 
-export async function runWorkflow({ externalApi, keywordResult, requestId, provider = null, modelId = null }) {
+export async function runWorkflow({ externalApi, keywordResult, requestId, provider = null, modelId = null, llmCallsCollector }) {
   const workflowName = keywordResult.workflow || "basic_question_v1";
   const runner = workflowRegistry[workflowName];
   if (!runner) {
@@ -40,6 +40,8 @@ export async function runWorkflow({ externalApi, keywordResult, requestId, provi
       requestId,
       allowFailure: workflowName !== "basic_question_v1",
       provider,
+      modelId,
+      llmCallsCollector,
     });
 
   const params = {
@@ -63,7 +65,7 @@ export async function runWorkflow({ externalApi, keywordResult, requestId, provi
   return { workflowName, chunks, toolCallsUsed: toolBudget.used };
 }
 
-async function resolveFilters({ externalApi, filters, language, requestId, allowFailure, provider }) {
+async function resolveFilters({ externalApi, filters, language, requestId, allowFailure, provider, modelId, llmCallsCollector }) {
   if (!filters || typeof filters !== "object") return {};
   const hasExplicitFilter = Boolean(
     filters.granth ||
@@ -115,12 +117,14 @@ async function resolveFilters({ externalApi, filters, language, requestId, allow
     const mapped = await mapFiltersWithLlm({
       provider,
       requestId,
+      modelId,
       original: {
         granth: filters.granth || "",
         anuyog: filters.anuyog || "",
         contributor: filters.contributor || "",
       },
       options: merged,
+      llmCallsCollector,
     });
     resolved = {
       ...resolved,
@@ -199,7 +203,7 @@ function resolveMatchWithFlag(value, options) {
   return { value, matched: false };
 }
 
-async function mapFiltersWithLlm({ provider, requestId, original, options }) {
+async function mapFiltersWithLlm({ provider, requestId, modelId, original, options, llmCallsCollector }) {
   const system = "You map filter values to the closest valid option. Output JSON only.";
   const user = [
     "Map each provided filter to the best matching option from the lists.",
@@ -223,7 +227,7 @@ async function mapFiltersWithLlm({ provider, requestId, original, options }) {
     additionalProperties: false,
   };
 
-  const raw = await provider.completeJson({
+  const result = await provider.completeJson({
     messages: [
       { role: "system", content: system },
       { role: "user", content: user },
@@ -233,8 +237,18 @@ async function mapFiltersWithLlm({ provider, requestId, original, options }) {
     responseJsonSchema: schema,
   });
 
+  llmCallsCollector?.push({
+    step: "filter_map",
+    provider: provider.name(),
+    model: modelId || null,
+    provider_response_id: result.provider_response_id,
+    model_version: result.model_version,
+    usage_raw: result.usage_raw,
+    usage_normalized: result.usage_normalized,
+  });
+
   try {
-    return JSON.parse(raw);
+    return JSON.parse(result.text);
   } catch (err) {
     log.warn("filters_llm_map_parse_failed", { requestId, error: err?.message || String(err) });
     return { granth: "", anuyog: "", contributor: "" };

@@ -20,6 +20,22 @@ export function getTestProviderStats() {
   return stats;
 }
 
+function wrapTestResult(text) {
+  return {
+    text,
+    usage_raw: {},
+    usage_normalized: {
+      input_tokens: 10,
+      output_tokens: 5,
+      total_tokens: 15,
+      cached_input_tokens: 0,
+      thought_tokens: null,
+    },
+    provider_response_id: "test-response-id",
+    model_version: "test-model-v1",
+  };
+}
+
 class TestProvider {
   constructor({ modelId, behavior }) {
     this.modelId = modelId;
@@ -36,17 +52,17 @@ class TestProvider {
     if (system.includes("keyword extractor")) {
       const userContent = String(messages?.[1]?.content || "");
       const forceFollowup = userContent.includes("FORCE_FOLLOWUP");
-      return JSON.stringify({
+      return wrapTestResult(JSON.stringify({
         language: "hi",
         script: "roman",
         workflow: "basic_question_v1",
         is_followup: forceFollowup,
         keywords: ["q"],
         filters: {},
-      });
+      }));
     }
     if (system.includes("you map filter values")) {
-      return JSON.stringify({ granth: "", anuyog: "", contributor: "" });
+      return wrapTestResult(JSON.stringify({ granth: "", anuyog: "", contributor: "" }));
     }
     if (this.behavior === "server_error") {
       const err = new Error("Service Unavailable");
@@ -64,41 +80,41 @@ class TestProvider {
       throw err;
     }
     if (this.behavior === "no_answer") {
-      return JSON.stringify({
+      return wrapTestResult(JSON.stringify({
         answer_status: "no_answer",
         answer: "किसी उपलब्ध संदर्भ में इसका स्पष्ट उत्तर नहीं मिला।",
         scoring: [],
-      });
+      }));
     }
     if (this.behavior === "no_answer_empty") {
-      return JSON.stringify({
+      return wrapTestResult(JSON.stringify({
         answer_status: "no_answer",
         answer: "",
         scoring: [],
-      });
+      }));
     }
     if (this.behavior === "no_answer_malformed") {
-      return JSON.stringify({
+      return wrapTestResult(JSON.stringify({
         answer_status: "no_answer",
         answer: "किसी उपलब्ध संदर्भ में इसका स्पष्ट उत्तर नहीं मिला।\n\n_If you want I can answer this in detail or I can also answer -_\n- q1",
         scoring: [{ chunk_id: "c1", score: 91 }],
-      });
+      }));
     }
     const userContent = String(messages?.[1]?.content || "");
     if (userContent.includes('"follow_up_questions"')) {
-      return JSON.stringify({ answer_status: "answered", answer: "test-answer", follow_up_questions: ["q1", "q2"], scoring: [] });
+      return wrapTestResult(JSON.stringify({ answer_status: "answered", answer: "test-answer", follow_up_questions: ["q1", "q2"], scoring: [] }));
     }
-    return JSON.stringify({
+    return wrapTestResult(JSON.stringify({
       answer_status: "answered",
       answer: "test-answer\n\n_If you want I can answer this in detail or I can also answer -_\n- q1\n- q2",
       scoring: [],
-    });
+    }));
   }
 
   async completeText({ messages }) {
     const system = String(messages?.[0]?.content || "").toLowerCase();
-    if (system.includes("summarizer")) return "test-summary";
-    return "test";
+    if (system.includes("summarizer")) return wrapTestResult("test-summary");
+    return wrapTestResult("test");
   }
 }
 

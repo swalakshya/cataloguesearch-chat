@@ -11,6 +11,7 @@ export async function runKeywordExtraction({
   sessionContext,
   requestId,
   modelId,
+  llmCallsCollector,
 }) {
   const useV2 = isPromptV2();
   const history = formatConversationHistory(sessionContext?.conversationHistory, {
@@ -19,9 +20,9 @@ export async function runKeywordExtraction({
     compact: useV2,
   });
   const prompt = getKeywordPrompt(question, history, { modelId, requestId });
-  log.info("keyword_extract_prompt_tokens", {
+  log.info("keyword_extract_prompt_tokens_estimate", {
     requestId,
-    tokens: estimateTokens(prompt),
+    tokens_estimate: estimateTokens(prompt),
   });
 
   const messages = [
@@ -29,21 +30,35 @@ export async function runKeywordExtraction({
     { role: "user", content: prompt },
   ];
 
-  const raw = await provider.completeJson({
+  const result = await provider.completeJson({
     messages,
     temperature: 0,
     requestId,
     responseJsonSchema: KEYWORD_EXTRACTION_SCHEMA,
   });
 
+  const raw = result.text;
+
   log.verbose("keyword_extract_llm_response", {
     requestId,
     length: raw?.length || 0,
     response: String(raw || ""),
   });
-  log.info("keyword_extract_output_tokens", {
+  log.info("keyword_extract_usage", {
     requestId,
-    tokens: estimateTokens(raw),
+    input_tokens: result.usage_normalized?.input_tokens,
+    output_tokens: result.usage_normalized?.output_tokens,
+    cached_input_tokens: result.usage_normalized?.cached_input_tokens,
+  });
+
+  llmCallsCollector?.push({
+    step: "keyword_extract",
+    provider: provider.name(),
+    model: modelId || null,
+    provider_response_id: result.provider_response_id,
+    model_version: result.model_version,
+    usage_raw: result.usage_raw,
+    usage_normalized: result.usage_normalized,
   });
 
   let parsed;

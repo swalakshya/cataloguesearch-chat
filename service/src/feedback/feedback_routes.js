@@ -209,6 +209,35 @@ export function registerFeedbackRoutes(app, feedbackStore, { adminApiKey, reques
     return res.json(record);
   });
 
+  app.get("/v1/admin/cost-analysis", requireAdmin(adminApiKey), (req, res) => {
+    if (!requestLogStore) {
+      return res.status(503).json({ detail: "request_logs_not_enabled" });
+    }
+
+    const from = parseOptionalNumber(req.query.from);
+    const to = parseOptionalNumber(req.query.to);
+    const requestId = sanitizeQueryString(req.query.request_id);
+    const sessionId = sanitizeQueryString(req.query.session_id);
+    const userId = sanitizeQueryString(req.query.user_id);
+    const steps = req.query.step
+      ? (Array.isArray(req.query.step) ? req.query.step : [req.query.step]).map(String)
+      : null;
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+
+    const result = requestLogStore.getCostAnalysis({
+      from,
+      to,
+      requestId,
+      sessionId,
+      userId,
+      steps,
+      limit,
+      offset,
+    });
+    return res.json(result);
+  });
+
   app.get("/v1/admin/feedback/:id", requireAdmin(adminApiKey), (req, res) => {
     if (!feedbackStore) {
       return res.status(503).json({ detail: "feedback_not_enabled" });

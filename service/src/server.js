@@ -393,6 +393,7 @@ export function createServer(options = {}) {
       toolCallsUsed: null,
       contentType: null,
       answer: null,
+      llmCalls: [],
     };
     let requestLogWritten = false;
     let session = null;
@@ -606,6 +607,7 @@ export function createServer(options = {}) {
       },
       requestId,
       modelId: model.id,
+      llmCallsCollector: requestLogContext.llmCalls,
     });
     if (testMode && String(content || "").includes("FORCE_FOLLOWUP")) {
       keywordResult = {
@@ -676,6 +678,7 @@ export function createServer(options = {}) {
       provider,
       externalApi,
       modelId: model.id,
+      llmCallsCollector: requestLogContext.llmCalls,
       prepareKeywordResult: (result) => {
         const prepared = { ...result };
         if (normalizedUiFilters) {
@@ -819,6 +822,7 @@ export function createServer(options = {}) {
       modelId: model.id,
       responseFormat,
       fullCitations: fullCitationsParam,
+      llmCallsCollector: requestLogContext.llmCalls,
     });
 
     const answerStatusRaw = String(answerPayload?.answer_status || "").trim().toLowerCase();
@@ -966,13 +970,13 @@ export function createServer(options = {}) {
               },
               { role: "user", content: prompt },
             ];
-            const text = await provider.completeText({
+            const result = await provider.completeText({
               messages,
               temperature: 0.2,
               maxTokens: 2000,
               requestId,
             });
-            return String(text || "").trim();
+            return String(result?.text || "").trim();
           },
         });
 
@@ -1022,6 +1026,18 @@ function cleanSessionDbForTest({ enabled, dbPath }) {
 
 function writeRequestLog({ requestLogStore, requestId, requestStartedAt, requestLogContext, error }) {
   if (!requestLogStore || !requestId) return;
+  const llmCalls = Array.isArray(requestLogContext.llmCalls) ? requestLogContext.llmCalls : [];
+  const llmUsageSummary = llmCalls.reduce(
+    (acc, call) => {
+      const u = call.usage_normalized || {};
+      acc.input_tokens += u.input_tokens || 0;
+      acc.output_tokens += u.output_tokens || 0;
+      acc.total_tokens += u.total_tokens || 0;
+      acc.cached_input_tokens += u.cached_input_tokens || 0;
+      return acc;
+    },
+    { input_tokens: 0, output_tokens: 0, total_tokens: 0, cached_input_tokens: 0 }
+  );
   requestLogStore.upsert({
     requestId,
     sessionId: requestLogContext.sessionId ?? null,
@@ -1039,6 +1055,8 @@ function writeRequestLog({ requestLogStore, requestId, requestStartedAt, request
       tool_calls_used: requestLogContext.toolCallsUsed ?? null,
       content_type: requestLogContext.contentType ?? null,
       answer: requestLogContext.answer ?? null,
+      llm_calls: llmCalls.length ? llmCalls : undefined,
+      llm_usage_summary: llmCalls.length ? llmUsageSummary : undefined,
     },
   });
 }

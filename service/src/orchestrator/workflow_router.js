@@ -40,6 +40,7 @@ export async function runWorkflow({ externalApi, keywordResult, requestId, provi
       requestId,
       allowFailure: workflowName !== "basic_question_v1",
       provider,
+      modelId,
       llmCallsCollector,
     });
 
@@ -64,7 +65,7 @@ export async function runWorkflow({ externalApi, keywordResult, requestId, provi
   return { workflowName, chunks, toolCallsUsed: toolBudget.used };
 }
 
-async function resolveFilters({ externalApi, filters, language, requestId, allowFailure, provider, llmCallsCollector }) {
+async function resolveFilters({ externalApi, filters, language, requestId, allowFailure, provider, modelId, llmCallsCollector }) {
   if (!filters || typeof filters !== "object") return {};
   const hasExplicitFilter = Boolean(
     filters.granth ||
@@ -116,6 +117,7 @@ async function resolveFilters({ externalApi, filters, language, requestId, allow
     const mapped = await mapFiltersWithLlm({
       provider,
       requestId,
+      modelId,
       original: {
         granth: filters.granth || "",
         anuyog: filters.anuyog || "",
@@ -201,7 +203,7 @@ function resolveMatchWithFlag(value, options) {
   return { value, matched: false };
 }
 
-async function mapFiltersWithLlm({ provider, requestId, original, options, llmCallsCollector }) {
+async function mapFiltersWithLlm({ provider, requestId, modelId, original, options, llmCallsCollector }) {
   const system = "You map filter values to the closest valid option. Output JSON only.";
   const user = [
     "Map each provided filter to the best matching option from the lists.",
@@ -238,7 +240,7 @@ async function mapFiltersWithLlm({ provider, requestId, original, options, llmCa
   llmCallsCollector?.push({
     step: "filter_map",
     provider: provider.name(),
-    model: null,
+    model: modelId || null,
     provider_response_id: result.provider_response_id,
     model_version: result.model_version,
     usage_raw: result.usage_raw,

@@ -1033,9 +1033,10 @@ function writeRequestLog({ requestLogStore, requestId, requestStartedAt, request
       acc.input_tokens += u.input_tokens || 0;
       acc.output_tokens += u.output_tokens || 0;
       acc.total_tokens += u.total_tokens || 0;
+      acc.cached_input_tokens += u.cached_input_tokens || 0;
       return acc;
     },
-    { input_tokens: 0, output_tokens: 0, total_tokens: 0 }
+    { input_tokens: 0, output_tokens: 0, total_tokens: 0, cached_input_tokens: 0 }
   );
   requestLogStore.upsert({
     requestId,

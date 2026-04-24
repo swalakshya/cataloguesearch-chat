@@ -247,20 +247,24 @@ export class RequestLogStore {
         const it = u.input_tokens || 0;
         const ot = u.output_tokens || 0;
         const tt = u.total_tokens || 0;
+        const ct = u.cached_input_tokens || 0;
         summary.input_tokens += it;
         summary.output_tokens += ot;
         summary.total_tokens += tt;
+        summary.cached_input_tokens += ct;
         rowSummary.input_tokens += it;
         rowSummary.output_tokens += ot;
         rowSummary.total_tokens += tt;
+        rowSummary.cached_input_tokens += ct;
 
         const day = new Date(row.created_at).toISOString().slice(0, 10);
         const key = `${day}:${call.step}`;
-        if (!byDayMap.has(key)) byDayMap.set(key, { date: day, step: call.step, input_tokens: 0, output_tokens: 0, total_tokens: 0 });
+        if (!byDayMap.has(key)) byDayMap.set(key, { date: day, step: call.step, input_tokens: 0, output_tokens: 0, total_tokens: 0, cached_input_tokens: 0 });
         const entry = byDayMap.get(key);
         entry.input_tokens += it;
         entry.output_tokens += ot;
         entry.total_tokens += tt;
+        entry.cached_input_tokens += ct;
       }
       summary.request_count += 1;
       filtered.push({
@@ -332,5 +336,5 @@ function tryParseJson(value) {
 }
 
 function emptySummary() {
-  return { input_tokens: 0, output_tokens: 0, total_tokens: 0, request_count: 0 };
+  return { input_tokens: 0, output_tokens: 0, total_tokens: 0, cached_input_tokens: 0, request_count: 0 };
 }

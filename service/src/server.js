@@ -970,13 +970,13 @@ export function createServer(options = {}) {
               },
               { role: "user", content: prompt },
             ];
-            const text = await provider.completeText({
+            const result = await provider.completeText({
               messages,
               temperature: 0.2,
               maxTokens: 2000,
               requestId,
             });
-            return String(text || "").trim();
+            return String(result?.text || "").trim();
           },
         });
 

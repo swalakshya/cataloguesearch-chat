@@ -222,25 +222,24 @@ export class RequestLogStore {
     const safeLimit = Math.max(0, Number(limit) || 0);
     const safeOffset = Math.max(0, Number(offset) || 0);
 
-    const rows = this.db.prepare(`
+    // Fetch all rows matching SQL filters — step filtering happens in JS so the
+    // summary and total must be computed over the full filtered set, not just one page.
+    const allRows = this.db.prepare(`
       SELECT rl.request_id, rl.session_id, ${userIdSelect} rl.created_at, rl.details_json
       FROM request_logs rl ${joinSql} ${whereSql}
-      ORDER BY rl.created_at DESC LIMIT ? OFFSET ?
-    `).all(...params, safeLimit, safeOffset);
-
-    const total = this.db.prepare(`
-      SELECT COUNT(*) AS total FROM request_logs rl ${joinSql} ${whereSql}
-    `).get(...params).total;
+      ORDER BY rl.created_at DESC
+    `).all(...params);
 
     const summary = emptySummary();
     const byDayMap = new Map();
-    const requests = [];
+    const filtered = [];
 
-    for (const row of rows) {
+    for (const row of allRows) {
       const details = tryParseJson(row.details_json);
       let llmCalls = Array.isArray(details?.llm_calls) ? details.llm_calls : [];
       if (steps && steps.length) {
         llmCalls = llmCalls.filter((c) => steps.includes(c.step));
+        if (!llmCalls.length) continue; // exclude rows with no matching steps
       }
       const rowSummary = emptySummary();
       for (const call of llmCalls) {
@@ -264,7 +263,7 @@ export class RequestLogStore {
         entry.total_tokens += tt;
       }
       summary.request_count += 1;
-      requests.push({
+      filtered.push({
         request_id: row.request_id,
         session_id: row.session_id,
         user_id: row.user_id ?? null,
@@ -273,6 +272,9 @@ export class RequestLogStore {
         llm_usage_summary: rowSummary,
       });
     }
+
+    const total = filtered.length;
+    const requests = safeLimit > 0 ? filtered.slice(safeOffset, safeOffset + safeLimit) : filtered;
 
     return { summary, by_day: [...byDayMap.values()].sort((a, b) => a.date.localeCompare(b.date)), requests, total };
   }

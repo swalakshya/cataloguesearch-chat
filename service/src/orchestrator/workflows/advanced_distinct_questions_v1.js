@@ -4,27 +4,58 @@ import { log } from "../../utils/log.js";
 
 export async function runAdvancedDistinctQuestions({ externalApi, params, requestId, toolBudget, modelId }) {
   const results = [];
+  const gujChunks = Boolean(params.gujChunks);
   const language = params.language || "hi";
   const filters = params.filters || {};
   const queries = Array.isArray(params.queries) ? params.queries : [];
-  const config = getWorkflowConfig(modelId).advanced_distinct;
+  const config = getWorkflowConfig(modelId);
+  const distConfig = config.advanced_distinct;
 
-  ensureBudget(toolBudget, queries.length);
+  // Count budget: each query uses 1 Hindi call + 1 Gujarati call (if keywords_guj present)
+  const budgetNeeded = queries.reduce((sum, q) => {
+    const hasGuj = gujChunks && Array.isArray(q.keywords_guj) && q.keywords_guj.length > 0;
+    return sum + (hasGuj ? 2 : 1);
+  }, 0);
+  ensureBudget(toolBudget, budgetNeeded);
+
+  const baseFilters = {
+    content_type: normalizeContentTypes(filters.content_type),
+    anuyog: filters.anuyog || null,
+    granth: filters.granth || null,
+    contributor: filters.contributor || null,
+    page: distConfig.page,
+    rerank: distConfig.rerank,
+  };
 
   for (const query of queries) {
-    const payload = {
+    const hasGuj = gujChunks && Array.isArray(query.keywords_guj) && query.keywords_guj.length > 0;
+    const hindiPayload = {
+      ...baseFilters,
       query: buildQuery(query.keywords),
       language,
-      content_type: normalizeContentTypes(filters.content_type),
-      anuyog: filters.anuyog || null,
-      granth: filters.granth || null,
-      contributor: filters.contributor || null,
-      page: config.page,
-      page_size: config.page_size,
-      rerank: config.rerank,
+      page_size: distConfig.page_size,
     };
     toolBudget.consume();
-    await safePush(results, () => externalApi.search(payload, requestId), requestId);
+
+    if (!hasGuj) {
+      await safePush(results, () => externalApi.search(hindiPayload, requestId), requestId, "hi");
+      continue;
+    }
+
+    toolBudget.consume();
+    const gujPayload = {
+      ...baseFilters,
+      query: buildQuery(query.keywords_guj),
+      language: "gu",
+      page_size: config.gujarati_page_size,
+    };
+    const [hindiData, gujData] = await Promise.all([
+      safeFetch(() => externalApi.search(hindiPayload, requestId), requestId),
+      safeFetch(() => externalApi.search(gujPayload, requestId), requestId),
+    ]);
+    hindiData.forEach((c) => { c._lang = "hi"; });
+    gujData.forEach((c) => { c._lang = "gu"; });
+    results.push(...hindiData, ...gujData);
   }
 
   return results;
@@ -43,11 +74,18 @@ function ensureBudget(toolBudget, needed) {
   }
 }
 
-async function safePush(results, fn, requestId) {
+async function safeFetch(fn, requestId) {
   try {
     const data = await fn();
-    if (Array.isArray(data)) results.push(...data);
+    return Array.isArray(data) ? data : [];
   } catch (err) {
     log.warn("workflow_call_failed", { requestId, error: err?.message || String(err) });
+    return [];
   }
+}
+
+async function safePush(results, fn, requestId, lang) {
+  const data = await safeFetch(fn, requestId);
+  if (lang) data.forEach((c) => { c._lang = lang; });
+  results.push(...data);
 }

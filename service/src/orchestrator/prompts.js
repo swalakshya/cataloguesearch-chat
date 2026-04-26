@@ -17,13 +17,31 @@ function normalizeModelId(modelId) {
   return String(modelId || "").replace(/\./g, "_");
 }
 
-function resolvePromptRoots({ modelId, promptVersion, overrideRoot, requestId } = {}) {
+function resolvePromptRoots({ modelId, promptVersion, overrideRoot, requestId, gujChunks } = {}) {
   const version = promptVersion || (isPromptV2() ? "v2" : "v1");
   const baseFolder = version === "v2" ? "prompts_v2" : "prompts";
   const baseRoot = overrideRoot
     ? path.resolve(overrideRoot, baseFolder)
     : path.resolve(__dirname, `../../prompts_sets/${baseFolder}`);
   const roots = [];
+
+  if (gujChunks) {
+    // Guj-search prompt tree takes highest priority; falls through to standard
+    // roots when a file is absent.
+    if (modelId) {
+      const safeModelId = normalizeModelId(modelId);
+      const gujModelFolder = `${baseFolder}_${safeModelId}`;
+      const gujModelRoot = overrideRoot
+        ? path.resolve(overrideRoot, `prompts_sets_guj_search/${gujModelFolder}`)
+        : path.resolve(__dirname, `../../prompts_sets_guj_search/${gujModelFolder}`);
+      roots.push(gujModelRoot);
+    }
+    const gujBaseRoot = overrideRoot
+      ? path.resolve(overrideRoot, `prompts_sets_guj_search/${baseFolder}`)
+      : path.resolve(__dirname, `../../prompts_sets_guj_search/${baseFolder}`);
+    roots.push(gujBaseRoot);
+  }
+
   if (modelId) {
     const safeModelId = normalizeModelId(modelId);
     const modelFolder = `${baseFolder}_${safeModelId}`;
@@ -37,11 +55,6 @@ function resolvePromptRoots({ modelId, promptVersion, overrideRoot, requestId } 
     recordPromptRootForTest({ requestId, modelId, promptRoot: roots[0] });
   }
   return roots;
-}
-
-export function getPromptRootForModel({ modelId, promptVersion } = {}) {
-  const roots = resolvePromptRoots({ modelId, promptVersion });
-  return roots[0] || null;
 }
 
 function readPrompt(relPath, options) {
@@ -102,6 +115,11 @@ export function getKeywordFixPrompt(question, step1Json, options = {}) {
     .replace("<QUESTION_HERE>", question)
     .replace("<STEP1_JSON_HERE>", JSON.stringify(step1Json, null, 2))
     .trim();
+}
+
+export function getPromptRootForModel({ modelId, promptVersion, gujChunks } = {}) {
+  const roots = resolvePromptRoots({ modelId, promptVersion, gujChunks });
+  return roots[0] || null;
 }
 
 export function getAnswerPrompt(

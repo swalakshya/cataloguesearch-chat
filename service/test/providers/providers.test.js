@@ -58,7 +58,7 @@ test("GeminiProvider refreshes key and retries once on 401", async () => {
   });
 
   const result = await provider.completeText({ messages: [], temperature: 0, requestId: "r1" });
-  assert.equal(result, "ok");
+  assert.equal(result.text, "ok");
 });
 
 test("GeminiProvider.fromEnv prefers env key over secret manager", async () => {

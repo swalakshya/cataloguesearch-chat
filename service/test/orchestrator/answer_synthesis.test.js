@@ -12,7 +12,7 @@ test("runAnswerSynthesis injects conversation history and context", async () => 
     completeJson: async ({ messages, responseJsonSchema }) => {
       capturedPrompt = messages[1].content;
       capturedSchema = responseJsonSchema;
-      return JSON.stringify({ answer_status: "answered", answer: "answer", follow_up_questions: ["q1"], scoring: [] });
+      return { text: JSON.stringify({ answer_status: "answered", answer: "answer", follow_up_questions: ["q1"], scoring: [] }), usage_normalized: {} };
     },
   };
 
@@ -38,7 +38,7 @@ test("runAnswerSynthesis filters history by followupSetIds", async () => {
   const provider = {
     completeJson: async ({ messages }) => {
       capturedPrompt = messages[1].content;
-      return JSON.stringify({ answer_status: "answered", answer: "answer", follow_up_questions: [], scoring: [] });
+      return { text: JSON.stringify({ answer_status: "answered", answer: "answer", follow_up_questions: [], scoring: [] }), usage_normalized: {} };
     },
   };
 
@@ -90,9 +90,9 @@ test("runAnswerSynthesis repairs invalid JSON", async () => {
     completeJson: async () => {
       calls += 1;
       if (calls === 1) {
-        return '{ "answer_status": "answered", "answer": "bad "json", "follow_up_questions": [], "scoring": [] }';
+        return { text: '{ "answer_status": "answered", "answer": "bad "json", "follow_up_questions": [], "scoring": [] }', usage_normalized: {} };
       }
-      return JSON.stringify({ answer_status: "answered", answer: "ok", follow_up_questions: ["q1", "q2"], scoring: [] });
+      return { text: JSON.stringify({ answer_status: "answered", answer: "ok", follow_up_questions: ["q1", "q2"], scoring: [] }), usage_normalized: {} };
     },
   };
 
@@ -137,7 +137,7 @@ test("runAnswerSynthesis falls back when repair fails", async () => {
 test("runAnswerSynthesis tolerates control characters", async () => {
   const provider = {
     completeJson: async () =>
-      '{ "answer_status": "answered", "answer": "Line1\u2028Line2", "follow_up_questions": ["q1"], "scoring": [] }',
+      ({ text: '{ "answer_status": "answered", "answer": "Line1\u2028Line2", "follow_up_questions": ["q1"], "scoring": [] }', usage_normalized: {} }),
   };
 
   const result = await runAnswerSynthesis({
@@ -160,7 +160,7 @@ test("runAnswerSynthesis supports combined response format", async () => {
     completeJson: async ({ messages, responseJsonSchema }) => {
       capturedPrompt = messages[1].content;
       capturedSchema = responseJsonSchema;
-      return JSON.stringify({ answer_status: "answered", answer: "combined answer", scoring: [] });
+      return { text: JSON.stringify({ answer_status: "answered", answer: "combined answer", scoring: [] }), usage_normalized: {} };
     },
   };
 
@@ -187,7 +187,7 @@ test("runAnswerSynthesis threads fullCitations=true into prompt", async () => {
   const provider = {
     completeJson: async ({ messages }) => {
       capturedPrompt = messages[1].content;
-      return JSON.stringify({ answer_status: "answered", answer: "answer", scoring: [] });
+      return { text: JSON.stringify({ answer_status: "answered", answer: "answer", scoring: [] }), usage_normalized: {} };
     },
   };
 
@@ -211,7 +211,7 @@ test("runAnswerSynthesis threads fullCitations=false into prompt overriding env 
   const provider = {
     completeJson: async ({ messages }) => {
       capturedPrompt = messages[1].content;
-      return JSON.stringify({ answer_status: "answered", answer: "answer", scoring: [] });
+      return { text: JSON.stringify({ answer_status: "answered", answer: "answer", scoring: [] }), usage_normalized: {} };
     },
   };
 
@@ -230,4 +230,55 @@ test("runAnswerSynthesis threads fullCitations=false into prompt overriding env 
     if (original === undefined) delete process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS;
     else process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS = original;
   }
+});
+
+test("runAnswerSynthesis uses bilingual system message when gujChunks=true", async () => {
+  let capturedSystemMessage = "";
+  const provider = {
+    completeJson: async ({ messages }) => {
+      capturedSystemMessage = messages[0].content;
+      return { text: JSON.stringify({ answer_status: "answered", answer: "answer", scoring: [] }), usage_normalized: {} };
+    },
+  };
+
+  await runAnswerSynthesis({
+    provider,
+    question: "Q?",
+    workflowName: "basic_question_v1",
+    context: "CTX",
+    conversationHistory: [],
+    requestId: "r1",
+    gujChunks: true,
+  });
+
+  assert.ok(
+    capturedSystemMessage.toLowerCase().includes("gujarati"),
+    "expected system message to include 'gujarati'"
+  );
+});
+
+test("runAnswerSynthesis uses standard system message when gujChunks=false", async () => {
+  let capturedSystemMessage = "";
+  const provider = {
+    completeJson: async ({ messages }) => {
+      capturedSystemMessage = messages[0].content;
+      return { text: JSON.stringify({ answer_status: "answered", answer: "answer", scoring: [] }), usage_normalized: {} };
+    },
+  };
+
+  await runAnswerSynthesis({
+    provider,
+    question: "Q?",
+    workflowName: "basic_question_v1",
+    context: "CTX",
+    conversationHistory: [],
+    requestId: "r1",
+    gujChunks: false,
+  });
+
+  assert.equal(
+    capturedSystemMessage.toLowerCase().includes("gujarati"),
+    false,
+    "expected system message to NOT include 'gujarati'"
+  );
 });

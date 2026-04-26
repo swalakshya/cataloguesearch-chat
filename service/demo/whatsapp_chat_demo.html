@@ -593,6 +593,18 @@
             </div>
           </div>
 
+          <!-- Gujarati Search -->
+          <div>
+            <div class="label-title">Search Settings</div>
+            <div class="checkbox-group">
+              <label>
+                <input type="checkbox" id="gujChunksToggle" />
+                <span>Gujarati chunks <code style="font-size:0.74em;color:var(--muted);">enable_guj_chunks</code></span>
+              </label>
+            </div>
+            <div class="small-note" style="margin-top:0.3rem;">Fetches Gujarati passages alongside Hindi (forces full_citations=false)</div>
+          </div>
+
           <div class="button-row">
             <button id="newChat"     class="secondary" type="button">New Chat</button>
             <button id="healthCheck" class="secondary" type="button">Check API</button>
@@ -679,8 +691,9 @@
           .replaceAll(">", "&gt;");
       }
 
-      function getLanguage()    { return document.querySelector('input[name="language"]:checked')?.value  || "hi"; }
-      function getAnswerType()  { return document.querySelector('input[name="answerType"]:checked')?.value || "structured"; }
+      function getLanguage()       { return document.querySelector('input[name="language"]:checked')?.value  || "hi"; }
+      function getAnswerType()     { return document.querySelector('input[name="answerType"]:checked')?.value || "structured"; }
+      function isGujChunksEnabled() { return document.getElementById("gujChunksToggle").checked; }
 
       function getCheckedCategories() {
         const checked = [...el.categoryGroup.querySelectorAll('input[type="checkbox"]:checked')];
@@ -788,8 +801,9 @@
           <pre class="raw-json" id="raw-{{id}}">${jsonStr}</pre>`;
 
         const metaParts = [
-          payload.provider          ? `provider: ${payload.provider}`              : "",
-          payload.tool_trace_id     ? `trace: ${payload.tool_trace_id.slice(0,8)}` : "",
+          payload.provider              ? `provider: ${payload.provider}`              : "",
+          payload.tool_trace_id         ? `trace: ${payload.tool_trace_id.slice(0,8)}` : "",
+          payload._guj_chunks_requested ? `guj-search: on`                             : "",
         ].filter(Boolean).join(" · ");
 
         const wrap = appendRaw("assistant", html, metaParts);
@@ -865,6 +879,8 @@
 
       async function sendQuestion(question) {
         await ensureSession();
+        const gujChunks = isGujChunksEnabled();
+        const needsShortCitations = getAnswerType() === "combined" || gujChunks;
         const res = await fetch(`${base()}/v1/chat/sessions/${state.sessionId}/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -872,12 +888,14 @@
             role: "user",
             content: question,
             response_format: getAnswerType(),
-            ...(getAnswerType() === "combined" ? { full_citations: false } : {}),
+            ...(needsShortCitations ? { full_citations: false } : {}),
+            ...(gujChunks ? { enable_guj_chunks: true } : {}),
             filters: buildFilters(),
           }),
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.detail || `Message failed: ${res.status}`);
+        json._guj_chunks_requested = gujChunks;
         return json;
       }
 

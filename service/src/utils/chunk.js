@@ -36,6 +36,20 @@ export function buildContext(chunks) {
     .join("\n\n");
 }
 
+// Builds a two-section context string for guj-search mode.
+// Hindi passages come first, followed by Gujarati passages.
+// If either set is empty, its section is omitted.
+export function buildMultiLangContext(hindiChunks, gujaratiChunks) {
+  const parts = [];
+  if (Array.isArray(hindiChunks) && hindiChunks.length) {
+    parts.push(`### Hindi Passages\n${buildContext(hindiChunks)}`);
+  }
+  if (Array.isArray(gujaratiChunks) && gujaratiChunks.length) {
+    parts.push(`### Gujarati Passages\n${buildContext(gujaratiChunks)}`);
+  }
+  return parts.join("\n\n");
+}
+
 export function extractChunkIds(chunks) {
   return chunks.map((chunk) => chunk.id).filter(Boolean);
 }

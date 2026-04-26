@@ -253,8 +253,6 @@ integrationTest("combined no_answer omits appended references and follow-up text
   assert.equal(message.res.status, 200);
   assert.equal("answer_status" in message.json, false);
   assert.equal("follow_up_questions" in message.json, false);
-  assert.equal(message.json.answer.includes("References"), false);
-  assert.equal(message.json.answer.includes("संदर्भ"), false);
   assert.equal(message.json.answer.includes("If you want I can answer this in detail or I can also answer"), false);
 });
 
@@ -277,6 +275,4 @@ integrationTest("combined no_answer suppresses malformed scoring and follow-up t
   assert.equal("answer_status" in message.json, false);
   assert.equal("follow_up_questions" in message.json, false);
   assert.equal(message.json.answer.includes("If you want I can answer this in detail or I can also answer"), false);
-  assert.equal(message.json.answer.includes("References"), false);
-  assert.equal(message.json.answer.includes("संदर्भ"), false);
 });

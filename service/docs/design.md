@@ -467,3 +467,79 @@ llm_direct_service/
 - Used JSON‑schema output for keyword extraction to avoid parsing errors.
 - Kept the External API client minimal.
 - Added a **search budget** guardrail to prevent accidental repeated searches.
+
+---
+
+## Gujarati Search — Multi-Language Retrieval
+
+### What it is
+
+An opt-in mode that fires parallel Gujarati-language searches alongside the normal Hindi searches, then synthesises a unified answer from both language corpora. The answer language stays as-per-session (Hindi or English); the LLM translates any Gujarati citation text inline.
+
+### Activation
+
+Two request params must both be set:
+
+| Param | Value | Notes |
+|---|---|---|
+| `enable_guj_chunks` | `true` | New opt-in flag |
+| `full_citations` | `false` (or absent if env default is false) | Existing param |
+
+Internal flag throughout the codebase: **`gujChunks`** (not `multiLanguage`).
+
+Excluded workflows regardless of params: `metadata_question_v1`, `greeting_message_v1`.
+
+### Prompt Resolution (when `gujChunks=true`)
+
+`prompts.js::resolvePromptRoots` prepends two extra roots before the existing ones:
+
+1. `service/prompts_sets_guj_search/prompts_v2_<modelId>/`
+2. `service/prompts_sets_guj_search/prompts_v2/`
+3. `service/prompts_sets/prompts_v2_<modelId>/` ← existing
+4. `service/prompts_sets/prompts_v2/` ← existing
+
+Files absent from the guj-search tree fall through to the existing roots automatically. Only `step_1_keyword_extract_and_classification.md` and `step_2_answer_synthesis.md` are modified; all other prompt files are copied unchanged.
+
+### Data Flow
+
+```
+POST body: { enable_guj_chunks: true, full_citations: false }
+  ↓
+server.js: gujChunks = !fullCitationsEnabled && enableGujChunksParam === true && !isMetadataWorkflow
+  ↓
+keyword_extract.js: uses KEYWORD_EXTRACTION_SCHEMA_GUJ_SEARCH
+  → LLM returns keywords + keywords_guj arrays
+  ↓
+workflow runners: Promise.all([hindi search, gujarati search]) per query unit
+  → chunks tagged _lang: "hi" / "gu"
+  ↓
+server.js: split by _lang → buildMultiLangContext(hindiChunks, gujaratiChunks)
+  → "### Hindi Passages\n…\n\n### Gujarati Passages\n…"
+  ↓
+answer_synthesis.js: bilingual Jain scholar system message
+  → competitive scoring across all chunks
+  → LLM translates Gujarati citations to answer language inline
+```
+
+### Per-Workflow Behaviour
+
+Each workflow fires **parallel** Hindi + Gujarati searches per logical query unit using `Promise.all`:
+
+- **`basic_question_v1`** — 1 Hindi + 1 Gujarati search
+- **`advanced_distinct_questions_v1`** — 1 Hindi + 1 Gujarati per query (queries run sequentially)
+- **`advanced_nested_questions_v1`** — parallel pair for main query + each sub-query
+- **`followup_question_v1`** — parallel pairs for followup keyword sets; `expand_chunk_ids` navigation calls are language-agnostic and unchanged
+
+### Tool Budget
+
+`WORKFLOW_TOOL_CALL_BUDGET_GUJ` env var (default: `WORKFLOW_TOOL_CALL_BUDGET * 2` = 50) is used when `gujChunks=true`.
+
+### Config Changes
+
+- `model_config.js` `workflowDefaults`: `gujarati_page_size: 5`
+- gpt-4o `workflowOverrides`: `gujarati_page_size: 3`
+
+### Graceful Degradation
+
+- If `keywords_guj` is absent/empty for a query → skip Gujarati search for that query; Hindi proceeds normally.
+- If Gujarati external API call fails → log warning; Hindi chunks proceed to synthesis unaffected.

@@ -21,7 +21,7 @@ export class ToolBudget {
   }
 }
 
-export async function runWorkflow({ externalApi, keywordResult, requestId, provider = null, modelId = null, llmCallsCollector }) {
+export async function runWorkflow({ externalApi, keywordResult, requestId, provider = null, modelId = null, gujChunks = false, llmCallsCollector }) {
   const workflowName = keywordResult.workflow || "basic_question_v1";
   const runner = workflowRegistry[workflowName];
   if (!runner) {
@@ -47,9 +47,15 @@ export async function runWorkflow({ externalApi, keywordResult, requestId, provi
   const params = {
     ...keywordResult,
     filters: resolvedFilters,
+    gujChunks,
   };
 
-  const toolBudgetLimit = Number(process.env.WORKFLOW_TOOL_CALL_BUDGET || 25);
+  // When gujChunks is active each workflow fires parallel Hindi + Gujarati
+  // searches, roughly doubling tool call usage. Use a dedicated higher budget.
+  const defaultBudget = gujChunks
+    ? Number(process.env.WORKFLOW_TOOL_CALL_BUDGET_GUJ || 50)
+    : Number(process.env.WORKFLOW_TOOL_CALL_BUDGET || 25);
+  const toolBudgetLimit = defaultBudget;
   const toolBudget = new ToolBudget(toolBudgetLimit);
 
   const chunks = await runner({ externalApi, params, requestId, toolBudget, modelId });

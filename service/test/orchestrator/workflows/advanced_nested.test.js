@@ -75,3 +75,37 @@ test("advanced nested workflow falls back to main query when no subqueries", asy
 
   assert.deepEqual(calls, [{ type: "search", query: "मुख्य" }]);
 });
+
+test("advanced_nested fires parallel guj searches when gujChunks=true", async () => {
+  const calls = [];
+  const externalApi = {
+    search: async (payload) => {
+      calls.push({ language: payload.language, query: payload.query });
+      return [];
+    },
+  };
+
+  const params = {
+    language: "hi",
+    filters: {},
+    gujChunks: true,
+    main_query: { keywords: ["मुख्य"], keywords_guj: ["મુખ્ય"] },
+    sub_queries: [
+      { id: "s1", keywords: ["उप"], keywords_guj: ["ઉપ"] },
+    ],
+  };
+
+  await runAdvancedNestedQuestions({
+    externalApi,
+    params,
+    requestId: "r1",
+    toolBudget: createToolBudget(10),
+    modelId: "gemini-2.5-flash",
+  });
+
+  assert.equal(calls.length, 4);
+  const guCalls = calls.filter((c) => c.language === "gu");
+  const hiCalls = calls.filter((c) => c.language === "hi");
+  assert.equal(guCalls.length, 2);
+  assert.equal(hiCalls.length, 2);
+});

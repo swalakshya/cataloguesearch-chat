@@ -7,6 +7,7 @@ RUN npm install --omit=dev
 
 COPY src ./src
 COPY prompts_sets ./prompts_sets
+COPY prompts_sets_guj_search ./prompts_sets_guj_search
 COPY test ./test
 COPY test_support ./test_support
 

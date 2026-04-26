@@ -8,7 +8,7 @@ test("runKeywordFix uses Step1b prompt and parses JSON", async () => {
   const provider = {
     completeJson: async ({ messages }) => {
       capturedPrompt = messages[1].content;
-      return '{"language":"hi","workflow":"basic_question_v1","is_followup":false,"keywords":["आत्मा"],"filters":{}}';
+      return { text: '{"language":"hi","workflow":"basic_question_v1","is_followup":false,"keywords":["आत्मा"],"filters":{}}', usage_normalized: {} };
     },
   };
 

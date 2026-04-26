@@ -149,3 +149,71 @@ test("followup workflow handles nested followup queries", async () => {
 
   assert.deepEqual(calls, ["मुख्य उप एक", "मुख्य उप दो"]);
 });
+
+test("followup workflow fires parallel guj search for followup keyword sets when gujChunks=true", async () => {
+  const calls = [];
+  const externalApi = {
+    search: async (payload) => {
+      calls.push({ language: payload.language, query: payload.query });
+      return [];
+    },
+    navigate: async () => [],
+  };
+
+  const params = {
+    language: "hi",
+    filters: {},
+    gujChunks: true,
+    keywords: ["मुख्य"],
+    keywords_guj: ["મુખ્ય"],
+    followup_keywords: [
+      { id: "set_1", keywords: ["पहला"], keywords_guj: ["પ્રથમ"] },
+    ],
+    expand_chunk_ids: [],
+  };
+
+  const toolBudget = createToolBudget(10);
+  await runFollowupQuestion({
+    externalApi,
+    params,
+    requestId: "r1",
+    toolBudget,
+    modelId: "gemini-2.5-flash",
+  });
+
+  const guCalls = calls.filter((c) => c.language === "gu");
+  // At least one gu search for main keywords and one for followup set
+  assert.ok(guCalls.length >= 2, `expected at least 2 gu calls, got ${guCalls.length}`);
+});
+
+test("followup workflow navigation calls remain language-agnostic", async () => {
+  let navigateCalls = 0;
+  const externalApi = {
+    search: async () => [],
+    navigate: async () => {
+      navigateCalls += 1;
+      return [];
+    },
+  };
+
+  const params = {
+    language: "hi",
+    filters: {},
+    gujChunks: true,
+    keywords: ["मुख्य"],
+    keywords_guj: ["મુખ્ય"],
+    followup_keywords: [],
+    expand_chunk_ids: ["c1"],
+  };
+
+  const toolBudget = createToolBudget(10);
+  await runFollowupQuestion({
+    externalApi,
+    params,
+    requestId: "r1",
+    toolBudget,
+    modelId: "gemini-2.5-flash",
+  });
+
+  assert.equal(navigateCalls, 1);
+});

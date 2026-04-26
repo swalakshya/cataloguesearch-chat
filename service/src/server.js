@@ -15,7 +15,7 @@ import { runKeywordExtraction } from "./orchestrator/keyword_extract.js";
 import { getPromptRootForModel } from "./orchestrator/prompts.js";
 import { retryWorkflowOnEmptyChunks } from "./orchestrator/keyword_fix_retry.js";
 import { runAnswerSynthesis } from "./orchestrator/answer_synthesis.js";
-import { buildContext, cleanChunks, extractChunkIds } from "./utils/chunk.js";
+import { buildContext, buildMultiLangContext, cleanChunks, extractChunkIds } from "./utils/chunk.js";
 import {
   buildSummaryPrompt,
   compactHistoryIfNeeded,
@@ -419,6 +419,7 @@ export function createServer(options = {}) {
 
       const responseFormat = normalizeResponseFormat(body?.response_format, { fallback: defaultResponseFormat });
       const fullCitationsParam = body?.full_citations;
+      const enableGujChunksParam = body?.enable_guj_chunks;
       if (role !== "user" || !content) {
         log.warn("message_invalid", { sessionId });
         const err = new Error("invalid_message");
@@ -511,6 +512,7 @@ export function createServer(options = {}) {
             uiFilters,
             responseFormat,
             fullCitationsParam,
+            enableGujChunksParam,
             requestId,
             onStage: stageEmitter,
             requestLogContext,
@@ -585,6 +587,7 @@ export function createServer(options = {}) {
     uiFilters,
     responseFormat,
     fullCitationsParam,
+    enableGujChunksParam,
     requestId,
     onStage,
     requestLogContext,
@@ -598,6 +601,18 @@ export function createServer(options = {}) {
       promptRoot: getPromptRootForModel({ modelId: model.id }),
     });
     const baseHistory = Array.isArray(session.conversationHistory) ? [...session.conversationHistory] : [];
+    // Derive gujChunks: requires full_citations=false AND enable_guj_chunks=true.
+    // Evaluated before the first LLM call so the correct prompt set is used from step 1.
+    const fullCitationsParamEnabled =
+      fullCitationsParam !== undefined && fullCitationsParam !== null
+        ? Boolean(fullCitationsParam)
+        : String(process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS || "").toLowerCase() === "true";
+    const gujChunks =
+      !fullCitationsParamEnabled &&
+      (enableGujChunksParam !== undefined && enableGujChunksParam !== null
+        ? Boolean(enableGujChunksParam)
+        : String(process.env.ENABLE_GUJ_CHUNKS || "").toLowerCase() === "true");
+
     onStage?.("understanding");
     let keywordResult = await runKeywordExtraction({
       provider,
@@ -607,6 +622,7 @@ export function createServer(options = {}) {
       },
       requestId,
       modelId: model.id,
+      gujChunks,
       llmCallsCollector: requestLogContext.llmCalls,
     });
     if (testMode && String(content || "").includes("FORCE_FOLLOWUP")) {
@@ -678,6 +694,7 @@ export function createServer(options = {}) {
       provider,
       externalApi,
       modelId: model.id,
+      gujChunks,
       llmCallsCollector: requestLogContext.llmCalls,
       prepareKeywordResult: (result) => {
         const prepared = { ...result };
@@ -716,12 +733,27 @@ export function createServer(options = {}) {
 
     const isMetadataWorkflow = workflowName === "metadata_question_v1";
     const metadataByRealId = isMetadataWorkflow ? {} : buildChunkMetadataMap(chunks);
-    const cleanedChunks = isMetadataWorkflow ? (Array.isArray(chunks) ? chunks : []) : cleanChunks(chunks);
+
+    // When gujChunks is active, split raw chunks by language tag before cleaning
+    // so that deduplication is per-language and context sections stay separate.
+    const useGujContext = gujChunks && !isMetadataWorkflow;
+    const rawHindiChunks = useGujContext ? chunks.filter((c) => c._lang !== "gu") : chunks;
+    const rawGujChunks = useGujContext ? chunks.filter((c) => c._lang === "gu") : [];
+
+    const cleanedHindi = isMetadataWorkflow
+      ? (Array.isArray(chunks) ? chunks : [])
+      : cleanChunks(rawHindiChunks);
+    const cleanedGuj = useGujContext ? cleanChunks(rawGujChunks) : [];
+    // Combined for logging, scoring, and citation expansion
+    const cleanedChunks = useGujContext ? [...cleanedHindi, ...cleanedGuj] : cleanedHindi;
+
     requestLogContext.chunksRetrieved = cleanedChunks.length;
     log.info("context_prepared", {
       requestId,
       sessionId: session.sessionId,
       chunks: cleanedChunks.length,
+      chunks_hindi: useGujContext ? cleanedHindi.length : undefined,
+      chunks_guj: useGujContext ? cleanedGuj.length : undefined,
     });
     const emptyTextCount = cleanedChunks.filter(
       (chunk) => !String(chunk?.t || "").trim()
@@ -736,8 +768,13 @@ export function createServer(options = {}) {
         t: String(chunk?.t || "").slice(0, 200),
       })),
     });
-    const hashedChunks = isMetadataWorkflow ? cleanedChunks : buildHashedChunks(cleanedChunks, session);
-    const context = buildContext(hashedChunks);
+
+    const hashedHindi = isMetadataWorkflow ? cleanedHindi : buildHashedChunks(cleanedHindi, session);
+    const hashedGuj = useGujContext ? buildHashedChunks(cleanedGuj, session) : [];
+    const hashedChunks = useGujContext ? [...hashedHindi, ...hashedGuj] : hashedHindi;
+    const context = useGujContext
+      ? buildMultiLangContext(hashedHindi, hashedGuj)
+      : buildContext(hashedChunks);
     const warnings = [];
     if (!cleanedChunks.length) {
       warnings.push("no_context_found");
@@ -822,6 +859,7 @@ export function createServer(options = {}) {
       modelId: model.id,
       responseFormat,
       fullCitations: fullCitationsParam,
+      gujChunks,
       llmCallsCollector: requestLogContext.llmCalls,
     });
 

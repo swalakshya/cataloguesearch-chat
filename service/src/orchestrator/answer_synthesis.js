@@ -18,6 +18,7 @@ export async function runAnswerSynthesis({
   modelId,
   responseFormat = "combined",
   fullCitations,
+  gujChunks = false,
   llmCallsCollector,
 }) {
   const guidelines = getWorkflowGuidelines(workflowName, { modelId, requestId });
@@ -48,7 +49,7 @@ export async function runAnswerSynthesis({
     workflowName,
     language,
     promptScript,
-    { modelId, requestId, responseFormat, fullCitations }
+    { modelId, requestId, responseFormat, fullCitations, gujChunks }
   );
   const responseJsonSchema = getAnswerSchema({ workflowName, responseFormat });
   log.info("answer_synthesis_prompt_tokens_estimate", {
@@ -56,8 +57,12 @@ export async function runAnswerSynthesis({
     tokens_estimate: estimateTokens(prompt),
   });
 
+  const systemMessage = gujChunks
+    ? "You are a Jain texts scholar with deep expertise in both Hindi and Gujarati sacred literature. Your task is to answer user questions drawing from whichever passages best support the answer — you may use both Hindi and Gujarati chunks, but translate any chunk content you include inline (citations) into the final answer language."
+    : "You are a Jain texts scholar. You task is to answer a user question/request.";
+
   const messages = [
-    { role: "system", content: "You are a Jain texts scholar. You task is to answer a user question/request." },
+    { role: "system", content: systemMessage },
     { role: "user", content: prompt },
   ];
 

@@ -16,6 +16,7 @@ export const MODEL_ROUTING_CONFIG = {
     ? readNumber(process.env.TEST_MIN_SAMPLES, 20)
     : 20,
   workflowDefaults: {
+    gujarati_page_size: 5,
     basic: {
       page: 1,
       page_size: 15,
@@ -62,6 +63,7 @@ export const MODEL_ROUTING_CONFIG = {
       provider: "openai",
       priority: 3,
       workflowOverrides: {
+        gujarati_page_size: 3,
         basic: {
           page_size: 7,
         },

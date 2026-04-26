@@ -1,11 +1,11 @@
 import { getKeywordFixPrompt } from "./prompts.js";
-import { KEYWORD_EXTRACTION_SCHEMA } from "../config/keyword_schema.js";
+import { KEYWORD_EXTRACTION_SCHEMA, KEYWORD_EXTRACTION_SCHEMA_GUJ_SEARCH } from "../config/keyword_schema.js";
 import { parseJsonStrict } from "../utils/json.js";
 import { estimateTokens } from "../utils/token.js";
 import { log } from "../utils/log.js";
 
-export async function runKeywordFix({ provider, question, step1Json, requestId, modelId, llmCallsCollector }) {
-  const prompt = getKeywordFixPrompt(question, step1Json, { modelId, requestId });
+export async function runKeywordFix({ provider, question, step1Json, requestId, modelId, gujChunks = false, llmCallsCollector }) {
+  const prompt = getKeywordFixPrompt(question, step1Json, { modelId, requestId, gujChunks });
   log.info("keyword_fix_prompt_tokens_estimate", {
     requestId,
     tokens_estimate: estimateTokens(prompt),
@@ -16,11 +16,13 @@ export async function runKeywordFix({ provider, question, step1Json, requestId, 
     { role: "user", content: prompt },
   ];
 
+  const responseJsonSchema = gujChunks ? KEYWORD_EXTRACTION_SCHEMA_GUJ_SEARCH : KEYWORD_EXTRACTION_SCHEMA;
+
   const result = await provider.completeJson({
     messages,
     temperature: 0,
     requestId,
-    responseJsonSchema: KEYWORD_EXTRACTION_SCHEMA,
+    responseJsonSchema,
   });
 
   const raw = result.text;

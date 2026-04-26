@@ -1,5 +1,5 @@
 import { getKeywordPrompt, isPromptV2 } from "./prompts.js";
-import { KEYWORD_EXTRACTION_SCHEMA } from "../config/keyword_schema.js";
+import { KEYWORD_EXTRACTION_SCHEMA, KEYWORD_EXTRACTION_SCHEMA_GUJ_SEARCH } from "../config/keyword_schema.js";
 import { formatConversationHistory } from "./conversation_history.js";
 import { parseJsonStrict } from "../utils/json.js";
 import { estimateTokens } from "../utils/token.js";
@@ -11,6 +11,7 @@ export async function runKeywordExtraction({
   sessionContext,
   requestId,
   modelId,
+  gujChunks = false,
   llmCallsCollector,
 }) {
   const useV2 = isPromptV2();
@@ -19,7 +20,7 @@ export async function runKeywordExtraction({
     includeAnswers: true,
     compact: useV2,
   });
-  const prompt = getKeywordPrompt(question, history, { modelId, requestId });
+  const prompt = getKeywordPrompt(question, history, { modelId, requestId, gujChunks });
   log.info("keyword_extract_prompt_tokens_estimate", {
     requestId,
     tokens_estimate: estimateTokens(prompt),
@@ -30,11 +31,13 @@ export async function runKeywordExtraction({
     { role: "user", content: prompt },
   ];
 
+  const responseJsonSchema = gujChunks ? KEYWORD_EXTRACTION_SCHEMA_GUJ_SEARCH : KEYWORD_EXTRACTION_SCHEMA;
+
   const result = await provider.completeJson({
     messages,
     temperature: 0,
     requestId,
-    responseJsonSchema: KEYWORD_EXTRACTION_SCHEMA,
+    responseJsonSchema,
   });
 
   const raw = result.text;

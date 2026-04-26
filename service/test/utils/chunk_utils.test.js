@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { cleanChunk, cleanChunks, buildContext, extractChunkIds } from "../../src/utils/chunk.js";
+import { cleanChunk, cleanChunks, buildContext, extractChunkIds, buildMultiLangContext } from "../../src/utils/chunk.js";
 
 test("cleanChunk normalizes fields", () => {
   const chunk = cleanChunk({ chunk_id: "c1", file_url: "u", page_number: 1, text_content: "t" });
@@ -34,4 +34,31 @@ test("buildContext supports metadata options", () => {
   ]);
   assert.ok(ctx.includes("metadata"));
   assert.ok(ctx.includes("Samaysaar"));
+});
+
+test("buildMultiLangContext includes both sections", () => {
+  const hindiChunks = [{ id: "h1", t: "hindi text" }];
+  const gujaratiChunks = [{ id: "g1", t: "gujarati text" }];
+  const output = buildMultiLangContext(hindiChunks, gujaratiChunks);
+  assert.ok(output.includes("### Hindi Passages"));
+  assert.ok(output.includes("### Gujarati Passages"));
+});
+
+test("buildMultiLangContext omits gujarati section when empty", () => {
+  const hindiChunks = [{ id: "h1", t: "hindi text" }];
+  const output = buildMultiLangContext(hindiChunks, []);
+  assert.equal(output.includes("### Gujarati Passages"), false);
+  assert.ok(output.length > 0);
+});
+
+test("buildMultiLangContext omits hindi section when empty", () => {
+  const gujaratiChunks = [{ id: "g1", t: "gujarati text" }];
+  const output = buildMultiLangContext([], gujaratiChunks);
+  assert.equal(output.includes("### Hindi Passages"), false);
+  assert.ok(output.includes("### Gujarati Passages"));
+});
+
+test("buildMultiLangContext returns empty string when both empty", () => {
+  const output = buildMultiLangContext([], []);
+  assert.equal(output, "");
 });

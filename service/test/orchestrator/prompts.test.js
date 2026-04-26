@@ -134,3 +134,13 @@ test("getAnswerPrompt defaults to standard prompt when fullCitations not set and
     if (original !== undefined) process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS = original;
   }
 });
+
+test("getKeywordPrompt uses guj search prompt when gujChunks=true", () => {
+  const prompt = getKeywordPrompt("What is Atma?", "[]", { gujChunks: true });
+  assert.ok(prompt.includes("keywords_guj"), "expected guj search step1 prompt to mention keywords_guj");
+});
+
+test("getAnswerPrompt uses guj search prompt when gujChunks=true", () => {
+  const prompt = getAnswerPrompt("Q?", "CTX", "", "", "basic_question_v1", "", "", { gujChunks: true });
+  assert.ok(prompt.includes("Citation Language Rule"), "expected guj search step2 prompt to mention Citation Language Rule");
+});

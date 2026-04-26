@@ -181,7 +181,7 @@ test("runWorkflow maps mismatched filters with llm", async () => {
   };
   const provider = {
     completeJson: async () =>
-      JSON.stringify({ granth: "Samaysaar", anuyog: "", contributor: "" }),
+      ({ text: JSON.stringify({ granth: "Samaysaar", anuyog: "", contributor: "" }), usage_normalized: {} }),
   };
 
   await runWorkflow({

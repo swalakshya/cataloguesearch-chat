@@ -6,6 +6,7 @@ import crypto from "crypto";
 
 import { SessionRegistry } from "./sessions/registry.js";
 import { SessionStore } from "./sessions/session_store.js";
+import { MessageJobStore, MemoryMessageJobStore } from "./sessions/message_job_store.js";
 import { FeedbackStore } from "./feedback/feedback_store.js";
 import { registerFeedbackRoutes } from "./feedback/feedback_routes.js";
 import { RequestLogStore } from "./request_logs/request_log_store.js";
@@ -104,6 +105,7 @@ export function createServer(options = {}) {
   const sessionStore = chatDbPath ? new SessionStore(chatDbPath) : null;
   const feedbackStore = chatDbPath ? new FeedbackStore(chatDbPath) : null;
   const requestLogStore = chatDbPath ? new RequestLogStore(chatDbPath) : null;
+  const messageJobStore = chatDbPath ? new MessageJobStore(chatDbPath) : new MemoryMessageJobStore();
   const registry = new SessionRegistry(sessionIdleMs, sessionStore);
   const sessionTokenLimit = resolveSessionTokenLimit({
     explicitLimit: options.sessionTokenLimit,
@@ -116,6 +118,11 @@ export function createServer(options = {}) {
     searching: "Searching through our scriptures",
     preparing: "Preparing answer",
   };
+
+  // In-memory SSE event buffers keyed by messageId.
+  // Lives for the process lifetime; persisted to messageJobStore on job completion
+  // so reconnects after process restart can replay from the DB.
+  const eventBuffers = new Map();
 
   let httpServer = null;
   let stopped = false;
@@ -149,6 +156,7 @@ export function createServer(options = {}) {
       registry.clear();
       sessionStore?.clear();
       requestLogStore?.clear();
+      messageJobStore?.clear();
       res.json({ status: "ok" });
     });
 
@@ -248,20 +256,148 @@ export function createServer(options = {}) {
   });
 
   app.post("/v1/chat/sessions/:sessionId/messages", async (req, res) => {
-    try {
-      const responsePayload = await executeMessageRequest({
-        sessionId: req.params.sessionId,
-        body: req.body,
-      });
-      log.verbose("api_response", {
-        requestId: responsePayload.tool_trace_id,
-        sessionId: req.params.sessionId,
-        response: responsePayload,
-      });
-      res.json(responsePayload);
-    } catch (err) {
-      const mapped = mapMessageRequestError(err);
-      res.status(mapped.status).json(mapped.body);
+    const sessionId = req.params.sessionId;
+    const body = req.body || {};
+    const { role, content, client_message_id: rawClientId } = body;
+
+    // Synchronous pre-validation (before creating any job)
+    const session = registry.get(sessionId);
+    if (!session) return res.status(404).json({ detail: "session_not_found" });
+    if (role !== "user" || !content) return res.status(400).json({ detail: "invalid_message" });
+
+    const messageId = rawClientId ? String(rawClientId).trim() : crypto.randomUUID();
+    if (!messageId) return res.status(400).json({ detail: "invalid_client_message_id" });
+
+    const requestHash = hashRequestPayload({ sessionId, content, filters: body.filters });
+
+    // Idempotency: check if this client_message_id was already submitted
+    const existingJob = messageJobStore.get(messageId);
+    if (existingJob) {
+      if (existingJob.session_id !== sessionId) return res.status(403).json({ detail: "forbidden" });
+      if (existingJob.request_hash !== requestHash) return res.status(409).json({ detail: "idempotency_conflict" });
+      if (existingJob.status === "done") {
+        const result = safeParseJson(existingJob.result_json);
+        return res.status(200).json({ message_id: messageId, status: "done", ...result });
+      }
+      if (existingJob.status === "error") {
+        const errorPayload = safeParseJson(existingJob.result_json);
+        return res.status(errorPayload.http_status || 500).json({ detail: errorPayload.detail || "message_failed" });
+      }
+      return res.status(202).json({ message_id: messageId, status: "processing" });
+    }
+
+    if (session.busy) return res.status(409).json({ detail: "session_busy" });
+
+    // Register the job and start background processing
+    messageJobStore.create({ messageId, sessionId, requestHash });
+    session.busy = true;
+
+    // Create in-memory event buffer for SSE replay (SF2)
+    const buffer = createEventBuffer();
+    eventBuffers.set(messageId, buffer);
+
+    setImmediate(async () => {
+      try {
+        const result = await executeMessageRequest({
+          sessionId,
+          body,
+          onStage: (event) => buffer.push({ type: "stage", ...event }),
+        });
+        log.verbose("api_response", { requestId: result.tool_trace_id, sessionId, response: result });
+        buffer.push({ type: "final", data: result });
+        messageJobStore.setDone(messageId, result, buffer.events);
+      } catch (err) {
+        const mapped = mapMessageRequestError(err);
+        const errorPayload = { http_status: mapped.status, detail: mapped.body?.detail || "message_failed" };
+        buffer.push({ type: "error", status: mapped.status, detail: errorPayload.detail });
+        messageJobStore.setError(messageId, errorPayload, buffer.events);
+      } finally {
+        buffer.close();
+        session.busy = false;
+      }
+    });
+
+    res.status(202).json({ message_id: messageId, status: "processing" });
+  });
+
+  app.get("/v1/chat/sessions/:sessionId/messages/:messageId/result", (req, res) => {
+    const session = registry.get(req.params.sessionId);
+    if (!session) return res.status(404).json({ detail: "session_not_found" });
+
+    const job = messageJobStore.get(req.params.messageId);
+    if (!job) return res.status(404).json({ detail: "message_not_found" });
+    if (job.session_id !== req.params.sessionId) return res.status(403).json({ detail: "forbidden" });
+
+    if (job.status === "processing") {
+      return res.status(202).json({ status: "processing", message_id: job.message_id });
+    }
+
+    const result = safeParseJson(job.result_json);
+    if (job.status === "error") {
+      return res.status(result.http_status || 500).json({ detail: result.detail || "message_failed" });
+    }
+
+    // done
+    return res.status(200).json({ status: "done", message_id: job.message_id, ...result });
+  });
+
+  app.get("/v1/chat/sessions/:sessionId/messages/:messageId/stream", (req, res) => {
+    const { sessionId, messageId } = req.params;
+
+    const session = registry.get(sessionId);
+    if (!session) return res.status(404).json({ detail: "session_not_found" });
+
+    // Determine replay cursor from Last-Event-ID header (browser auto-reconnect)
+    // or ?last_event_id query param (app-driven reconnect after mobile wake-up).
+    const rawLastId = req.headers["last-event-id"] ?? req.query.last_event_id ?? null;
+    let cursor = rawLastId !== null && rawLastId !== "" ? Number(rawLastId) + 1 : 0;
+    if (!Number.isFinite(cursor) || cursor < 0) cursor = 0;
+
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    if (typeof res.flushHeaders === "function") res.flushHeaders();
+
+    const buffer = eventBuffers.get(messageId);
+
+    if (!buffer) {
+      // Buffer is gone (server restart or expired). Fall back to persisted events in the DB.
+      const job = messageJobStore.get(messageId);
+      if (!job) {
+        writeSseEventWithId(res, null, { type: "error", status: 404, detail: "message_not_found" });
+        res.end();
+        return;
+      }
+      if (job.session_id !== sessionId) {
+        writeSseEventWithId(res, null, { type: "error", status: 403, detail: "forbidden" });
+        res.end();
+        return;
+      }
+      const events = messageJobStore.getEvents(messageId);
+      for (let i = cursor; i < events.length; i++) {
+        writeSseEventWithId(res, i, events[i]);
+      }
+      res.end();
+      return;
+    }
+
+    // Job is in-progress (or just finished): stream live from in-memory buffer
+    const flush = () => {
+      while (cursor < buffer.events.length && !res.writableEnded) {
+        writeSseEventWithId(res, cursor, buffer.events[cursor]);
+        cursor++;
+      }
+      if (buffer.done && !res.writableEnded) {
+        res.end();
+      }
+    };
+
+    flush(); // send any already-buffered events immediately
+
+    if (!buffer.done) {
+      buffer.addListener(flush);
+      req.on("close", () => buffer.removeListener(flush));
     }
   });
 
@@ -270,6 +406,13 @@ export function createServer(options = {}) {
     if (responseFormat !== "structured") {
       return res.status(400).json({ detail: "invalid_response_format" });
     }
+
+    // Pre-flight busy check before entering SSE mode so errors can be JSON
+    const streamSession = registry.get(req.params.sessionId);
+    if (!streamSession) return res.status(404).json({ detail: "session_not_found" });
+    if (streamSession.busy) return res.status(409).json({ detail: "session_busy" });
+
+    streamSession.busy = true;
 
     res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache, no-transform");
@@ -300,6 +443,8 @@ export function createServer(options = {}) {
         writeSseEvent(res, { type: "error", status: mapped.status, detail: mapped.body?.detail || "message_failed" });
         res.end();
       }
+    } finally {
+      streamSession.busy = false;
     }
   });
 
@@ -315,6 +460,7 @@ export function createServer(options = {}) {
       created_at: session.createdAt / 1000,
       last_activity_at: session.lastActivityAt / 1000,
       messages: session.messages,
+      busy: session.busy === true,
     });
   });
 
@@ -368,6 +514,7 @@ export function createServer(options = {}) {
     sessionStore?.close();
     feedbackStore?.close();
     requestLogStore?.close();
+    messageJobStore?.close();
   }
 
   function getBaseUrl() {
@@ -409,14 +556,6 @@ export function createServer(options = {}) {
       }
       requestLogContext.sessionId = session.sessionId;
 
-      if (session.busy) {
-        log.warn("message_session_busy", { sessionId });
-        const err = new Error("session_busy");
-        err.status = 409;
-        err.detail = "session_busy";
-        throw err;
-      }
-
       const responseFormat = normalizeResponseFormat(body?.response_format, { fallback: defaultResponseFormat });
       const fullCitationsParam = body?.full_citations;
       const enableGujChunksParam = body?.enable_guj_chunks;
@@ -456,7 +595,6 @@ export function createServer(options = {}) {
         throw err;
       }
 
-      session.busy = true;
       session.lastActivityAt = Date.now();
       session.messages.push({ role: "user", content });
       session.tokenCount = (session.tokenCount || 0) + estimateTokens(content);
@@ -568,10 +706,6 @@ export function createServer(options = {}) {
         requestLogWritten = true;
       }
       throw err;
-    } finally {
-      if (session) {
-        session.busy = false;
-      }
     }
   }
 
@@ -1172,6 +1306,32 @@ function writeSseEvent(res, payload) {
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
+function writeSseEventWithId(res, id, payload) {
+  const idLine = id !== null && id !== undefined ? `id: ${id}\n` : "";
+  res.write(`${idLine}data: ${JSON.stringify(payload)}\n\n`);
+}
+
+function createEventBuffer() {
+  const buf = {
+    events: [],
+    done: false,
+    _listeners: new Set(),
+    push(event) {
+      const indexed = { ...event, _idx: this.events.length };
+      this.events.push(indexed);
+      for (const fn of this._listeners) fn();
+    },
+    close() {
+      this.done = true;
+      for (const fn of this._listeners) fn();
+      this._listeners.clear();
+    },
+    addListener(fn) { this._listeners.add(fn); },
+    removeListener(fn) { this._listeners.delete(fn); },
+  };
+  return buf;
+}
+
 function normalizeUiFilters(filters) {
   if (!filters || typeof filters !== "object") return null;
   const cleaned = {
@@ -1286,6 +1446,19 @@ function normalizePravachankar(chunk, metadata) {
 
 function readBooleanEnv(name) {
   return String(process.env[name] || "").toLowerCase() === "true";
+}
+
+function hashRequestPayload({ sessionId, content, filters }) {
+  const raw = JSON.stringify({ sessionId, content, filters: filters || null });
+  return crypto.createHash("sha256").update(raw).digest("hex");
+}
+
+function safeParseJson(raw) {
+  try {
+    return JSON.parse(raw || "{}");
+  } catch {
+    return {};
+  }
 }
 
 export function buildHashedChunksForTest(chunks, session) {

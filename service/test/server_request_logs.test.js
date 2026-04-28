@@ -35,6 +35,14 @@ async function postJson(baseUrl, route, body, headers = {}) {
     body: JSON.stringify(body || {}),
     signal: AbortSignal.timeout(10_000),
   });
+  if (res.status === 202 && /\/messages$/.test(route)) {
+    const submitted = await res.json();
+    const sessionId = route.match(/\/sessions\/([^/]+)\/messages/)?.[1];
+    if (sessionId && submitted?.message_id) {
+      return pollMessageResult(baseUrl, sessionId, submitted.message_id);
+    }
+    return { res, json: submitted };
+  }
   const json = await res.json();
   return { res, json };
 }
@@ -46,6 +54,21 @@ async function getJson(baseUrl, route, headers = {}) {
   });
   const json = await res.json();
   return { res, json };
+}
+
+async function pollMessageResult(baseUrl, sessionId, messageId, timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs;
+  const route = `/v1/chat/sessions/${sessionId}/messages/${messageId}/result`;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const res = await fetch(`${baseUrl}${route}`, {
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (res.status === 202) continue;
+    const json = await res.json();
+    return { res, json };
+  }
+  throw new Error(`poll_timeout: message ${messageId} did not complete within deadline`);
 }
 
 test("shared chat DB stores feedback and request logs, and exposes admin request log API", async () => {

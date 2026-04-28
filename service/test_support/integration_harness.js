@@ -61,8 +61,37 @@ export async function post(baseUrl, route, body) {
     body: JSON.stringify(body || {}),
     signal: AbortSignal.timeout(10_000),
   });
+
+  // Transparently poll for async message jobs so existing tests need no changes
+  if (res.status === 202 && /\/messages$/.test(route)) {
+    const submitted = await res.json();
+    const sessionId = route.match(/\/sessions\/([^/]+)\/messages/)?.[1];
+    if (sessionId && submitted.message_id) {
+      return pollMessageResult(baseUrl, sessionId, submitted.message_id);
+    }
+  }
+
   const json = await res.json();
   return { res, json };
+}
+
+async function pollMessageResult(baseUrl, sessionId, messageId) {
+  const resultRoute = `/v1/chat/sessions/${sessionId}/messages/${messageId}/result`;
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    await sleep(80);
+    const res = await fetch(`${baseUrl}${resultRoute}`, {
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (res.status === 202) continue;
+    const json = await res.json();
+    return { res, json };
+  }
+  throw new Error(`poll_timeout: message ${messageId} did not complete within deadline`);
+}
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 export async function get(baseUrl, route) {

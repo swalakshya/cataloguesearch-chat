@@ -7,6 +7,7 @@
     "start": "node $([ -f .env.local ] && echo '--env-file=.env.local') src/server.js",
     "migrate:request-logs": "node scripts/migrate-request-logs.js",
     "test": "node --test $(find test -name '*.test.js' -print | sort)",
+    "test:live:resilience": "node scripts/live_resilience/index.mjs",
     "test:docker": "sh scripts/run-tests-docker.sh",
     "test:integration:docker": "sh scripts/run-integration-tests-docker.sh"
   },

@@ -52,13 +52,6 @@ export async function runKbKeywordCheck({
   const matched = resolutions.filter((r) => MATCHED_KINDS.has(r?.match_kind));
   const missed = resolutions.filter((r) => r?.match_kind === "none");
 
-  log.info("kb_keyword_check_split", {
-    requestId,
-    total: resolutions.length,
-    matched: matched.length,
-    missed: missed.length,
-  });
-
   // Build canonical replacement map for tokens that differ from their natural key
   const canonicalMap = {};
   for (const resolution of matched) {
@@ -68,6 +61,14 @@ export async function runKbKeywordCheck({
       canonicalMap[original] = canonical;
     }
   }
+
+  log.info("kb_keyword_check_split", {
+    requestId,
+    total: resolutions.length,
+    matched: matched.length,
+    missed: missed.length,
+    correctedKeywords: Object.keys(canonicalMap).length > 0 ? canonicalMap : undefined,
+  });
 
   let result = { ...step1Result };
 

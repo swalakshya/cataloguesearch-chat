@@ -19,8 +19,15 @@ function makeTopic(overrides = {}) {
     score: 0.8,
     is_leaf: true,
     source: "topics_match",
-    extracts_hi: [{ block_index: 0, text_hi: "आत्मा का स्वरूप..." }],
-    references: [{ shastra_natural_key: "samaysaar", gatha_number: 1, teeka_natural_key: null, page_number: 10 }],
+    extracts_hi: [{
+      block_index: 0,
+      text_hi: "आत्मा का स्वरूप...",
+      main_reference: {
+        shastra_name: "समयसार",
+        teeka_name: null,
+        resolved_fields: [{ field: "गाथा", value: 1 }],
+      },
+    }],
     ...overrides,
   };
 }
@@ -191,24 +198,85 @@ test("formatKbTopicsContext: single topic — correct header and fields", () => 
     makeTopic({
       display_text_hi: "आत्मा",
       ancestors_hi: ["दर्शन", "जीव"],
-      extracts_hi: [{ block_index: 0, text_hi: "आत्मा का स्वरूप है।" }],
-      references: [{ shastra_natural_key: "samaysaar", gatha_number: 6, teeka_natural_key: null, page_number: 42 }],
+      extracts_hi: [{
+        block_index: 0,
+        text_hi: "आत्मा का स्वरूप है।",
+        main_reference: {
+          shastra_name: "समयसार",
+          teeka_name: null,
+          resolved_fields: [{ field: "गाथा", value: 6 }],
+        },
+      }],
     }),
   ];
   const out = formatKbTopicsContext(topics).text;
   assert.ok(out.startsWith("### KB Topics (Hindi extracts, closest first)"), "header present");
   assert.ok(out.includes("topic: आत्मा"), "topic line present");
-  assert.ok(out.includes("path: दर्शन / जीव / आत्मा"), "path with ancestors");
+  assert.ok(!out.includes("path:"), "path line must be removed");
   assert.ok(out.includes("extract: आत्मा का स्वरूप है।"), "extract line present");
-  assert.ok(out.includes("shastra=samaysaar"), "shastra ref present");
-  assert.ok(out.includes("gatha=6"), "gatha ref present");
-  assert.ok(out.includes("page=42"), "page ref present");
+  assert.ok(out.includes("ref: shastra=समयसार, गाथा=6"), "per-extract main ref present");
 });
 
-test("formatKbTopicsContext: topic with no ancestors — path is just display_text_hi", () => {
-  const topics = [makeTopic({ ancestors_hi: [], display_text_hi: "कर्म" })];
+test("formatKbTopicsContext: all extracts rendered, each with its own ref", () => {
+  const topics = [makeTopic({
+    extracts_hi: [
+      {
+        block_index: 0,
+        text_hi: "पहला अंश।",
+        main_reference: { shastra_name: "मोक्ष पाहुड़", teeka_name: null, resolved_fields: [{ field: "गाथा", value: 8 }] },
+      },
+      {
+        block_index: 1,
+        text_hi: "दूसरा अंश।",
+        main_reference: { shastra_name: "समाधिशतक", teeka_name: null, resolved_fields: [{ field: "गाथा", value: 4 }] },
+      },
+    ],
+  })];
   const out = formatKbTopicsContext(topics).text;
-  assert.ok(out.includes("path: कर्म"), "path is just display_text_hi when no ancestors");
+  assert.ok(out.includes("extract: पहला अंश।"), "first extract present");
+  assert.ok(out.includes("ref: shastra=मोक्ष पाहुड़, गाथा=8"), "first extract ref");
+  assert.ok(out.includes("extract: दूसरा अंश।"), "second extract present");
+  assert.ok(out.includes("ref: shastra=समाधिशतक, गाथा=4"), "second extract ref");
+});
+
+test("formatKbTopicsContext: excluded fields dropped and shastra prefix stripped", () => {
+  const topics = [makeTopic({
+    extracts_hi: [{
+      block_index: 0,
+      text_hi: "धवला अंश।",
+      main_reference: {
+        shastra_name: "धवला",
+        teeka_name: null,
+        resolved_fields: [
+          { field: "पुस्तक", value: 13 },
+          { field: "धवलासूत्र", value: 50 },
+          { field: "पृष्ठ", value: 282 },
+          { field: "पंक्ति", value: 11 },
+        ],
+      },
+    }],
+  })];
+  const out = formatKbTopicsContext(topics).text;
+  assert.ok(out.includes("ref: shastra=धवला, सूत्र=50"), "prefix stripped, locator fields dropped");
+  assert.ok(!out.includes("पुस्तक"), "पुस्तक excluded");
+  assert.ok(!out.includes("पृष्ठ"), "पृष्ठ excluded");
+  assert.ok(!out.includes("पंक्ति"), "पंक्ति excluded");
+});
+
+test("formatKbTopicsContext: teeka name included in ref", () => {
+  const topics = [makeTopic({
+    extracts_hi: [{
+      block_index: 0,
+      text_hi: "टीका अंश।",
+      main_reference: {
+        shastra_name: "द्रव्यसंग्रह",
+        teeka_name: "टीका",
+        resolved_fields: [{ field: "गाथा", value: 57 }],
+      },
+    }],
+  })];
+  const out = formatKbTopicsContext(topics).text;
+  assert.ok(out.includes("ref: shastra=द्रव्यसंग्रह, teeka=टीका, गाथा=57"), "teeka present in ref");
 });
 
 test("formatKbTopicsContext: topic with no extracts — no extract line", () => {
@@ -217,20 +285,11 @@ test("formatKbTopicsContext: topic with no extracts — no extract line", () => 
   assert.ok(!out.includes("extract:"), "extract line must be absent when no extracts");
 });
 
-test("formatKbTopicsContext: topic with no references — no refs line", () => {
-  const topics = [makeTopic({ references: null })];
+test("formatKbTopicsContext: extract with no main_reference — no ref line", () => {
+  const topics = [makeTopic({ extracts_hi: [{ block_index: 0, text_hi: "बिना संदर्भ।", main_reference: null }] })];
   const out = formatKbTopicsContext(topics).text;
-  assert.ok(!out.includes("refs:"), "refs line must be absent when no references");
-});
-
-test("formatKbTopicsContext: ref with null fields — only non-null fields included", () => {
-  const topics = [makeTopic({
-    references: [{ shastra_natural_key: "samaysaar", gatha_number: null, teeka_natural_key: null, page_number: null }],
-  })];
-  const out = formatKbTopicsContext(topics).text;
-  assert.ok(out.includes("shastra=samaysaar"), "shastra present");
-  assert.ok(!out.includes("gatha="), "null gatha omitted");
-  assert.ok(!out.includes("page="), "null page omitted");
+  assert.ok(out.includes("extract: बिना संदर्भ।"), "extract present");
+  assert.ok(!out.includes("ref:"), "ref line absent when no main_reference");
 });
 
 test("formatKbTopicsContext: topic with neighbors — related line rendered", () => {

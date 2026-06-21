@@ -10,9 +10,6 @@
 - Do not invent filters if not explicitly requested.
 - Do not output reasoning.
 
-## User Question
-<QUESTION_HERE>
-
 ---
 ## Workflow Catalog
 
@@ -57,7 +54,7 @@ E.g: "Acharya kundkund ne konse granth likhe hain?" / "Samaysaar shastra kisne l
    - If PureRequest: skip
 7) If `is_followup=false`: select best workflow and fill keywords/queries/main_query accordingly.
 8) **Jain Keyword Classification**: For each extracted keyword from all the fields (keywords, followup_keywords, keywords in queries, main_query, sub_queries), classify it into exactly one of:
-   - `jain_keywords[]` — Jain-tradition terms: Religious or philosophical vocabulary (tattvas, karma types, shastra names, deity/tirthankara names, Jain concepts such as आत्मा, मोक्ष, द्रव्य, संसार, etc.)
+   - `jain_keywords[]` — Jain-tradition terms: Religious or philosophical vocabulary (tattvas, karma types, shastra names, deity/tirthankara names, Jain concepts such as आत्मा, मोक्ष, द्रव्य, संसार, Some canonical words which can have specific meaning in jainism like वस्तु, स्वभाव, गुण etc., prefer jain keywords if you are not sure)
    - `normal_keywords[]` — common/functional words not specific to Jain tradition
    **Rule:** Every keyword must appear in exactly one array.
 9) **KB entities**: Extract any shastra names or author names explicitly mentioned in the question into `kb_entities`.
@@ -129,3 +126,7 @@ Workflow-specific fields:
 - Keywords must be Hindi in Devanagari.
 - Do not invent filters.
 - `jain_keywords ∪ normal_keywords` must equal `keywords[]` exactly.
+
+---
+## User Question
+<QUESTION_HERE>

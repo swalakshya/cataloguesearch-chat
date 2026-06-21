@@ -83,12 +83,20 @@ added optional line per topic:
 
 ```
 ### KB Topics (Hindi extracts, closest first)
-- topic: <display_text_hi> (path: <ancestors_hi> / <display_text_hi>)
-  extract: <text_hi truncated>
-  refs: shastra=<sn>, gatha=<n>, page=<p>
+- topic: <display_text_hi>
+  extract: <text_hi of extract 1>
+  ref: shastra=<sn>[, teeka=<tn>], <field>=<val>, …
+  extract: <text_hi of extract 2>
+  ref: shastra=<sn>, …
   related: <display_text_hi of related_topics, comma-joined, capped>
 - …
 ```
+
+> **Updated 2026-06-21** — the topic context now renders **all** extracts (not
+> just the first) and pairs **each** extract with its own `ref:` line, derived
+> from the extract's `main_reference` (see backend
+> [`05_definitions_and_extracts_hydration.md`](../../../../dictionary-and-metadata-service/docs/design/query_engine/05_definitions_and_extracts_hydration.md)).
+> See the Implementation Notes below for the exact rules.
 
 ## Config (Phase 8 additions)
 
@@ -138,4 +146,26 @@ KB_TOPIC_MERGE_LIMIT=5          # final cap across anchors (existing)
 - [ ] Caps configurable: `KB_TOPIC_MATCH_LIMIT`, `KB_TOPIC_NEIGHBORS_LIMIT`,
       `KB_TOPIC_MERGE_LIMIT`.
 - [ ] Step2 `related:` line rendered; Phase 4 / Phase 7 consumers unaffected.
-</content>
+
+## Implementation Notes (2026-06-21) — all extracts + per-extract `ref:`
+
+The earlier `formatKbTopicsContext` showed only `extracts_hi[0]` and a single
+topic-level `refs:` line built from the flattened (cross-extract) `references`
+list. That dropped later extracts and merged refs from different extracts under
+one heading. Fixed in `src/orchestrator/kb_topic_match.js`:
+
+- **Path removed** — the topic line is now `- [id] topic: <display_text_hi>`
+  (no `(path: …)`).
+- **All extracts rendered** — iterate `topic.extracts_hi`, emitting an
+  `extract:` line per block.
+- **Per-extract main ref** — each extract's `main_reference` (added by the
+  backend hydrator; the modal's first non-inline resolved ref) is rendered as a
+  single `ref:` line. The topic-level `refs:` line is gone.
+- **`formatMainRef(mainReference)`** builds `shastra=<name>[, teeka=<name>]`
+  then appends every `resolved_fields` entry **except** the publication
+  locators `पुस्तक` / `पृष्ठ` / `पंक्ति` (`EXCLUDED_REF_FIELDS`). Field names
+  carrying a shastra/teeka prefix are stripped via `stripSourcePrefix`
+  (e.g. `धवलासूत्र` → `सूत्र`, `श्लोकवार्तिकवार्तिक` → `वार्तिक`). Returns null
+  when nothing remains, so an extract with no `main_reference` emits no `ref:`.
+- `source_url` citation tagging (`[KB-T-n]`) and the `related:` line are
+  unchanged.

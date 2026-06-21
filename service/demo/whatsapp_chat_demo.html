@@ -881,6 +881,8 @@
         await ensureSession();
         const gujChunks = isGujChunksEnabled();
         const needsShortCitations = getAnswerType() === "combined" || gujChunks;
+
+        // POST to enqueue the message — server returns 202 with message_id
         const res = await fetch(`${base()}/v1/chat/sessions/${state.sessionId}/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -893,10 +895,38 @@
             filters: buildFilters(),
           }),
         });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.detail || `Message failed: ${res.status}`);
-        json._guj_chunks_requested = gujChunks;
-        return json;
+        const initJson = await res.json();
+        if (!res.ok) throw new Error(initJson.detail || `Message failed: ${res.status}`);
+
+        // If the job was already done (idempotent replay), return immediately
+        if (initJson.status === "done") {
+          initJson._guj_chunks_requested = gujChunks;
+          return initJson;
+        }
+
+        // Poll the result endpoint until done
+        const messageId = initJson.message_id;
+        const pollUrl = `${base()}/v1/chat/sessions/${state.sessionId}/messages/${messageId}/result`;
+        const maxWaitMs = 120_000;
+        const pollIntervalMs = 600;
+        const deadline = Date.now() + maxWaitMs;
+
+        while (Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, pollIntervalMs));
+          const pollRes = await fetch(pollUrl);
+          const pollJson = await pollRes.json();
+          if (!pollRes.ok) throw new Error(pollJson.detail || `Poll failed: ${pollRes.status}`);
+          if (pollJson.status === "done") {
+            pollJson._guj_chunks_requested = gujChunks;
+            return pollJson;
+          }
+          if (pollJson.status === "error") {
+            throw new Error(pollJson.detail || "Message processing failed");
+          }
+          // status === "processing" — keep polling
+        }
+
+        throw new Error("Timed out waiting for response (>2 min)");
       }
 
       /* ── Past chats ────────────────────────────────────────── */

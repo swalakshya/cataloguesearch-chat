@@ -15,9 +15,6 @@
 - Add scoring only for chunk_ids that directly support the final answer from context (score 1-100).
 - Always adhere to the *Specific Answering Guidelines* section below when generating answer.
 
-## User Question
-<QUESTION_HERE>
-
 ---
 ## Formatting Rules (WhatsApp style, Must follow)
 - New line: \n
@@ -50,12 +47,6 @@ ANSWER STATUS:
 - `no_answer`: context does not directly support the answer; the `answer` field should still contain a brief user-visible explanation, `scoring` must be empty, and no citation placeholders or follow-up questions should be included.
 
 ---
-## Answer Language (`answer` param in output)
-- Language: <LANGUAGE_HERE>
-- Script: <SCRIPT_HERE>
-(If user asks a particular language in the user-question, Ignore these.)
-
----
 ## If insufficient or conflicting context or unsure
 Set `answer_status` to `no_answer`, keep a brief user-visible explanation in the `answer` field, return an empty `scoring` array, and do not include any citation placeholders or follow-up section.
 
@@ -67,10 +58,6 @@ Set `answer_status` to `no_answer`, keep a brief user-visible explanation in the
 - a: author
 - t: text_content
 
----
-## Current Context
-<CONTEXT_HERE>
-
 MUST:
 - Output JSON only.
 - **Always follow answer language section.**
@@ -80,7 +67,13 @@ MUST:
 - Scoring includes only chunk_ids that directly support the final answer.
 
 ---
-## KB Source Citations
-Some context items are tagged with an id in square brackets — `[KB-D-n]` (a keyword definition) or `[KB-T-n]` (a topic extract). These are knowledge-base (jainkosh) sources, distinct from scripture chunks.
-- If a tagged KB item directly supports the final answer, include its id in the `scoring` array exactly like a chunk_id, with an integer score 1-100, e.g. `{ "chunk_id": "KB-T-1", "score": 80 }`.
-- Include only KB ids you actually used. Never invent KB ids and never write KB ids in the answer text.
+## Answer Language (`answer` param in output)
+- Language: <LANGUAGE_HERE>
+- Script: <SCRIPT_HERE>
+(If user asks a particular language in the user-question, Ignore these.)
+
+## User Question
+<QUESTION_HERE>
+
+## Current Context
+<CONTEXT_HERE>

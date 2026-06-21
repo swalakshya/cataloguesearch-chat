@@ -189,9 +189,6 @@ export function formatKbTopicsContext(mergedTopics) {
 
   for (const topic of mergedTopics) {
     const displayHi = topic.display_text_hi || topic.topic_natural_key || "";
-    const ancestors = Array.isArray(topic.ancestors_hi) ? topic.ancestors_hi : [];
-    const pathParts = ancestors.length > 0 ? [...ancestors, displayHi] : [displayHi];
-    const path = pathParts.join(" / ");
 
     const sourceUrl = String(topic.source_url || "").trim();
     let idTag = "";
@@ -201,18 +198,16 @@ export function formatKbTopicsContext(mergedTopics) {
       idTag = `[${id}] `;
     }
 
-    lines.push(`- ${idTag}topic: ${displayHi} (path: ${path})`);
+    lines.push(`- ${idTag}topic: ${displayHi}`);
 
-    const firstExtract = Array.isArray(topic.extracts_hi) ? topic.extracts_hi[0] : null;
-    if (firstExtract?.text_hi) {
-      lines.push(`  extract: ${firstExtract.text_hi}`);
-    }
-
-    const refs = Array.isArray(topic.references) && topic.references.length > 0
-      ? formatRefs(topic.references)
-      : null;
-    if (refs) {
-      lines.push(`  refs: ${refs}`);
+    // Render every Hindi extract, each with its own main reference (the first
+    // reference the definition modal would surface for that extract block).
+    const extracts = Array.isArray(topic.extracts_hi) ? topic.extracts_hi : [];
+    for (const extract of extracts) {
+      if (!extract?.text_hi) continue;
+      lines.push(`  extract: ${extract.text_hi}`);
+      const ref = formatMainRef(extract.main_reference);
+      if (ref) lines.push(`  ref: ${ref}`);
     }
 
     const relatedTopics = topic.neighbors?.related_topics;
@@ -228,16 +223,44 @@ export function formatKbTopicsContext(mergedTopics) {
   return { text: lines.join("\n"), citations };
 }
 
-function formatRefs(references) {
-  return references
-    .map((ref) => {
-      const parts = [];
-      if (ref.shastra_natural_key) parts.push(`shastra=${ref.shastra_natural_key}`);
-      if (ref.gatha_number != null) parts.push(`gatha=${ref.gatha_number}`);
-      if (ref.teeka_natural_key) parts.push(`teeka=${ref.teeka_natural_key}`);
-      if (ref.page_number != null) parts.push(`page=${ref.page_number}`);
-      return parts.join(", ");
-    })
-    .filter(Boolean)
-    .join(" | ");
+// Reference fields that are publication-locator noise (printed volume / page /
+// line), excluded from the Step2 context — same fields the definition modal
+// keeps out of its ref label.
+const EXCLUDED_REF_FIELDS = new Set(["पुस्तक", "पृष्ठ", "पंक्ति"]);
+
+/**
+ * Strip a shastra/teeka name prepended to a resolved-field name so the field
+ * reads cleanly (e.g. "धवलासूत्र" → "सूत्र" for shastra "धवला",
+ * "श्लोकवार्तिकवार्तिक" → "वार्तिक"). Returns the field unchanged when no
+ * source prefix matches.
+ */
+function stripSourcePrefix(field, shastra, teeka) {
+  for (const prefix of [shastra, teeka]) {
+    if (prefix && field.length > prefix.length && field.startsWith(prefix)) {
+      return field.slice(prefix.length);
+    }
+  }
+  return field;
+}
+
+/**
+ * Format a single extract's main reference into a compact label. Includes the
+ * shastra (and teeka when present) plus all resolved_fields except the
+ * publication-locator noise, with any shastra/teeka prefix stripped from field
+ * names. Returns null when there is nothing to show.
+ */
+function formatMainRef(mainReference) {
+  if (!mainReference) return null;
+  const shastra = String(mainReference.shastra_name || "").trim();
+  const teeka = String(mainReference.teeka_name || "").trim();
+  const parts = [];
+  if (shastra) parts.push(`shastra=${shastra}`);
+  if (teeka) parts.push(`teeka=${teeka}`);
+  for (const f of (mainReference.resolved_fields || [])) {
+    if (!f || f.field == null || f.value == null) continue;
+    if (EXCLUDED_REF_FIELDS.has(f.field)) continue;
+    const name = stripSourcePrefix(String(f.field), shastra, teeka);
+    parts.push(`${name}=${f.value}`);
+  }
+  return parts.length > 0 ? parts.join(", ") : null;
 }

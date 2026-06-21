@@ -23,6 +23,7 @@ import { getPromptRootForModel } from "./orchestrator/prompts.js";
 import { retryWorkflowOnEmptyChunks } from "./orchestrator/keyword_fix_retry.js";
 import { runAnswerSynthesis } from "./orchestrator/answer_synthesis.js";
 import { buildContext, buildMultiLangContext, buildGuidedContext, cleanChunks, extractChunkIds } from "./utils/chunk.js";
+import { saveContextLog } from "./utils/context_logger.js";
 import {
   buildSummaryPrompt,
   compactHistoryIfNeeded,
@@ -1100,6 +1101,7 @@ export function createServer(options = {}) {
     const kbCitationMap = buildKbCitationMap(kbDefinitions.citations, kbTopics.citations);
 
     const context = [kbMetadataSection, kbDefinitionsSection, kbTopicsSection, kbSubworkflowsSection, chunksContext, guidedSection].filter(Boolean).join("\n\n");
+    saveContextLog({ requestId, sessionId: session.sessionId, question: content, context });
     requestLogContext.kbCallCount = kbRequestStats.callCount;
     requestLogContext.kbCallTotalMs = kbRequestStats.totalMs;
     requestLogContext.kbCallErrorCount = kbRequestStats.errorCount;

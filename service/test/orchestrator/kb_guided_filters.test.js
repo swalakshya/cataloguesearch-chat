@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { deriveGuidedFilters, fetchGuidedResults } from "../../src/orchestrator/kb_guided_filters.js";
+import { deriveGuidedFilters, fetchGuidedResults, resolveGranthNames } from "../../src/orchestrator/kb_guided_filters.js";
 
 function createToolBudget(limit) {
   let remaining = limit;
@@ -157,6 +157,7 @@ test("fetchGuidedResults returns [] when no filters or no query", async () => {
 });
 
 test("fetchGuidedResults fires one search per filter and maps shastra → granth", async () => {
+  // समयसार → 2 english_names; नियमसार → 1 english_name → 3 total calls.
   const payloads = [];
   const externalApi = {
     search: async (payload) => { payloads.push(payload); return [{ chunk_id: "g" }]; },
@@ -164,8 +165,8 @@ test("fetchGuidedResults fires one search per filter and maps shastra → granth
   const out = await fetchGuidedResults({
     externalApi,
     guidedFilters: [
-      { shastra: "samaysaar", gatha: 6, page: null, teeka: null },
-      { shastra: "niyamsaar", gatha: null, page: null, teeka: null },
+      { shastra: "समयसार", gatha: 6, page: null, teeka: null },
+      { shastra: "नियमसार", gatha: null, page: null, teeka: null },
     ],
     baseFilters: { content_type: ["Granth"], rerank: true },
     query: "मोक्ष",
@@ -174,23 +175,24 @@ test("fetchGuidedResults fires one search per filter and maps shastra → granth
     toolBudget: createToolBudget(5),
   });
 
-  assert.equal(payloads.length, 2);
-  assert.equal(payloads[0].granth, "samaysaar");
+  assert.equal(payloads.length, 3);
+  assert.equal(payloads[0].granth, "Samaysaar");
   assert.equal(payloads[0].page_size, 3);
   assert.equal(payloads[0].page, 1);
   assert.equal(payloads[0].query, "मोक्ष");
   assert.equal(payloads[0].rerank, true);
-  assert.equal(out.length, 2);
-  assert.equal(out[0].guided_filter.shastra, "samaysaar");
+  assert.equal(out.length, 3);
+  assert.equal(out[0].guided_filter.shastra, "समयसार");
   assert.equal(out[0].results.length, 1);
 });
 
 test("fetchGuidedResults stops when tool budget is exhausted", async () => {
+  // Use Hindi-mapped shastras: समयसार→2, नियमसार→1; budget=1 stops after first call.
   let calls = 0;
   const externalApi = { search: async () => { calls += 1; return []; } };
   const out = await fetchGuidedResults({
     externalApi,
-    guidedFilters: [{ shastra: "a" }, { shastra: "b" }, { shastra: "c" }],
+    guidedFilters: [{ shastra: "समयसार" }, { shastra: "नियमसार" }, { shastra: "प्रवचनसार" }],
     query: "q",
     toolBudget: createToolBudget(1),
   });
@@ -201,18 +203,76 @@ test("fetchGuidedResults stops when tool budget is exhausted", async () => {
 test("fetchGuidedResults skips a filter whose search throws", async () => {
   const externalApi = {
     search: async (payload) => {
-      if (payload.granth === "bad") throw new Error("boom");
+      if (payload.granth === "Niyamsaar") throw new Error("boom");
       return [{ chunk_id: "ok" }];
     },
   };
+  // नियमसार→Niyamsaar throws; समयसार→2 calls both succeed.
   const out = await fetchGuidedResults({
     externalApi,
-    guidedFilters: [{ shastra: "bad" }, { shastra: "good" }],
+    guidedFilters: [{ shastra: "नियमसार" }, { shastra: "समयसार" }],
     query: "q",
     toolBudget: createToolBudget(5),
   });
+  assert.equal(out.length, 2);
+  assert.ok(out.every((r) => r.guided_filter.shastra === "समयसार"));
+});
+
+test("resolveGranthNames maps a Hindi name to all english_names", () => {
+  // समयसार maps to both "Samaysaar" and "Samaysaar Kalash Tika".
+  assert.deepEqual(resolveGranthNames("समयसार"), ["Samaysaar", "Samaysaar Kalash Tika"]);
+  // नियमसार maps to a single english_name.
+  assert.deepEqual(resolveGranthNames("नियमसार"), ["Niyamsaar"]);
+  // Unmapped value returns empty (no API call should fire).
+  assert.deepEqual(resolveGranthNames("samaysaar"), []);
+  assert.deepEqual(resolveGranthNames(null), []);
+});
+
+test("fetchGuidedResults fires one search per matched english_name for a Hindi shastra", async () => {
+  const granths = [];
+  const externalApi = {
+    search: async (payload) => { granths.push(payload.granth); return [{ chunk_id: "g" }]; },
+  };
+  const out = await fetchGuidedResults({
+    externalApi,
+    guidedFilters: [{ shastra: "समयसार", gatha: 6 }],
+    query: "मोक्ष",
+    toolBudget: createToolBudget(5),
+  });
+  assert.deepEqual(granths, ["Samaysaar", "Samaysaar Kalash Tika"]);
+  assert.equal(out.length, 2);
+  assert.equal(out[0].guided_filter.shastra, "समयसार");
+  assert.equal(out[0].granth, "Samaysaar");
+  assert.equal(out[1].granth, "Samaysaar Kalash Tika");
+});
+
+test("fetchGuidedResults skips filter when shastra has no english_name mapping", async () => {
+  let calls = 0;
+  const externalApi = { search: async () => { calls += 1; return []; } };
+  // "samaysaar" (Latin) has no mapping; "समयसार" (Hindi) does.
+  const out = await fetchGuidedResults({
+    externalApi,
+    guidedFilters: [{ shastra: "samaysaar" }, { shastra: "समयसार" }],
+    query: "q",
+    toolBudget: createToolBudget(5),
+  });
+  // Only the Hindi-mapped shastra fires calls (2 english_names for समयसार).
+  assert.equal(calls, 2);
+  assert.equal(out.length, 2);
+  assert.ok(out.every((r) => r.guided_filter.shastra === "समयसार"));
+});
+
+test("fetchGuidedResults stops mid-filter when budget exhausts across english_names", async () => {
+  let calls = 0;
+  const externalApi = { search: async () => { calls += 1; return []; } };
+  const out = await fetchGuidedResults({
+    externalApi,
+    guidedFilters: [{ shastra: "समयसार" }],
+    query: "q",
+    toolBudget: createToolBudget(1),
+  });
+  assert.equal(calls, 1);
   assert.equal(out.length, 1);
-  assert.equal(out[0].guided_filter.shastra, "good");
 });
 
 test("fetchGuidedResults honours KB_GUIDED_PAGE_SIZE env override", async () => {
@@ -223,7 +283,7 @@ test("fetchGuidedResults honours KB_GUIDED_PAGE_SIZE env override", async () => 
     const externalApi = { search: async (p) => { captured = p; return []; } };
     await fetchGuidedResults({
       externalApi,
-      guidedFilters: [{ shastra: "s" }],
+      guidedFilters: [{ shastra: "नियमसार" }],
       query: "q",
       toolBudget: createToolBudget(5),
     });

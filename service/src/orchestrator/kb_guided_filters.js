@@ -1,4 +1,28 @@
 import { log } from "../utils/log.js";
+import { SHASTRA_CANONICAL_TRANSLATED_NAMING } from "../config/shastra_canonical_translated_naming.js";
+
+// Map a Hindi shastra natural_key → all matching cataloguesearch english_names.
+// One Hindi name can map to multiple english_names (e.g. समयसार → "Samaysaar"
+// and "Samaysaar Kalash Tika"), so each is queried with its own agent API call.
+const HINDI_TO_ENGLISH_NAMES = (() => {
+  const m = new Map();
+  for (const entry of SHASTRA_CANONICAL_TRANSLATED_NAMING) {
+    if (!entry.hindi_name) continue;
+    if (!m.has(entry.hindi_name)) m.set(entry.hindi_name, []);
+    m.get(entry.hindi_name).push(entry.english_name);
+  }
+  return m;
+})();
+
+/**
+ * Resolve a guided-filter shastra (a Hindi natural_key) to the cataloguesearch
+ * `granth` english_name(s). Returns all matches; falls back to the raw value
+ * when no mapping exists so callers still issue at least one query.
+ */
+export function resolveGranthNames(shastra) {
+  if (!shastra) return [];
+  return HINDI_TO_ENGLISH_NAMES.get(shastra) ?? [];
+}
 
 /**
  * Derive guided filters from merged KB topic references.
@@ -58,25 +82,40 @@ export async function fetchGuidedResults({
   const size = pageSize != null ? pageSize : Number(process.env.KB_GUIDED_PAGE_SIZE || 3);
   const out = [];
   for (const f of filters) {
-    if (toolBudget && toolBudget.remaining() <= 0) break;
-    const payload = {
-      ...(baseFilters || {}),
-      query,
-      language: language || "hi",
-      page_size: size,
-      page: 1,
-      ...(f && f.shastra ? { granth: f.shastra } : {}),
-    };
-    toolBudget?.consume();
-    try {
-      const results = await externalApi.search(payload, requestId);
-      out.push({ guided_filter: f, results: Array.isArray(results) ? results : [] });
-    } catch (err) {
-      log.warn("guided_search_failed", {
-        requestId,
-        guided_filter: f,
-        error: err?.message || String(err),
-      });
+    // A shastra (Hindi natural_key) can map to multiple cataloguesearch
+    // english_names; fire one search per matching granth english_name.
+    // Skip entirely if no english_name mapping exists.
+    const granthNames = f && f.shastra ? resolveGranthNames(f.shastra) : [];
+    if (!granthNames.length) {
+      log.warn("guided_search_skipped_no_mapping", { requestId, shastra: f?.shastra });
+      continue;
+    }
+    for (const granth of granthNames) {
+      if (toolBudget && toolBudget.remaining() <= 0) return out;
+      const payload = {
+        ...(baseFilters || {}),
+        query,
+        language: language || "hi",
+        page_size: size,
+        page: 1,
+        ...(granth ? { granth } : {}),
+      };
+      toolBudget?.consume();
+      try {
+        const results = await externalApi.search(payload, requestId);
+        out.push({
+          guided_filter: f,
+          granth: granth || null,
+          results: Array.isArray(results) ? results : [],
+        });
+      } catch (err) {
+        log.warn("guided_search_failed", {
+          requestId,
+          guided_filter: f,
+          granth,
+          error: err?.message || String(err),
+        });
+      }
     }
   }
   return out;

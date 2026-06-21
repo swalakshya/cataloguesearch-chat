@@ -1064,13 +1064,15 @@ export function createServer(options = {}) {
     // Build guided passages: clean, hash, and collect into labelled context section
     const rawGuidedResults = !isMetadataWorkflow && Array.isArray(guidedResults) ? guidedResults : [];
     const cleanedGuidedResults = rawGuidedResults
-      .map(({ guided_filter, results: grResults }) => ({
+      .map(({ guided_filter, granth, results: grResults }) => ({
         guided_filter,
+        granth,
         chunks: cleanChunks(Array.isArray(grResults) ? grResults : []),
       }))
       .filter(({ chunks: gc }) => gc.length > 0);
-    const hashedGuidedResults = cleanedGuidedResults.map(({ guided_filter, chunks: gc }) => ({
+    const hashedGuidedResults = cleanedGuidedResults.map(({ guided_filter, granth, chunks: gc }) => ({
       guided_filter,
+      granth,
       chunks: buildHashedChunks(gc, session),
     }));
     // Include guided chunks in hashedChunks so scoring/citations cover them

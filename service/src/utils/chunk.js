@@ -62,9 +62,9 @@ export function extractChunkIds(chunks) {
 export function buildGuidedContext(guidedResults) {
   if (!Array.isArray(guidedResults) || !guidedResults.length) return "";
   const sections = [];
-  for (const { guided_filter, chunks: filterChunks } of guidedResults) {
+  for (const { guided_filter, granth, chunks: filterChunks } of guidedResults) {
     if (!Array.isArray(filterChunks) || !filterChunks.length) continue;
-    const label = formatGuidedFilter(guided_filter);
+    const label = formatGuidedFilter(guided_filter, granth);
     const body = buildContext(filterChunks)
       .split("\n")
       .map((l) => `  ${l}`)
@@ -75,10 +75,11 @@ export function buildGuidedContext(guidedResults) {
   return `### Guided Passages (kb-suggested filters)\n${sections.join("\n")}`;
 }
 
-function formatGuidedFilter(f) {
+function formatGuidedFilter(f, granth) {
   if (!f || typeof f !== "object") return "(unknown)";
   const parts = [];
   if (f.shastra != null) parts.push(`shastra=${f.shastra}`);
+  if (granth != null) parts.push(`granth=${granth}`);
   if (f.gatha != null) parts.push(`gatha=${f.gatha}`);
   if (f.page != null) parts.push(`page=${f.page}`);
   if (f.teeka != null) parts.push(`teeka=${f.teeka}`);

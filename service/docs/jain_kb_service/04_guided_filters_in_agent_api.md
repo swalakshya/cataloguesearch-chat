@@ -138,11 +138,19 @@ request field + `guided_results[]` response bucket, chat now:
    with `page_size=3` (env `KB_GUIDED_PAGE_SIZE`) and `page=1`, and assembles
    the `guided_results[]` buckets itself.
 
-Filter mapping: `shastra` (natural_key) → the agent-search `granth` field —
-the only shastra-level filter the existing search API exposes. `gatha`/`page`/
-`teeka` have no corresponding agent-search field, so they are carried only in
-the returned label (the LLM still sees them in the Step2 "Guided Passages"
-section). Each guided call consumes from the workflow tool budget and stops
+Filter mapping: `shastra` (a **Hindi** `natural_key`) → the agent-search
+`granth` field, which expects the **english_name**. The Hindi→English mapping
+comes from
+[`shastra_canonical_translated_naming.js`](../../src/config/shastra_canonical_translated_naming.js)
+(`resolveGranthNames`). A single Hindi name can map to **multiple** english_names
+(e.g. `समयसार` → `Samaysaar` **and** `Samaysaar Kalash Tika`), so
+`fetchGuidedResults` fires **one agent API `search` call per matching
+english_name** and returns a separate bucket per call (each carrying the
+resolved `granth`). Unmapped Hindi values fall back to the raw string so at
+least one query still runs. `gatha`/`page`/`teeka` have no corresponding
+agent-search field, so they are carried only in the returned label (the LLM
+still sees them in the Step2 "Guided Passages" section, alongside the resolved
+`granth=`). Each guided call consumes from the workflow tool budget and stops
 when the budget is exhausted; per-call failures are logged and skipped.
 
 The previously-added enhancement contract doc

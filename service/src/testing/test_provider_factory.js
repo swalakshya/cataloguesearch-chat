@@ -52,12 +52,50 @@ class TestProvider {
     if (system.includes("keyword extractor")) {
       const userContent = String(messages?.[1]?.content || "");
       const forceFollowup = userContent.includes("FORCE_FOLLOWUP");
+
+      // KB integration test triggers: include Devanagari keywords so
+      // applyJainPartitionDefaults sets jain_keywords automatically.
+      if (userContent.includes("JAIN_QUESTION")) {
+        return wrapTestResult(JSON.stringify({
+          language: "hi",
+          script: "roman",
+          workflow: "basic_question_v1",
+          is_followup: false,
+          keywords: ["आत्मा", "definition"],
+          jain_keywords: ["आत्मा"],
+          normal_keywords: ["definition"],
+          kb_subworkflows: null,
+          kb_entities: { shastra_hints: [], author_hints: [] },
+          filters: {},
+        }));
+      }
+
+      // Direct retrieval sub-workflow trigger
+      if (userContent.includes("DIRECT_RETRIEVAL_QUESTION")) {
+        return wrapTestResult(JSON.stringify({
+          language: "hi",
+          script: "roman",
+          workflow: "basic_question_v1",
+          is_followup: false,
+          keywords: ["समयसार"],
+          jain_keywords: ["समयसार"],
+          normal_keywords: [],
+          kb_subworkflows: [{ name: "direct_retrieval", shastra: "samaysaar", gatha_number: 6, want: null, topic: null }],
+          kb_entities: { shastra_hints: ["samaysaar"], author_hints: [] },
+          filters: {},
+        }));
+      }
+
       return wrapTestResult(JSON.stringify({
         language: "hi",
         script: "roman",
         workflow: "basic_question_v1",
         is_followup: forceFollowup,
         keywords: ["q"],
+        jain_keywords: [],
+        normal_keywords: ["q"],
+        kb_subworkflows: null,
+        kb_entities: null,
         filters: {},
       }));
     }
@@ -101,13 +139,18 @@ class TestProvider {
       }));
     }
     const userContent = String(messages?.[1]?.content || "");
+    // Echo any KB citation ids present in the Step2 context into `scoring`, so
+    // integration tests exercise the KB source_url reference-merge deterministically.
+    const kbScoring = Array.from(
+      new Set((userContent.match(/KB-[TD]-\d+/g) || []))
+    ).map((id) => ({ chunk_id: id, score: 80 }));
     if (userContent.includes('"follow_up_questions"')) {
-      return wrapTestResult(JSON.stringify({ answer_status: "answered", answer: "test-answer", follow_up_questions: ["q1", "q2"], scoring: [] }));
+      return wrapTestResult(JSON.stringify({ answer_status: "answered", answer: "test-answer", follow_up_questions: ["q1", "q2"], scoring: kbScoring }));
     }
     return wrapTestResult(JSON.stringify({
       answer_status: "answered",
       answer: "test-answer\n\n_If you want I can answer this in detail or I can also answer -_\n- q1\n- q2",
-      scoring: [],
+      scoring: kbScoring,
     }));
   }
 

@@ -1,9 +1,10 @@
 import { getWorkflowConfig } from "../../config/workflow_config.js";
 import { normalizeContentTypes } from "../../config/content_types.js";
+import { deriveGuidedFilters, fetchGuidedResults } from "../kb_guided_filters.js";
 import { log } from "../../utils/log.js";
 
 export async function runAdvancedNestedQuestions({ externalApi, params, requestId, toolBudget, modelId }) {
-  const results = [];
+  const chunks = [];
   const gujChunks = Boolean(params.gujChunks);
   const language = params.language || "hi";
   const filters = params.filters || {};
@@ -11,6 +12,9 @@ export async function runAdvancedNestedQuestions({ externalApi, params, requestI
   const subQueries = Array.isArray(params.sub_queries) ? params.sub_queries : [];
   const config = getWorkflowConfig(modelId);
   const nestedConfig = config.advanced_nested;
+
+  const mergedTopics = Array.isArray(params.mergedTopics) ? params.mergedTopics : [];
+  const guidedFilters = deriveGuidedFilters(mergedTopics);
 
   const mainKeywords = Array.isArray(mainQuery.keywords) ? mainQuery.keywords : [];
   const mainKeywordsGuj = Array.isArray(mainQuery.keywords_guj) ? mainQuery.keywords_guj : [];
@@ -34,23 +38,34 @@ export async function runAdvancedNestedQuestions({ externalApi, params, requestI
   ensureBudget(toolBudget, estimatedCalls);
 
   // Main query
-  const mainHindiPayload = { ...baseFilters, query: buildQuery(mainKeywords), language, page_size: nestedConfig.page_size };
+  const mainHindiQuery = buildQuery(mainKeywords);
+  const mainHindiPayload = {
+    ...baseFilters,
+    query: mainHindiQuery,
+    language,
+    page_size: nestedConfig.page_size,
+  };
   toolBudget.consume();
 
   if (hasMainGuj) {
     toolBudget.consume();
-    const mainGujPayload = { ...baseFilters, query: buildQuery(mainKeywordsGuj), language: "gu", page_size: config.gujarati_page_size };
-    const [hindiData, gujData] = await Promise.all([
+    const mainGujPayload = {
+      ...baseFilters,
+      query: buildQuery(mainKeywordsGuj),
+      language: "gu",
+      page_size: config.gujarati_page_size,
+    };
+    const [hindiResults, gujResults] = await Promise.all([
       safeFetch(() => externalApi.search(mainHindiPayload, requestId), requestId),
       safeFetch(() => externalApi.search(mainGujPayload, requestId), requestId),
     ]);
-    hindiData.forEach((c) => { c._lang = "hi"; });
-    gujData.forEach((c) => { c._lang = "gu"; });
-    results.push(...hindiData, ...gujData);
+    hindiResults.forEach((c) => { c._lang = "hi"; });
+    gujResults.forEach((c) => { c._lang = "gu"; });
+    chunks.push(...hindiResults, ...gujResults);
   } else {
     const data = await safeFetch(() => externalApi.search(mainHindiPayload, requestId), requestId);
     data.forEach((c) => { c._lang = "hi"; });
-    results.push(...data);
+    chunks.push(...data);
   }
 
   // Sub queries
@@ -61,34 +76,55 @@ export async function runAdvancedNestedQuestions({ externalApi, params, requestI
     const hasSubGuj = gujChunks && subKeywordsGuj.length > 0;
 
     const combinedHindi = [...mainKeywords, ...subKeywords].filter(Boolean);
-    const subHindiPayload = { ...baseFilters, query: buildQuery(combinedHindi), language, page_size: nestedConfig.page_size };
+    const subHindiPayload = {
+      ...baseFilters,
+      query: buildQuery(combinedHindi),
+      language,
+      page_size: nestedConfig.page_size,
+    };
     toolBudget.consume();
 
     if (hasSubGuj) {
       if (toolBudget.remaining() < 1) {
         const data = await safeFetch(() => externalApi.search(subHindiPayload, requestId), requestId);
         data.forEach((c) => { c._lang = "hi"; });
-        results.push(...data);
+        chunks.push(...data);
         continue;
       }
       toolBudget.consume();
       const combinedGuj = [...mainKeywordsGuj, ...subKeywordsGuj].filter(Boolean);
-      const subGujPayload = { ...baseFilters, query: buildQuery(combinedGuj), language: "gu", page_size: config.gujarati_page_size };
-      const [hindiData, gujData] = await Promise.all([
+      const subGujPayload = {
+        ...baseFilters,
+        query: buildQuery(combinedGuj),
+        language: "gu",
+        page_size: config.gujarati_page_size,
+      };
+      const [hindiResults, gujResults] = await Promise.all([
         safeFetch(() => externalApi.search(subHindiPayload, requestId), requestId),
         safeFetch(() => externalApi.search(subGujPayload, requestId), requestId),
       ]);
-      hindiData.forEach((c) => { c._lang = "hi"; });
-      gujData.forEach((c) => { c._lang = "gu"; });
-      results.push(...hindiData, ...gujData);
+      hindiResults.forEach((c) => { c._lang = "hi"; });
+      gujResults.forEach((c) => { c._lang = "gu"; });
+      chunks.push(...hindiResults, ...gujResults);
     } else {
       const data = await safeFetch(() => externalApi.search(subHindiPayload, requestId), requestId);
       data.forEach((c) => { c._lang = "hi"; });
-      results.push(...data);
+      chunks.push(...data);
     }
   }
 
-  return results;
+  // Fire one filtered search per guided filter, reusing the main Hindi query.
+  const guidedResults = await fetchGuidedResults({
+    externalApi,
+    guidedFilters,
+    baseFilters,
+    query: mainHindiQuery,
+    language,
+    requestId,
+    toolBudget,
+  });
+
+  return { chunks, guidedResults };
 }
 
 function buildQuery(keywords) {

@@ -5,6 +5,30 @@ import { parseJsonStrict } from "../utils/json.js";
 import { estimateTokens } from "../utils/token.js";
 import { log } from "../utils/log.js";
 
+const DEVANAGARI_RE = /[ऀ-ॿ]/;
+const ALLOWED_KB_SUBWORKFLOW_NAMES = new Set(["direct_retrieval", "search_shastra_for_topics", "search_topic_in_shastra"]);
+
+// If LLM omits jain_keywords/normal_keywords partition, derive from Devanagari presence.
+function applyJainPartitionDefaults(parsed) {
+  const keywords = parsed.keywords;
+  if (!Array.isArray(keywords) || keywords.length === 0) return parsed;
+  if (Array.isArray(parsed.jain_keywords) && Array.isArray(parsed.normal_keywords)) return parsed;
+  parsed.jain_keywords = keywords.filter((k) => DEVANAGARI_RE.test(k));
+  parsed.normal_keywords = keywords.filter((k) => !DEVANAGARI_RE.test(k));
+  return parsed;
+}
+
+// Remove sub-workflow entries with unrecognised names to prevent downstream errors.
+function stripUnknownSubworkflows(parsed) {
+  if (!Array.isArray(parsed.kb_subworkflows)) return parsed;
+  const before = parsed.kb_subworkflows.length;
+  parsed.kb_subworkflows = parsed.kb_subworkflows.filter((sw) => ALLOWED_KB_SUBWORKFLOW_NAMES.has(sw?.name));
+  if (parsed.kb_subworkflows.length !== before) {
+    log.warn("kb_subworkflows_stripped", { removed: before - parsed.kb_subworkflows.length });
+  }
+  return parsed;
+}
+
 export async function runKeywordExtraction({
   provider,
   question,
@@ -71,6 +95,16 @@ export async function runKeywordExtraction({
     log.warn("keyword_extract_parse_failed", { requestId, error: err?.message || String(err), raw: String(raw || "").slice(0, 500) });
     throw err;
   }
-  log.verbose("keyword_extract_parsed", { requestId, workflow: parsed.workflow });
+
+  applyJainPartitionDefaults(parsed);
+  stripUnknownSubworkflows(parsed);
+
+  log.verbose("keyword_extract_parsed", {
+    requestId,
+    workflow: parsed.workflow,
+    jain_keywords: parsed.jain_keywords,
+    normal_keywords: parsed.normal_keywords,
+    kb_subworkflows_count: parsed.kb_subworkflows?.length ?? 0,
+  });
   return parsed;
 }

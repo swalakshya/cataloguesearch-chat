@@ -1,5 +1,13 @@
 # Phase 3 (chat) — Topic Match + Extract Injection
 
+> **⚠️ Superseded by [`03a_sequential_topic_anchor_expand.md`](03a_sequential_topic_anchor_expand.md).**
+> The parallel `topics_match` + `graphrag` design below does not anchor
+> related-topic expansion on the matched topic, so trigram-only topics come back
+> with no related topics. Phase 3a replaces it with a sequential anchor→expand
+> flow (`topics_match` → new `topic_neighbors` endpoint). This doc is kept for
+> historical context and the per-workflow keyword-set extraction table (still
+> valid). Implement 3a, not this.
+
 For every workflow that produces a `keywords[]` array (i.e. all except
 `metadata_question_v1` and `greeting_message_v1`), call kb's two topic-match
 endpoints in **parallel**, merge results by `topic_natural_key`, cap, and
@@ -95,7 +103,7 @@ The same merged topic list also feeds:
 
 ## DoD
 
-- [ ] Two kb calls fire in parallel per keyword set.
-- [ ] Merged topics passed to Step2 context.
-- [ ] Failures degrade gracefully.
-- [ ] Caps configurable via env.
+- [x] Two kb calls fire in parallel per keyword set (`topicsMatch` + `graphrag` via `Promise.all`; all keyword sets also fired in parallel).
+- [x] Merged topics passed to Step2 context (`formatKbTopicsContext` prepended as `### KB Topics` section).
+- [x] Failures degrade gracefully (`Promise.allSettled` per call; pipeline continues with partial results or empty).
+- [x] Caps configurable via env (`KB_TOPIC_MATCH_LIMIT`, `KB_GRAPHRAG_LIMIT`, `KB_TOPIC_MERGE_LIMIT`).

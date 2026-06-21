@@ -217,3 +217,95 @@ test("followup workflow navigation calls remain language-agnostic", async () => 
 
   assert.equal(navigateCalls, 1);
 });
+
+test("followup workflow returns { chunks, guidedResults } shape", async () => {
+  const externalApi = {
+    search: async () => [{ chunk_id: "c1" }],
+    navigate: async () => [],
+  };
+
+  const params = { language: "hi", filters: {}, keywords: ["मुख्य"], followup_keywords: [], expand_chunk_ids: [] };
+
+  const result = await runFollowupQuestion({
+    externalApi,
+    params,
+    requestId: "r1",
+    toolBudget: createToolBudget(5),
+    modelId: "gemini-2.5-flash",
+  });
+
+  assert.ok("chunks" in result && "guidedResults" in result);
+  assert.ok(Array.isArray(result.chunks) && Array.isArray(result.guidedResults));
+});
+
+test("followup workflow fires a separate filtered search per guided filter", async () => {
+  const payloads = [];
+  const externalApi = {
+    search: async (payload) => {
+      payloads.push(payload);
+      return [];
+    },
+    navigate: async () => [],
+  };
+
+  const params = {
+    language: "hi",
+    filters: {},
+    keywords: ["मोक्ष"],
+    followup_keywords: [],
+    expand_chunk_ids: [],
+    mergedTopics: [
+      {
+        references: [{ shastra_natural_key: "samaysaar", gatha_number: 6 }],
+      },
+    ],
+  };
+
+  await runFollowupQuestion({
+    externalApi,
+    params,
+    requestId: "r1",
+    toolBudget: createToolBudget(5),
+    modelId: "gemini-2.5-flash",
+  });
+
+  const guidedCall = payloads.find((p) => p.granth === "samaysaar");
+  assert.ok(guidedCall, "expected a guided search mapping shastra → granth");
+  assert.equal(guidedCall.page_size, 3);
+  assert.equal(guidedCall.query, "मोक्ष", "guided search reuses the primary Hindi query");
+});
+
+test("followup workflow collects one guided result per derived filter", async () => {
+  const externalApi = {
+    search: async (payload) => {
+      if (payload.granth === "samaysaar" || payload.granth === "niyamsaar") {
+        return [{ chunk_id: `g-${payload.granth}` }];
+      }
+      return [];
+    },
+    navigate: async () => [],
+  };
+
+  const params = {
+    language: "hi",
+    filters: {},
+    keywords: ["मुख्य"],
+    followup_keywords: [{ id: "set_1", keywords: ["उप"] }],
+    expand_chunk_ids: [],
+    mergedTopics: [
+      { references: [{ shastra_natural_key: "samaysaar", gatha_number: 1 }] },
+      { references: [{ shastra_natural_key: "niyamsaar", gatha_number: 2 }] },
+    ],
+  };
+
+  const { guidedResults } = await runFollowupQuestion({
+    externalApi,
+    params,
+    requestId: "r1",
+    toolBudget: createToolBudget(8),
+    modelId: "gemini-2.5-flash",
+  });
+
+  assert.equal(guidedResults.length, 2, "one guided result bucket per derived filter");
+  assert.deepEqual(guidedResults.map((g) => g.guided_filter.shastra).sort(), ["niyamsaar", "samaysaar"]);
+});

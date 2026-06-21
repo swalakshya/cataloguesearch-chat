@@ -23,10 +23,10 @@ sections:
 
 ```
 ### KB Metadata Matches (closest first)
-- shastra: समयसार (nk=samaysaar, sim=0.78)
-- author:  Pandit Jaychand Chhabbra (nk=jaychand_chhabbra, sim=0.71)
+- shastra: समयसार (nk=समयसार, sim=0.78)
+- author:  कुंदकुंदाचार्य (nk=कुंदकुंदाचार्य, sim=0.71)
 
-### CatalogueSearch Metadata Options
+### CatalogueSearch Metadata Options (always in english)
 { granth: "Samaysaar", author: "Pandit Jaychand Chhabbra", anuyog: "Dravyanuyog" }
 …
 ```
@@ -59,7 +59,7 @@ kb metadata calls are non-critical: log and proceed without them.
 
 ## DoD
 
-- [ ] `kb.shastras` / `kb.authors` / `kb.teekas` wired with fuzzy.
-- [ ] Two-section context for metadata workflow.
-- [ ] Non-metadata workflows include the same section when hints present.
-- [ ] Failures degrade silently.
+- [x] `kb.shastras` / `kb.authors` / `kb.teekas` wired with fuzzy (GET `/v1/shastras`, `/v1/authors`, `/v1/teekas` on `coreBaseUrl`).
+- [x] Two-section context for metadata workflow (`### KB Metadata Matches` prepended before CatalogueSearch sources). Note: `### CatalogueSearch Metadata Options` label deferred; sections are still clearly separated.
+- [x] Non-metadata workflows include the same section when hints present (fired in `server.js` in parallel with retrieval workflow).
+- [x] Failures degrade silently (three levels of `.catch`: per-hint, outer metadata module, pipeline-level `server.js`).

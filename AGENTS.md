@@ -3,11 +3,13 @@
 This file provides guidance to Agents like claude-code and codex when working with code in this repository.
 
 ## Guidelines
-- After analysis of every task, ask all the clarifying questions (even minor doubts) to the user in one go itself.
+- After analysis of every task, ask all the clarifying questions (even minor doubts) in groups (one group by one) so that the user can answer them in a continuos conversation without invalidating the prompt cache.
 
 ## Spec Creation Instructions:
 - When asked for spec creations, based on the complexity of the implementation, create separate phase-wise specs in such a way that an agent implementing it should not have to delegate it to a sub-agent and the implementation can be completed in one context window itsel.
 - Be modular and clear in your specs, so that lower level reasoning models can also implement them.
+- Whenever you are referencing another md file in a spec, add links instead of direct text path.
+
 
 ## Implementation Instructions:
 1. **Context Discovery**: Always start by reading the specified plan provided to you and the relevant files mentioned in the plan.

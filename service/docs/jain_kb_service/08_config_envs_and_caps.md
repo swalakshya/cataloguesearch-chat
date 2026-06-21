@@ -23,10 +23,11 @@ Phase sub-flags (all default to `KB_ENHANCE_ENABLED`):
 
 ## Endpoints + timeouts
 
+The original metadata-service (8001), data-service (8002), and navigation-service (8003) were merged into a single `core-service` on port 8001. Only two base URLs remain:
+
 ```
-KB_SERVICE_BASE_URL=http://localhost:8004
-KB_DATA_SERVICE_BASE_URL=http://localhost:8002
-KB_METADATA_SERVICE_BASE_URL=http://localhost:8001
+KB_SERVICE_BASE_URL=http://localhost:8004       # query-service (unchanged)
+KB_CORE_SERVICE_BASE_URL=http://localhost:8001  # core-service (merged metadata+data+navigation)
 KB_REQUEST_TIMEOUT_SEC=15
 KB_REQUEST_MAX_RETRIES=1
 ```
@@ -87,7 +88,7 @@ resolutions/topics/etc.) — never includes full text bodies.
 
 ## DoD
 
-- [ ] `kb_config.js` exposes all envs with defaults.
-- [ ] Master + per-phase flags respected at call sites.
-- [ ] Per-model overrides applied during routing.
-- [ ] Logging shape verified by test.
+- [x] `kb_config.js` exposes all envs with defaults (`KB_PHASE_FLAGS`, `KB_ENDPOINTS`, `KB_CAPS_DEFAULTS`, `getKbWorkflowConfig`).
+- [x] Master + per-phase flags respected at call sites (per-phase flag checks at every KB call site in `server.js`).
+- [ ] Per-model overrides applied during routing — `getKbWorkflowConfig` is computed per-request and available as `kbModelConfig`, but threading it to orchestrator functions (`runKbTopicMatch`, `runKbSubworkflows`, `fetchKbDefinitions`) is deferred.
+- [x] Logging shape verified by test (4 logging-shape tests in `kb_config.test.js`: `kb_api_response` fields, `kb_api_failed` fields, `onCallComplete` success and error).

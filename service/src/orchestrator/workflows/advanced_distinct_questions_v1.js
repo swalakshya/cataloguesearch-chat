@@ -1,15 +1,19 @@
 import { getWorkflowConfig } from "../../config/workflow_config.js";
 import { normalizeContentTypes } from "../../config/content_types.js";
+import { deriveGuidedFilters, fetchGuidedResults } from "../kb_guided_filters.js";
 import { log } from "../../utils/log.js";
 
 export async function runAdvancedDistinctQuestions({ externalApi, params, requestId, toolBudget, modelId }) {
-  const results = [];
+  const chunks = [];
   const gujChunks = Boolean(params.gujChunks);
   const language = params.language || "hi";
   const filters = params.filters || {};
   const queries = Array.isArray(params.queries) ? params.queries : [];
   const config = getWorkflowConfig(modelId);
   const distConfig = config.advanced_distinct;
+
+  const mergedTopics = Array.isArray(params.mergedTopics) ? params.mergedTopics : [];
+  const guidedFilters = deriveGuidedFilters(mergedTopics);
 
   // Count budget: each query uses 1 Hindi call + 1 Gujarati call (if keywords_guj present)
   const budgetNeeded = queries.reduce((sum, q) => {
@@ -27,18 +31,22 @@ export async function runAdvancedDistinctQuestions({ externalApi, params, reques
     rerank: distConfig.rerank,
   };
 
+  let primaryHindiQuery = "";
+
   for (const query of queries) {
     const hasGuj = gujChunks && Array.isArray(query.keywords_guj) && query.keywords_guj.length > 0;
+    const hindiQuery = buildQuery(query.keywords);
+    if (!primaryHindiQuery) primaryHindiQuery = hindiQuery;
     const hindiPayload = {
       ...baseFilters,
-      query: buildQuery(query.keywords),
+      query: hindiQuery,
       language,
       page_size: distConfig.page_size,
     };
     toolBudget.consume();
 
     if (!hasGuj) {
-      await safePush(results, () => externalApi.search(hindiPayload, requestId), requestId, "hi");
+      await safePush(chunks, () => externalApi.search(hindiPayload, requestId), requestId, "hi");
       continue;
     }
 
@@ -49,16 +57,27 @@ export async function runAdvancedDistinctQuestions({ externalApi, params, reques
       language: "gu",
       page_size: config.gujarati_page_size,
     };
-    const [hindiData, gujData] = await Promise.all([
+    const [hindiResults, gujResults] = await Promise.all([
       safeFetch(() => externalApi.search(hindiPayload, requestId), requestId),
       safeFetch(() => externalApi.search(gujPayload, requestId), requestId),
     ]);
-    hindiData.forEach((c) => { c._lang = "hi"; });
-    gujData.forEach((c) => { c._lang = "gu"; });
-    results.push(...hindiData, ...gujData);
+    hindiResults.forEach((c) => { c._lang = "hi"; });
+    gujResults.forEach((c) => { c._lang = "gu"; });
+    chunks.push(...hindiResults, ...gujResults);
   }
 
-  return results;
+  // Fire one filtered search per guided filter, reusing the first query.
+  const guidedResults = await fetchGuidedResults({
+    externalApi,
+    guidedFilters,
+    baseFilters,
+    query: primaryHindiQuery,
+    language,
+    requestId,
+    toolBudget,
+  });
+
+  return { chunks, guidedResults };
 }
 
 function buildQuery(keywords) {
@@ -84,8 +103,8 @@ async function safeFetch(fn, requestId) {
   }
 }
 
-async function safePush(results, fn, requestId, lang) {
-  const data = await safeFetch(fn, requestId);
-  if (lang) data.forEach((c) => { c._lang = lang; });
-  results.push(...data);
+async function safePush(chunks, fn, requestId, lang) {
+  const results = await safeFetch(fn, requestId);
+  if (lang) results.forEach((c) => { c._lang = lang; });
+  chunks.push(...results);
 }

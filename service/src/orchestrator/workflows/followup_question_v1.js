@@ -1,9 +1,10 @@
 import { getWorkflowConfig } from "../../config/workflow_config.js";
 import { normalizeContentTypes } from "../../config/content_types.js";
+import { deriveGuidedFilters, fetchGuidedResults } from "../kb_guided_filters.js";
 import { log } from "../../utils/log.js";
 
 export async function runFollowupQuestion({ externalApi, params, requestId, toolBudget, modelId }) {
-  const results = [];
+  const chunks = [];
   const gujChunks = Boolean(params.gujChunks);
   const language = params.language || "hi";
   const filters = params.filters || {};
@@ -12,6 +13,9 @@ export async function runFollowupQuestion({ externalApi, params, requestId, tool
   const subQueries = Array.isArray(params.sub_queries) ? params.sub_queries : [];
   const config = getWorkflowConfig(modelId);
   const followupConfig = config.followup;
+
+  const mergedTopics = Array.isArray(params.mergedTopics) ? params.mergedTopics : [];
+  const guidedFilters = deriveGuidedFilters(mergedTopics);
 
   const baseFilters = {
     content_type: normalizeContentTypes(filters.content_type),
@@ -36,24 +40,29 @@ export async function runFollowupQuestion({ externalApi, params, requestId, tool
     page_size: config.gujarati_page_size,
   });
 
+  // Capture the first Hindi query used so guided filters reuse it for their
+  // separate filtered searches (fired once after the main searches complete).
+  let primaryHindiQuery = "";
+
   // Helper: fire a paired search (Hindi + optional Gujarati) and push tagged results
   async function searchPair(hindiKws, gujKws) {
+    if (!primaryHindiQuery) primaryHindiQuery = buildQuery(hindiKws);
     const hasGuj = gujChunks && Array.isArray(gujKws) && gujKws.length > 0;
     toolBudget.consume();
     if (!hasGuj) {
       const data = await safeFetch(() => externalApi.search(hindiPayload(hindiKws), requestId), requestId);
       data.forEach((c) => { c._lang = "hi"; });
-      results.push(...data);
+      chunks.push(...data);
       return;
     }
     toolBudget.consume();
-    const [hindiData, gujData] = await Promise.all([
+    const [hindiResults, gujResults] = await Promise.all([
       safeFetch(() => externalApi.search(hindiPayload(hindiKws), requestId), requestId),
       safeFetch(() => externalApi.search(gujPayload(gujKws), requestId), requestId),
     ]);
-    hindiData.forEach((c) => { c._lang = "hi"; });
-    gujData.forEach((c) => { c._lang = "gu"; });
-    results.push(...hindiData, ...gujData);
+    hindiResults.forEach((c) => { c._lang = "hi"; });
+    gujResults.forEach((c) => { c._lang = "gu"; });
+    chunks.push(...hindiResults, ...gujResults);
   }
 
   const followupKeywordSets = normalizeFollowupKeywordSets(params.followup_keywords);
@@ -97,6 +106,18 @@ export async function runFollowupQuestion({ externalApi, params, requestId, tool
     await searchPair(set.hindi, set.guj);
   }
 
+  // Fire one filtered search per guided filter, reusing the primary Hindi
+  // query. Done before expansion so guided retrieval isn't starved of budget.
+  const guidedResults = await fetchGuidedResults({
+    externalApi,
+    guidedFilters,
+    baseFilters,
+    query: primaryHindiQuery,
+    language,
+    requestId,
+    toolBudget,
+  });
+
   // Navigation/expansion calls are language-agnostic — chunk IDs come from LLM
   // scoring of conversation history and can belong to any language.
   const expandIds = Array.isArray(params.expand_chunk_ids)
@@ -105,7 +126,7 @@ export async function runFollowupQuestion({ externalApi, params, requestId, tool
   for (const chunkId of expandIds) {
     if (toolBudget.remaining() <= 0) break;
     toolBudget.consume();
-    const data = await safeFetch(
+    const data = await safeFetchArray(
       () => externalApi.navigate(
         { chunk_id: chunkId, direction: followupConfig.navigate_direction, steps: followupConfig.navigate_steps, language: "hi" },
         requestId
@@ -114,10 +135,10 @@ export async function runFollowupQuestion({ externalApi, params, requestId, tool
     );
     // Navigation results inherit the language of their source chunk; leave untagged
     // so they fall through as Hindi in the context split (safe default).
-    results.push(...data);
+    chunks.push(...data);
   }
 
-  return results;
+  return { chunks, guidedResults };
 }
 
 function buildQuery(keywords) {
@@ -161,7 +182,19 @@ function countUserSearches({ queries, mainQuery, subQueries, keywords }) {
   return 0;
 }
 
+// For search calls — returns a plain chunk array
 async function safeFetch(fn, requestId) {
+  try {
+    const data = await fn();
+    return Array.isArray(data) ? data : [];
+  } catch (err) {
+    log.warn("workflow_call_failed", { requestId, error: err?.message || String(err) });
+    return [];
+  }
+}
+
+// For navigate calls — returns plain array
+async function safeFetchArray(fn, requestId) {
   try {
     const data = await fn();
     return Array.isArray(data) ? data : [];

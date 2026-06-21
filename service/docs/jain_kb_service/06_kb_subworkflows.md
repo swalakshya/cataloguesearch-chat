@@ -9,15 +9,15 @@ under a dedicated section.
 
 ### `direct_retrieval`
 
-Use: "<shastra> की <N>th गाथा बताओ", "…की संस्कृत/भावार्थ समझाओ".
+Use: "`shastra` की `N`th गाथा बताओ", "…की संस्कृत/भावार्थ समझाओ".
 
 Step1 schema:
 ```json
 {
   "name": "direct_retrieval",
-  "shastra": "Samaysaar",                       // user-supplied form; canonicalized via kb.shastras(fuzzy)
+  "shastra": "समयसार",                       // user-supplied form; canonicalized via kb.shastras(fuzzy)
   "gatha_number": 6,
-  "want": ["sanskrit", "bhavarth", "teeka"]     // any subset of: prakrit, sanskrit, anyavaarth, bhavarth, teeka
+  "want": ["sanskrit", "bhaavarth", "teeka"]     // any subset of: prakrit, sanskrit, anyavaarth, bhaavarth, teeka
 }
 ```
 
@@ -25,18 +25,18 @@ Dispatch:
 1. `kb.shastras({ q: shastra, fuzzy: true, limit: 1 })` → canonical
    `natural_key`.
 2. `kb.gathaDetail({ shastra: natural_key, number: gatha_number })`
-   (data-service `GET /v1/gathas?shastra=&number=`).
+   (core-service `GET /v1/gathas?shastra=&number=`).
 3. Project `want[]` fields only into context.
 
 ### `search_topic_in_shastra`
 
-Use: "<shastra> की <N>th गाथा में किन-किन विषयों का वर्णन आया है".
+Use: "`shastra` की `N`th गाथा में किन-किन विषयों का वर्णन आया है".
 
 Step1 schema:
 ```json
 {
   "name": "search_topic_in_shastra",
-  "shastra": "Samaysaar",
+  "shastra": "समयसार",
   "gatha_number": 6,                 // optional; omit for whole-shastra topics
   "limit": 25
 }
@@ -49,7 +49,7 @@ Dispatch:
 
 ### `search_shastra_for_topics`
 
-Use: "<topic> का वर्णन कोन-कोन से शास्त्रों और गाथाओं में आया है?"
+Use: "`topic` का वर्णन कोन-कोन से शास्त्रों और गाथाओं में आया है?"
 
 Step1 schema:
 ```json
@@ -86,13 +86,13 @@ Append a new section after Phase 3 / Phase 4 sections:
 [direct_retrieval] Samaysaar gatha 6:
   prakrit: …
   sanskrit: …
-  bhavarth: …
+  bhaavarth: …
 
 [search_topic_in_shastra] Samaysaar gatha 6 topics:
-  - द्रव्य/स्वतंत्रता (3)
+  - द्रव्य स्वतंत्रता (3)
   - …
 
-[search_shastra_for_topics] topic = द्रव्य/स्वतंत्रता:
+[search_shastra_for_topics] topic = द्रव्य स्वतंत्रता:
   - Samaysaar: gathas 6, 49
   - Pravachansaar: gatha 12
 ```
@@ -123,7 +123,7 @@ over excerpts; cite using shastra + gatha number).
 
 ## DoD
 
-- [ ] Three sub-workflows dispatchable in parallel.
-- [ ] Step2 context section rendered.
-- [ ] Cap and timeout honoured.
-- [ ] Workflow guidelines updated.
+- [x] Three sub-workflows dispatchable in parallel (`direct_retrieval`, `search_topic_in_shastra`, `search_shastra_for_topics` via `Promise.all` in `runKbSubworkflows`).
+- [x] Step2 context section rendered (`formatKbSubworkflowsContext` produces `### KB Sub-workflow Results` section).
+- [x] Cap and timeout honoured (`KB_SUBWORKFLOWS_MAX` caps entries before dispatch; `KB_SUBWORKFLOW_TIMEOUT_MS` races each call with a hard timeout).
+- [x] Workflow guidelines updated (4 workflow guideline files in `prompts_v2/workflow_answering_guidelines/` updated).

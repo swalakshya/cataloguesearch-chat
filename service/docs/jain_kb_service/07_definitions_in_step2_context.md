@@ -68,6 +68,6 @@ request.
 
 ## DoD
 
-- [ ] Definitions appear in Step2 prompt when applicable.
-- [ ] Single batched kb call; no per-keyword fan-out.
-- [ ] Cap and per-keyword limits honoured.
+- [x] Definitions appear in Step2 prompt when applicable (`kbDefinitionsSection` injected between `kbMetadataSection` and `kbTopicsSection`).
+- [x] Single batched kb call; no per-keyword fan-out (one `keywordResolveBatch` with `fuzzy_top_k: 0, include_definitions: true`).
+- [x] Cap and per-keyword limits honoured (`KB_DEFINITIONS_MAX_KEYWORDS` caps keyword count; `KB_DEFINITIONS_PER_KEYWORD` passed as `definitions_per_keyword` in request body).

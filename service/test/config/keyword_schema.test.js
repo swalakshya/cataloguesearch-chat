@@ -63,3 +63,48 @@ test("guj search schema requires keywords_guj in followup_keywords items", () =>
   const kwGuj = items.properties.keywords_guj;
   assert.ok(Array.isArray(kwGuj.type) ? kwGuj.type.includes("array") : kwGuj.type === "array");
 });
+
+// Phase 1 GraphRAG: Jain classification fields
+test("schema includes jain_keywords and normal_keywords as nullable arrays", () => {
+  const jain = KEYWORD_EXTRACTION_SCHEMA.properties.jain_keywords;
+  const normal = KEYWORD_EXTRACTION_SCHEMA.properties.normal_keywords;
+  assert.ok(Array.isArray(jain.type) ? jain.type.includes("array") : jain.type === "array");
+  assert.ok(Array.isArray(normal.type) ? normal.type.includes("array") : normal.type === "array");
+  assert.ok(KEYWORD_EXTRACTION_SCHEMA.required.includes("jain_keywords"));
+  assert.ok(KEYWORD_EXTRACTION_SCHEMA.required.includes("normal_keywords"));
+});
+
+test("schema includes kb_subworkflows with allowed names enum", () => {
+  const sw = KEYWORD_EXTRACTION_SCHEMA.properties.kb_subworkflows;
+  assert.ok(Array.isArray(sw.type) ? sw.type.includes("array") : sw.type === "array");
+  const nameEnum = sw.items.properties.name.enum;
+  assert.ok(nameEnum.includes("direct_retrieval"));
+  assert.ok(nameEnum.includes("search_shastra_for_topics"));
+  assert.ok(nameEnum.includes("search_topic_in_shastra"));
+  assert.ok(KEYWORD_EXTRACTION_SCHEMA.required.includes("kb_subworkflows"));
+});
+
+test("schema includes kb_entities with shastra_hints and author_hints", () => {
+  const ent = KEYWORD_EXTRACTION_SCHEMA.properties.kb_entities;
+  assert.ok(Array.isArray(ent.type) ? ent.type.includes("object") : ent.type === "object");
+  assert.ok(ent.properties.shastra_hints);
+  assert.ok(ent.properties.author_hints);
+  assert.ok(KEYWORD_EXTRACTION_SCHEMA.required.includes("kb_entities"));
+});
+
+test("guj search schema includes jain_keywords, normal_keywords, kb_subworkflows, kb_entities", () => {
+  assert.ok(KEYWORD_EXTRACTION_SCHEMA_GUJ_SEARCH.required.includes("jain_keywords"));
+  assert.ok(KEYWORD_EXTRACTION_SCHEMA_GUJ_SEARCH.required.includes("normal_keywords"));
+  assert.ok(KEYWORD_EXTRACTION_SCHEMA_GUJ_SEARCH.required.includes("kb_subworkflows"));
+  assert.ok(KEYWORD_EXTRACTION_SCHEMA_GUJ_SEARCH.required.includes("kb_entities"));
+});
+
+test("kb_subworkflows item schema has all fields required and additionalProperties false", () => {
+  const item = KEYWORD_EXTRACTION_SCHEMA.properties.kb_subworkflows.items;
+  assert.equal(item.additionalProperties, false);
+  assert.ok(item.required.includes("name"));
+  assert.ok(item.required.includes("shastra"));
+  assert.ok(item.required.includes("gatha_number"));
+  assert.ok(item.required.includes("want"));
+  assert.ok(item.required.includes("topic"));
+});

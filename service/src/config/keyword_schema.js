@@ -10,6 +10,41 @@ const KEYWORDS_GUJ_PROP = {
   items: { type: "string" },
 };
 
+// Phase 1 (GraphRAG): Jain keyword classification fields
+const JAIN_KEYWORDS_PROP = {
+  type: ["array", "null"],
+  items: { type: "string" },
+};
+
+const NORMAL_KEYWORDS_PROP = {
+  type: ["array", "null"],
+  items: { type: "string" },
+};
+
+// All possible sub-workflow fields merged into one schema; name enum gates which fields apply at runtime.
+const KB_SUBWORKFLOW_ITEM_PROP = {
+  type: "object",
+  properties: {
+    name: { type: "string", enum: ["direct_retrieval", "search_shastra_for_topics", "search_topic_in_shastra"] },
+    shastra: { type: ["string", "null"] },
+    gatha_number: { type: ["number", "null"] },
+    want: { type: ["array", "null"], items: { type: "string" } },
+    topic: { type: ["string", "null"] },
+  },
+  required: ["name", "shastra", "gatha_number", "want", "topic"],
+  additionalProperties: false,
+};
+
+const KB_ENTITIES_PROP = {
+  type: ["object", "null"],
+  properties: {
+    shastra_hints: { type: ["array", "null"], items: { type: "string" } },
+    author_hints: { type: ["array", "null"], items: { type: "string" } },
+  },
+  required: ["shastra_hints", "author_hints"],
+  additionalProperties: false,
+};
+
 export const KEYWORD_EXTRACTION_SCHEMA = {
   type: "object",
   properties: {
@@ -34,6 +69,10 @@ export const KEYWORD_EXTRACTION_SCHEMA = {
       type: ["array", "null"],
       items: { type: "string" },
     },
+    jain_keywords: JAIN_KEYWORDS_PROP,
+    normal_keywords: NORMAL_KEYWORDS_PROP,
+    kb_subworkflows: { type: ["array", "null"], items: KB_SUBWORKFLOW_ITEM_PROP },
+    kb_entities: KB_ENTITIES_PROP,
     filters: {
       type: ["object", "null"],
       properties: {
@@ -112,6 +151,10 @@ export const KEYWORD_EXTRACTION_SCHEMA = {
     "is_followup",
     "asked_info",
     "keywords",
+    "jain_keywords",
+    "normal_keywords",
+    "kb_subworkflows",
+    "kb_entities",
     "filters",
     "followup_keywords",
     "expand_chunk_ids",
@@ -150,6 +193,10 @@ export const KEYWORD_EXTRACTION_SCHEMA_GUJ_SEARCH = {
       items: { type: "string" },
     },
     keywords_guj: KEYWORDS_GUJ_PROP,
+    jain_keywords: JAIN_KEYWORDS_PROP,
+    normal_keywords: NORMAL_KEYWORDS_PROP,
+    kb_subworkflows: { type: ["array", "null"], items: KB_SUBWORKFLOW_ITEM_PROP },
+    kb_entities: KB_ENTITIES_PROP,
     filters: {
       type: ["object", "null"],
       properties: {
@@ -233,6 +280,10 @@ export const KEYWORD_EXTRACTION_SCHEMA_GUJ_SEARCH = {
     "asked_info",
     "keywords",
     "keywords_guj",
+    "jain_keywords",
+    "normal_keywords",
+    "kb_subworkflows",
+    "kb_entities",
     "filters",
     "followup_keywords",
     "expand_chunk_ids",

@@ -1,10 +1,9 @@
 # Phase 4 (chat) — Guided Filters on the Agent API
 
 Use the merged topics from Phase 3 to derive **guided filters**
-(`{shastra, gatha, page}` triples) and pass them to a new field on the
-cataloguesearch agent API. The agent API then runs the user query both
-unfiltered (current behaviour) and once per guided-filter set, returning a
-new `guided_results[]` bucket in the response. Chat passes both buckets to
+(`{shastra, gatha, page}` triples) and pass them to new
+cataloguesearch agent API calls. The agent API then runs the user query both
+unfiltered (current behaviour) and once per guided-filter set, returning multiple responses for guided filter responses. Chat passes both buckets to
 Step2.
 
 The modified agent API contract is specified in
@@ -51,28 +50,25 @@ agent_api.search({
   query: ...,
   language: ...,
   filters: userExtractedFilters,
-  guided_filters: deriveGuidedFilters(mergedTopics, GUIDED_CAP),   // NEW
   page_size: ...,
   page: 1,
   rerank: true,
 })
 ```
 
-Response shape gains a new field (see enhancement contract doc):
-
-```jsonc
-{
-  "results": [ /* existing chunks */ ],
-  "guided_results": [
-    {
-      "guided_filter": { "shastra": "samaysaar", "gatha": 6, "page": null, "teeka": null },
-      "results": [ /* chunks retrieved under that filter */ ]
-    }
-  ]
-}
+```js
+for each guided_filter in guided_filters from deriveGuidedFilters:
+  agent_api.search({
+    query: ...,
+    language: ...,
+    filters: guided_filter,
+    page_size: 3, // use page size 3 (configurable)
+    page: 1,
+    rerank: true,
+})
 ```
 
-Chat passes both `results[]` and the flattened `guided_results[].results[]`
+Chat passes both `results[]` and `guided_results[]`
 to Step2, **labelled** so the LLM can prefer guided hits when consistent
 with the question.
 
@@ -97,51 +93,58 @@ section in the prompt.
 
 ## Failure handling
 
-- If `guided_filters[]` empty → omit the field; agent API behaves exactly
-  as today.
-- If agent API returns no `guided_results` field (older deployment) → chat
-  proceeds with `results[]` only. **No hard dependency.**
+- If `guidedFilters[]` empty → no extra `search` calls; behaviour identical to
+  today. **No hard dependency.**
+- Each guided `search` call is best-effort: failures are logged and that
+  filter's bucket is skipped.
 
 ## Code changes
 
-- `src/agent_api/client.js`: add `guided_filters` to request schema; tolerate
-  missing `guided_results` in response.
 - `src/orchestrator/kb_guided_filters.js`: pure function `deriveGuidedFilters`
-  + cap.
+  + cap, and `fetchGuidedResults` (fires one filtered `search` per guided
+  filter and assembles the `guided_results[]` buckets).
 - All five retrieval workflows (`basic_question_v1`, `followup_question_v1`,
   `advanced_distinct_questions_v1`, `advanced_nested_questions_v1`, and the
-  Gujarati-mode parallel pair) call it.
+  Gujarati-mode parallel pair) call both.
 - `utils/chunk.js`: extend context builder with the new section.
 
 ## Tests
 
 - Pure-function tests for `deriveGuidedFilters` (dedupe, cap, null
   handling).
-- Workflow tests: when merged topics produce N refs, agent API receives
-  guided_filters; response merges correctly.
-- Backward compat: agent API mock returns no `guided_results` → chat still
-  produces an answer.
+- `fetchGuidedResults` tests: one search per filter, shastra→granth mapping,
+  page_size override, budget exhaustion, per-call failure skip.
+- Workflow tests: when merged topics produce N refs, N extra filtered searches
+  fire and produce N labelled `guided_results[]` buckets.
+- Backward compat: no topics → no guided searches → chat still produces an
+  answer.
 
 ## DoD
 
-- [ ] `guided_filters` on every `external_search` call (when non-empty).
-- [ ] New Step2 section rendered when guided chunks exist.
-- [ ] Backward-compat path verified by integration test.
-- [ ] Enhancement contract doc updated (see next bullet).
+- [x] Separate filtered `search` call per guided filter (when non-empty) — all 4 retrieval workflows call `fetchGuidedResults`.
+- [x] New Step2 section rendered when guided chunks exist (`buildGuidedContext` produces `### Guided Passages` section; guided chunks included in scoring and citations).
+- [x] Backward-compat path verified by integration test (Phase 9 scenario 5: old agent API → valid answer without guided passages).
+- [x] Enhancement contract doc reverted — the agent API is **not** modified; guided retrieval is done chat-side.
 
-## Linked enhancement contract
+## Implementation notes (revised design)
 
-This phase requires updating
-`service/docs/cataloguesearch/tools/cataloguesearch_tools_enhancements.md`
-with:
+The agent API contract is **unchanged**. Instead of a `guided_filters[]`
+request field + `guided_results[]` response bucket, chat now:
 
-1. New request field `guided_filters: Array<{shastra?, gatha?, page?, teeka?}>`
-   on `POST /api/agent/search`.
-2. New response field
-   `guided_results: Array<{guided_filter, results: Chunk[]}>`.
-3. Backward-compatibility note (both fields optional; default behaviour
-   unchanged when absent).
-4. Example request / response pair.
+1. Runs the default unfiltered `search` call as today (returns a flat array).
+2. Fires one **separate** filtered `search` call per derived guided filter
+   (`fetchGuidedResults` in
+   [`kb_guided_filters.js`](../../src/orchestrator/kb_guided_filters.js)),
+   with `page_size=3` (env `KB_GUIDED_PAGE_SIZE`) and `page=1`, and assembles
+   the `guided_results[]` buckets itself.
 
-Treat that doc as the authoritative contract; this Phase 4 doc owns chat-side
-behaviour only.
+Filter mapping: `shastra` (natural_key) → the agent-search `granth` field —
+the only shastra-level filter the existing search API exposes. `gatha`/`page`/
+`teeka` have no corresponding agent-search field, so they are carried only in
+the returned label (the LLM still sees them in the Step2 "Guided Passages"
+section). Each guided call consumes from the workflow tool budget and stops
+when the budget is exhausted; per-call failures are logged and skipped.
+
+The previously-added enhancement contract doc
+(`cataloguesearch_tools_enhancements.md`) has been **removed** since no agent
+API change is required.

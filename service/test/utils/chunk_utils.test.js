@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { cleanChunk, cleanChunks, buildContext, extractChunkIds, buildMultiLangContext } from "../../src/utils/chunk.js";
+import { cleanChunk, cleanChunks, buildContext, extractChunkIds, buildMultiLangContext, buildGuidedContext } from "../../src/utils/chunk.js";
 
 test("cleanChunk normalizes fields", () => {
   const chunk = cleanChunk({ chunk_id: "c1", file_url: "u", page_number: 1, text_content: "t" });
@@ -61,4 +61,65 @@ test("buildMultiLangContext omits hindi section when empty", () => {
 test("buildMultiLangContext returns empty string when both empty", () => {
   const output = buildMultiLangContext([], []);
   assert.equal(output, "");
+});
+
+// --- buildGuidedContext ---
+
+test("buildGuidedContext returns empty string for null / empty input", () => {
+  assert.equal(buildGuidedContext(null), "");
+  assert.equal(buildGuidedContext([]), "");
+  assert.equal(buildGuidedContext(undefined), "");
+});
+
+test("buildGuidedContext returns empty string when all result sets are empty", () => {
+  const guided = [{ guided_filter: { shastra: "samaysaar", gatha: 1, page: null, teeka: null }, chunks: [] }];
+  assert.equal(buildGuidedContext(guided), "");
+});
+
+test("buildGuidedContext produces labelled section with filter and chunks", () => {
+  const guided = [
+    {
+      guided_filter: { shastra: "samaysaar", gatha: 6, page: null, teeka: null },
+      chunks: [{ id: "c1", t: "some text" }],
+    },
+  ];
+  const output = buildGuidedContext(guided);
+  assert.ok(output.includes("### Guided Passages (kb-suggested filters)"));
+  assert.ok(output.includes("filter: shastra=samaysaar, gatha=6"));
+  assert.ok(output.includes("Source 1"));
+});
+
+test("buildGuidedContext renders multiple filter sets", () => {
+  const guided = [
+    {
+      guided_filter: { shastra: "s1", gatha: 1, page: null, teeka: null },
+      chunks: [{ id: "c1", t: "text1" }],
+    },
+    {
+      guided_filter: { shastra: "s2", gatha: null, page: 5, teeka: null },
+      chunks: [{ id: "c2", t: "text2" }],
+    },
+  ];
+  const output = buildGuidedContext(guided);
+  assert.ok(output.includes("shastra=s1, gatha=1"));
+  assert.ok(output.includes("shastra=s2, page=5"));
+});
+
+test("buildGuidedContext omits null filter fields from label", () => {
+  const guided = [
+    {
+      guided_filter: { shastra: "samaysaar", gatha: null, page: null, teeka: null },
+      chunks: [{ id: "c1", t: "t" }],
+    },
+  ];
+  const output = buildGuidedContext(guided);
+  assert.ok(output.includes("shastra=samaysaar"));
+  assert.ok(!output.includes("gatha="));
+  assert.ok(!output.includes("page="));
+});
+
+test("buildGuidedContext handles null guided_filter object gracefully", () => {
+  const guided = [{ guided_filter: null, chunks: [{ id: "c1", t: "t" }] }];
+  const output = buildGuidedContext(guided);
+  assert.ok(output.includes("(unknown)"));
 });

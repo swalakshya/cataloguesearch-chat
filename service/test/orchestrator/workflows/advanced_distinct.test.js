@@ -75,3 +75,94 @@ test("advanced_distinct fires parallel guj searches per query when gujChunks=tru
   const guCalls = calls.filter((c) => c.language === "gu");
   assert.equal(guCalls.length, 2);
 });
+
+test("advanced_distinct returns { chunks, guidedResults } shape", async () => {
+  const externalApi = {
+    search: async () => [{ chunk_id: "c1" }],
+  };
+
+  const params = {
+    language: "hi",
+    filters: {},
+    queries: [{ id: "q1", keywords: ["मोक्ष"] }],
+  };
+
+  const result = await runAdvancedDistinctQuestions({
+    externalApi,
+    params,
+    requestId: "r1",
+    toolBudget: createToolBudget(5),
+    modelId: "gemini-2.5-flash",
+  });
+
+  assert.ok("chunks" in result && "guidedResults" in result);
+  assert.equal(result.chunks.length, 1);
+  assert.deepEqual(result.guidedResults, []);
+});
+
+test("advanced_distinct fires a separate filtered search per guided filter", async () => {
+  const payloads = [];
+  const externalApi = {
+    search: async (payload) => {
+      payloads.push(payload);
+      return [];
+    },
+  };
+
+  const params = {
+    language: "hi",
+    filters: {},
+    queries: [{ id: "q1", keywords: ["मोक्ष"] }],
+    mergedTopics: [
+      { references: [{ shastra_natural_key: "niyamsaar", gatha_number: 10 }] },
+    ],
+  };
+
+  await runAdvancedDistinctQuestions({
+    externalApi,
+    params,
+    requestId: "r1",
+    toolBudget: createToolBudget(5),
+    modelId: "gemini-2.5-flash",
+  });
+
+  const guidedCall = payloads.find((p) => p.granth === "niyamsaar");
+  assert.ok(guidedCall, "expected a guided search mapping shastra → granth");
+  assert.equal(guidedCall.page_size, 3);
+  assert.equal(guidedCall.query, "मोक्ष", "guided search reuses the first query");
+});
+
+test("advanced_distinct collects one guided result per derived filter", async () => {
+  const externalApi = {
+    search: async (payload) => {
+      if (payload.granth === "s1" || payload.granth === "s2") {
+        return [{ chunk_id: `g-${payload.granth}` }];
+      }
+      return [];
+    },
+  };
+
+  const params = {
+    language: "hi",
+    filters: {},
+    queries: [
+      { id: "q1", keywords: ["पहला"] },
+      { id: "q2", keywords: ["दूसरा"] },
+    ],
+    mergedTopics: [
+      { references: [{ shastra_natural_key: "s1", gatha_number: 1 }] },
+      { references: [{ shastra_natural_key: "s2", gatha_number: 2 }] },
+    ],
+  };
+
+  const { guidedResults } = await runAdvancedDistinctQuestions({
+    externalApi,
+    params,
+    requestId: "r1",
+    toolBudget: createToolBudget(8),
+    modelId: "gemini-2.5-flash",
+  });
+
+  assert.equal(guidedResults.length, 2);
+  assert.deepEqual(guidedResults.map((g) => g.guided_filter.shastra).sort(), ["s1", "s2"]);
+});

@@ -8,9 +8,11 @@ export async function retryWorkflowOnEmptyChunks({
   requestId,
   provider,
   externalApi,
+  kbApiClient = null,
   modelId,
   gujChunks = false,
   llmCallsCollector,
+  mergedTopics = [],
   runWorkflowFn = runWorkflow,
   runKeywordFixFn = runKeywordFix,
   prepareKeywordResult = (result) => result,
@@ -18,12 +20,14 @@ export async function retryWorkflowOnEmptyChunks({
   const preparedInitial = prepareKeywordResult(initialKeywordResult);
   const first = await runWorkflowFn({
     externalApi,
+    kbApiClient,
     keywordResult: preparedInitial,
     requestId,
     provider,
     modelId,
     gujChunks,
     llmCallsCollector,
+    mergedTopics,
   });
   const initialChunks = Array.isArray(first.chunks) ? first.chunks : [];
   if (initialChunks.length > 0) {
@@ -53,12 +57,14 @@ export async function retryWorkflowOnEmptyChunks({
   const preparedFixed = prepareKeywordResult(fixedKeywordResult);
   const second = await runWorkflowFn({
     externalApi,
+    kbApiClient,
     keywordResult: preparedFixed,
     requestId,
     provider,
     modelId,
     gujChunks,
     llmCallsCollector,
+    mergedTopics,
   });
   return {
     ...second,

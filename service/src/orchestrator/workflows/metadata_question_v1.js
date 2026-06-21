@@ -1,8 +1,9 @@
 import { normalizeContentTypes } from "../../config/content_types.js";
 import { mergeMetadataOptions } from "../../utils/metadata.js";
+import { fetchKbMetadataMatches, buildKbMetadataSection } from "../kb_metadata_match.js";
 import { log } from "../../utils/log.js";
 
-export async function runMetadataQuestion({ externalApi, params, requestId, toolBudget }) {
+export async function runMetadataQuestion({ externalApi, kbApiClient, params, requestId, toolBudget }) {
   const askedInfo = Array.isArray(params.asked_info) ? params.asked_info : [];
   const contentTypes = normalizeContentTypes(params.filters?.content_type);
 
@@ -12,6 +13,14 @@ export async function runMetadataQuestion({ externalApi, params, requestId, tool
     }
     toolBudget.consume();
   }
+
+  // Fire kb metadata lookups in parallel with cataloguesearch options (non-critical)
+  const kbMatchesPromise = kbApiClient
+    ? fetchKbMetadataMatches(kbApiClient, params.kb_entities, requestId).catch((err) => {
+        log.warn("kb_metadata_match_failed", { requestId, error: err?.message || String(err) });
+        return null;
+      })
+    : Promise.resolve(null);
 
   const optionSets = [];
   for (const ct of contentTypes) {
@@ -35,6 +44,9 @@ export async function runMetadataQuestion({ externalApi, params, requestId, tool
     optionSets.push(options);
   }
 
+  const kbMatches = await kbMatchesPromise;
+  const kbMetadataSection = buildKbMetadataSection(kbMatches);
+
   const merged = mergeMetadataOptions(optionSets);
   const trimmed = merged.map((item) => {
     const entry = {};
@@ -45,5 +57,5 @@ export async function runMetadataQuestion({ externalApi, params, requestId, tool
     return entry;
   });
 
-  return [{ kind: "metadata", asked_info: askedInfo, options: trimmed }];
+  return { chunks: [{ kind: "metadata", asked_info: askedInfo, options: trimmed }], kbMetadataSection };
 }

@@ -15,20 +15,20 @@ No new LLM call. We only modify the Step1 prompt + JSON schema.
 {
   "language": "hi",
   "workflow": "basic_question_v1",
-  "keywords": ["…", "…"],
+  "keywords": ["आत्मा", "द्रव्य", "संबंध", "भेद"],
   "jain_keywords": ["आत्मा", "द्रव्य"],
-  "normal_keywords": ["definition", "meaning"],
-  "filters": { "granth": "Samaysaar" },
+  "normal_keywords": ["संबंध", "भेद"],
+  "filters": { "granth": "Samaysaar" }, // en always
   "kb_subworkflows": [
     {
       "name": "direct_retrieval",
-      "shastra": "Samaysaar",
+      "shastra": "समयसार",
       "gatha_number": 6,
-      "want": ["sanskrit", "bhavarth"]
+      "want": ["sanskrit", "bhaavarth", "anyavaarth"]
     }
   ],
   "kb_entities": {
-    "shastra_hints": ["Samaysaar"],
+    "shastra_hints": ["समयसार"],
     "author_hints": []
   }
 }
@@ -40,13 +40,11 @@ Rules:
   If the LLM omits the partition, **default to treating every keyword
   containing Devanagari as jain**.
 - `kb_subworkflows[]` may be empty. Allowed names:
-  `direct_retrieval`, `search_shastra_for_topics`, `search_topic_in_shastra`
-  (see Phase 6).
-- Each sub-workflow object has its own schema; documented in Phase 6.
+  `direct_retrieval`, `search_shastra_for_topics`, `search_topic_in_shastra` Each sub-workflow object has its own schema; documented in Phase 6.
 - `kb_entities.shastra_hints[]` / `author_hints[]` feed Phase 5 metadata
   fuzzy match without re-extracting from `filters`.
 
-## Prompt changes
+## Prompt changes (may diverge)
 
 Edit `service/prompts_sets/prompts_v2/step_1_keyword_extract_and_classification.md`:
 
@@ -79,7 +77,6 @@ All other Step1 behaviour (workflow selection, filters extraction,
 
 ## DoD
 
-- [ ] Updated schema + prompt under `prompts_v2/`.
-- [ ] `keyword_extract.js` handles new fields with backward compatibility.
-- [ ] Existing Step1 tests still pass; new tests for partition + sub-workflow
-      parsing added.
+- [x] Updated schema + prompt under `prompts_v2/` (and model-specific override folders that would otherwise shadow it).
+- [x] `keyword_extract.js` handles new fields with backward compatibility (`applyJainPartitionDefaults`, `stripUnknownSubworkflows`).
+- [x] Existing Step1 tests still pass; new tests for partition + sub-workflow parsing added (8 new in `keyword_extract.test.js`, 6 new in `keyword_schema.test.js`).

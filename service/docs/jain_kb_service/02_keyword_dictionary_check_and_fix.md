@@ -94,9 +94,7 @@ trigger; both paths share the same `step_1b_keyword_fix.md` prompt.
 
 ## DoD
 
-- [ ] `kb_api/client.js` wired with timeout + retry (use existing HTTP
-      patterns).
-- [ ] `kb_keyword_check.js` covered by unit tests.
-- [ ] `step_1b_keyword_fix.md` updated.
-- [ ] When `KB_ENHANCE_ENABLED=false`, no kb calls fire; pipeline identical
-      to today.
+- [x] `kb_api/client.js` wired with timeout + retry (`KbApiClient` with AbortController, same patterns as `ExternalApiClient`).
+- [x] `kb_keyword_check.js` covered by unit tests (11 tests in `kb_keyword_check.test.js`).
+- [x] `step_1b_keyword_fix.md` updated (`## Missed Jain Keywords with Dictionary Suggestions` section added to all prompt variants).
+- [x] When `KB_ENHANCE_ENABLED=false`, no kb calls fire; pipeline identical to today.

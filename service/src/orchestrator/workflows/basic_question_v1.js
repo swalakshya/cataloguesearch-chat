@@ -1,11 +1,15 @@
 import { getWorkflowConfig } from "../../config/workflow_config.js";
 import { normalizeContentTypes } from "../../config/content_types.js";
+import { deriveGuidedFilters, fetchGuidedResults } from "../kb_guided_filters.js";
 import { log } from "../../utils/log.js";
 
 export async function runBasicQuestion({ externalApi, params, requestId, toolBudget, modelId }) {
   const gujChunks = Boolean(params.gujChunks);
   const hasGujKeywords = gujChunks && Array.isArray(params.keywords_guj) && params.keywords_guj.length > 0;
   ensureBudget(toolBudget, hasGujKeywords ? 2 : 1);
+
+  const mergedTopics = Array.isArray(params.mergedTopics) ? params.mergedTopics : [];
+  const guidedFilters = deriveGuidedFilters(mergedTopics);
 
   const config = getWorkflowConfig(modelId);
   const basicConfig = config.basic;
@@ -18,17 +22,33 @@ export async function runBasicQuestion({ externalApi, params, requestId, toolBud
     rerank: basicConfig.rerank,
   };
 
+  const hindiQuery = buildQuery(params.keywords);
+  const hindiLanguage = params.language || "hi";
   const hindiPayload = {
     ...baseFilters,
-    query: buildQuery(params.keywords),
-    language: params.language || "hi",
+    query: hindiQuery,
+    language: hindiLanguage,
     page_size: basicConfig.page_size,
   };
 
   toolBudget.consume();
 
+  // Fire one filtered search per guided filter (agent API unchanged); buckets
+  // are labelled and passed to Step2 alongside the default results.
+  const fetchGuided = () => fetchGuidedResults({
+    externalApi,
+    guidedFilters,
+    baseFilters,
+    query: hindiQuery,
+    language: hindiLanguage,
+    requestId,
+    toolBudget,
+  });
+
   if (!hasGujKeywords) {
-    return await externalApi.search(hindiPayload, requestId);
+    const results = await safeFetch(() => externalApi.search(hindiPayload, requestId), requestId);
+    const guidedResults = await fetchGuided();
+    return { chunks: results, guidedResults };
   }
 
   toolBudget.consume();
@@ -46,7 +66,11 @@ export async function runBasicQuestion({ externalApi, params, requestId, toolBud
 
   hindiResults.forEach((c) => { c._lang = "hi"; });
   gujResults.forEach((c) => { c._lang = "gu"; });
-  return [...hindiResults, ...gujResults];
+  const guidedResults = await fetchGuided();
+  return {
+    chunks: [...hindiResults, ...gujResults],
+    guidedResults,
+  };
 }
 
 function buildQuery(keywords) {

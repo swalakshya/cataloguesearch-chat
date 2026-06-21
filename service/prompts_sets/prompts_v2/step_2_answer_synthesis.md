@@ -81,3 +81,9 @@ MUST:
 - Include inline citations only when `answer_status` is `answered`.
 - Include follow-up questions only when `answer_status` is `answered`.
 - Scoring includes only chunk_ids that directly support the final answer.
+
+---
+## KB Source Citations
+Some context items are tagged with an id in square brackets — `[KB-D-n]` (a keyword definition) or `[KB-T-n]` (a topic extract). These are knowledge-base (jainkosh) sources, distinct from scripture chunks.
+- If a tagged KB item directly supports the final answer, include its id in the `scoring` array exactly like a chunk_id, with an integer score 1-100, e.g. `{ "chunk_id": "KB-T-1", "score": 80 }`.
+- Include only KB ids you actually used. Never invent KB ids and never write KB ids in the answer text.

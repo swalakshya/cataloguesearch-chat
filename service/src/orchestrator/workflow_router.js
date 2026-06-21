@@ -21,7 +21,7 @@ export class ToolBudget {
   }
 }
 
-export async function runWorkflow({ externalApi, keywordResult, requestId, provider = null, modelId = null, gujChunks = false, llmCallsCollector }) {
+export async function runWorkflow({ externalApi, kbApiClient = null, keywordResult, requestId, provider = null, modelId = null, gujChunks = false, llmCallsCollector, mergedTopics = [] }) {
   const workflowName = keywordResult.workflow || "basic_question_v1";
   const runner = workflowRegistry[workflowName];
   if (!runner) {
@@ -48,6 +48,7 @@ export async function runWorkflow({ externalApi, keywordResult, requestId, provi
     ...keywordResult,
     filters: resolvedFilters,
     gujChunks,
+    mergedTopics: Array.isArray(mergedTopics) ? mergedTopics : [],
   };
 
   // When gujChunks is active each workflow fires parallel Hindi + Gujarati
@@ -58,17 +59,23 @@ export async function runWorkflow({ externalApi, keywordResult, requestId, provi
   const toolBudgetLimit = defaultBudget;
   const toolBudget = new ToolBudget(toolBudgetLimit);
 
-  const chunks = await runner({ externalApi, params, requestId, toolBudget, modelId });
+  const runnerResult = await runner({ externalApi, kbApiClient, params, requestId, toolBudget, modelId });
+
+  // Normalize runner result: flat array (legacy) or { chunks, guidedResults, kbMetadataSection }
+  const chunks = Array.isArray(runnerResult) ? runnerResult : (runnerResult?.chunks || []);
+  const guidedResults = Array.isArray(runnerResult) ? [] : (runnerResult?.guidedResults || []);
+  const kbMetadataSection = Array.isArray(runnerResult) ? "" : (runnerResult?.kbMetadataSection || "");
 
   log.info("workflow_complete", {
     requestId,
     workflow: workflowName,
-    retrievedChunks: Array.isArray(chunks) ? chunks.length : 0,
+    retrievedChunks: chunks.length,
+    guidedResultSets: guidedResults.length,
     toolCallsUsed: toolBudget.used,
     toolCallBudget: toolBudget.limit,
   });
 
-  return { workflowName, chunks, toolCallsUsed: toolBudget.used };
+  return { workflowName, chunks, guidedResults, toolCallsUsed: toolBudget.used, kbMetadataSection };
 }
 
 async function resolveFilters({ externalApi, filters, language, requestId, allowFailure, provider, modelId, llmCallsCollector }) {

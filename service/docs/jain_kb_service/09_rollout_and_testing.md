@@ -67,7 +67,7 @@ Add `service/docs/jain_kb_service/manual_testing.md` with curl commands for:
 
 ## DoD
 
-- [ ] All five integration scenarios run green in docker compose.
-- [ ] Master flag verifiably no-ops kb calls when false.
-- [ ] Per-phase flags allow staged enablement.
-- [ ] Manual testing doc published.
+- [x] All five integration scenarios run green in docker compose (5/5 pass in `kb_enhance.integration.test.js`).
+- [x] Master flag verifiably no-ops kb calls when false (scenario 3: `KB_ENHANCE_ENABLED` unset → 0 KB calls, `GET /v1/debug/kb-stats` confirms).
+- [x] Per-phase flags allow staged enablement (scenario 4: `KB_ENHANCE_DEFINITIONS=false` + `KB_ENHANCE_KEYWORD_RESOLVE=false` → `keyword_resolve_batch` not called).
+- [x] Manual testing doc published (`docs/jain_kb_service/manual_testing.md` with 6 curl scenarios and observability reference).

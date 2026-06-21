@@ -17,6 +17,8 @@ export const MODEL_ROUTING_CONFIG = {
     : 20,
   workflowDefaults: {
     gujarati_page_size: 5,
+    // kb: per-model kb cap overrides go in each model's workflowOverrides.kb
+    kb: {},
     basic: {
       page: 1,
       page_size: 15,
@@ -49,19 +51,13 @@ export const MODEL_ROUTING_CONFIG = {
     {
       id: "gemini-2.5-flash",
       provider: "gemini",
-      priority: 2,
-      workflowOverrides: {},
-    },
-    {
-      id: "gemini-3-flash-preview",
-      provider: "gemini",
       priority: 1,
       workflowOverrides: {},
     },
     {
       id: "gpt-4o",
       provider: "openai",
-      priority: 3,
+      priority: 2,
       workflowOverrides: {
         gujarati_page_size: 3,
         basic: {
@@ -77,6 +73,12 @@ export const MODEL_ROUTING_CONFIG = {
         },
         advanced_nested: {
           page_size: 7,
+        },
+        kb: {
+          topic_match_limit: 3,
+          graphrag_limit: 3,
+          topic_merge_limit: 4,
+          definitions_max_keywords: 10,
         },
       },
     },

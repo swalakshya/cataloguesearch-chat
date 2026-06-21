@@ -110,11 +110,28 @@ export function getKeywordPrompt(question, conversationHistory, options = {}) {
 }
 
 export function getKeywordFixPrompt(question, step1Json, options = {}) {
+  const { missedWithSuggestions } = options;
   const template = readPrompt("step_1b_keyword_fix.md", options);
+  const missedSection = renderMissedSuggestionsSection(missedWithSuggestions);
   return template
     .replace("<QUESTION_HERE>", question)
     .replace("<STEP1_JSON_HERE>", JSON.stringify(step1Json, null, 2))
+    .replace("<MISSED_JAIN_KEYWORDS_WITH_SUGGESTIONS>", missedSection)
     .trim();
+}
+
+function renderMissedSuggestionsSection(missedWithSuggestions) {
+  if (!Array.isArray(missedWithSuggestions) || missedWithSuggestions.length === 0) {
+    return "(none)";
+  }
+  return missedWithSuggestions
+    .map((item) => {
+      const suggestions = item.suggestions
+        .map((s) => `${s.kw} (${Number(s.similarity).toFixed(2)})`)
+        .join(", ");
+      return `${item.token} → suggestions: ${suggestions}`;
+    })
+    .join("\n");
 }
 
 export function getPromptRootForModel({ modelId, promptVersion, gujChunks } = {}) {

@@ -1,7 +1,7 @@
 # Jain KB Service Integration — Overview & Scope
 
 This folder specifies the `cataloguesearch-chat` (`service/`) side of the
-GraphRAG enhancement. kb-service side lives in
+GraphRAG enhancement. kb-service side lives in repo -
 `dictionary-and-metadata-service/docs/query_engine/`.
 
 Each Phase doc (`01_*`…`09_*`) is sized so a single agent can land it in one
@@ -44,7 +44,8 @@ Step1 (keyword extract + jain classification + kb_subworkflows)
 
 1. `01_step1_jain_keyword_classification.md` — extend Step1 JSON schema
 2. `02_keyword_dictionary_check_and_fix.md` — call kb resolve; integrate with Step1b
-3. `03_topic_match_and_extracts.md` — parallel topics_match + graphrag; merge by natural_key
+3. `03_topic_match_and_extracts.md` — *(superseded)* parallel topics_match + graphrag; merge by natural_key
+3a. `03a_sequential_topic_anchor_expand.md` — sequential anchor (topics_match) → expand (topic_neighbors); replaces 03
 4. `04_guided_filters_in_agent_api.md` — derive guided_filters from topic refs; updated agent API contract
 5. `05_metadata_enhancement.md` — kb metadata + cataloguesearch options in parallel
 6. `06_kb_subworkflows.md` — direct_retrieval / search_shastra_for_topics / search_topic_in_shastra
@@ -54,11 +55,11 @@ Step1 (keyword extract + jain classification + kb_subworkflows)
 
 ## kb-service base URL
 
+The original metadata-service (port 8001), data-service (port 8002), and navigation-service (port 8003) were merged into a single `core-service` running on port 8001. The query-service (port 8004) remains the public-facing seam for chat.
+
 ```
-KB_SERVICE_BASE_URL=http://localhost:8004   # query-service
-KB_DATA_SERVICE_BASE_URL=http://localhost:8002
-KB_METADATA_SERVICE_BASE_URL=http://localhost:8001
-KB_NAVIGATION_SERVICE_BASE_URL=http://localhost:8003   # not used in v1
+KB_SERVICE_BASE_URL=http://localhost:8004       # query-service (unchanged)
+KB_CORE_SERVICE_BASE_URL=http://localhost:8001  # core-service (merged metadata+data+navigation)
 KB_REQUEST_TIMEOUT_SEC=15
 ```
 

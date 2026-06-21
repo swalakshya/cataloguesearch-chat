@@ -4,8 +4,8 @@ import { parseJsonStrict } from "../utils/json.js";
 import { estimateTokens } from "../utils/token.js";
 import { log } from "../utils/log.js";
 
-export async function runKeywordFix({ provider, question, step1Json, requestId, modelId, gujChunks = false, llmCallsCollector }) {
-  const prompt = getKeywordFixPrompt(question, step1Json, { modelId, requestId, gujChunks });
+export async function runKeywordFix({ provider, question, step1Json, requestId, modelId, gujChunks = false, llmCallsCollector, missedWithSuggestions }) {
+  const prompt = getKeywordFixPrompt(question, step1Json, { modelId, requestId, gujChunks, missedWithSuggestions });
   log.info("keyword_fix_prompt_tokens_estimate", {
     requestId,
     tokens_estimate: estimateTokens(prompt),

@@ -12,11 +12,17 @@ import { registerFeedbackRoutes } from "./feedback/feedback_routes.js";
 import { RequestLogStore } from "./request_logs/request_log_store.js";
 import { ProviderFactory } from "./providers/provider_factory.js";
 import { ExternalApiClient } from "./agent_api/client.js";
+import { KbApiClient } from "./kb_api/client.js";
 import { runKeywordExtraction } from "./orchestrator/keyword_extract.js";
+import { runKbKeywordCheck } from "./orchestrator/kb_keyword_check.js";
+import { runKbTopicMatch, formatKbTopicsContext } from "./orchestrator/kb_topic_match.js";
+import { fetchKbMetadataMatches, buildKbMetadataSection } from "./orchestrator/kb_metadata_match.js";
+import { runKbSubworkflows, formatKbSubworkflowsContext } from "./orchestrator/kb_subworkflows.js";
+import { collectUsedJainKeywords, fetchKbDefinitions } from "./orchestrator/kb_definitions.js";
 import { getPromptRootForModel } from "./orchestrator/prompts.js";
 import { retryWorkflowOnEmptyChunks } from "./orchestrator/keyword_fix_retry.js";
 import { runAnswerSynthesis } from "./orchestrator/answer_synthesis.js";
-import { buildContext, buildMultiLangContext, cleanChunks, extractChunkIds } from "./utils/chunk.js";
+import { buildContext, buildMultiLangContext, buildGuidedContext, cleanChunks, extractChunkIds } from "./utils/chunk.js";
 import {
   buildSummaryPrompt,
   compactHistoryIfNeeded,
@@ -42,6 +48,7 @@ import { buildNoContextAnswer, getNoContextTextForLocale } from "./utils/no_cont
 import { buildGreetingAnswer } from "./utils/greeting.js";
 import { buildHashedChunks, getChunkHash, mapHashedIdsToReal } from "./utils/chunk_hash.js";
 import { buildScoredChunks } from "./utils/scoring.js";
+import { buildKbCitationMap, buildKbReferencesFromScoring } from "./utils/kb_citations.js";
 import { estimateTokens, shouldRejectForTokenLimit, getSessionTokenLimit } from "./utils/token.js";
 import { log } from "./utils/log.js";
 import { MODEL_ROUTING_CONFIG } from "./config/model_config.js";
@@ -50,6 +57,7 @@ import { getOrderedModels } from "./routing/model_registry.js";
 import { ModelAvailabilityTracker } from "./routing/model_availability.js";
 import { ModelRouter } from "./routing/model_router.js";
 import { sanitizeAllowedContentTypes } from "./config/content_types.js";
+import { getKbWorkflowConfig } from "./config/kb_config.js";
 import {
   buildTestProviderFactory,
   getTestProviderStats,
@@ -77,6 +85,45 @@ export function createServer(options = {}) {
   const adminApiKey = String(options.adminApiKey ?? process.env.ADMIN_KEY ?? "").trim();
   const defaultResponseFormat =
     normalizeResponseFormat(options.defaultResponseFormat ?? process.env.DEFAULT_ANSWER_FORMAT, { fallback: "combined" });
+  const kbEnhanceEnabled = options.kbEnhanceEnabled ?? readBooleanEnv("KB_ENHANCE_ENABLED");
+  const kbApiBaseUrl = options.kbApiBaseUrl ?? process.env.KB_SERVICE_BASE_URL ?? "http://localhost:8004";
+  const kbApiCoreBaseUrl = options.kbApiCoreBaseUrl ?? process.env.KB_CORE_SERVICE_BASE_URL ?? "http://localhost:8001";
+  const kbApiTimeoutMs = Number(options.kbApiTimeoutMs ?? process.env.KB_REQUEST_TIMEOUT_SEC ?? 15) * 1000;
+
+  // Per-phase flags: each defaults to master when its env var is absent.
+  // When master is false (kbEnhanceEnabled=false), all phases are disabled regardless.
+  function readKbPhaseFlag(envName) {
+    if (!kbEnhanceEnabled) return false;
+    const v = process.env[envName];
+    if (v === undefined || v === null || v === "") return kbEnhanceEnabled;
+    return String(v).toLowerCase() === "true";
+  }
+  const kbPhaseFlags = {
+    keywordResolve: readKbPhaseFlag("KB_ENHANCE_KEYWORD_RESOLVE"),
+    topicMatch:     readKbPhaseFlag("KB_ENHANCE_TOPIC_MATCH"),
+    guidedFilters:  readKbPhaseFlag("KB_ENHANCE_GUIDED_FILTERS"),
+    metadata:       readKbPhaseFlag("KB_ENHANCE_METADATA"),
+    subworkflows:   readKbPhaseFlag("KB_ENHANCE_SUBWORKFLOWS"),
+    definitions:    readKbPhaseFlag("KB_ENHANCE_DEFINITIONS"),
+  };
+
+  // Base config for KB API client (null when disabled). A fresh KbApiClient is
+  // created per request so per-request stats can be tracked via onCallComplete.
+  const kbApiBaseConfig = kbEnhanceEnabled
+    ? { baseUrl: kbApiBaseUrl, coreBaseUrl: kbApiCoreBaseUrl, timeoutMs: kbApiTimeoutMs }
+    : null;
+
+  // Process-level per-endpoint stats store (exposed via /v1/debug/kb-stats in test-mode).
+  const kbGlobalStats = new Map(); // endpoint -> { count, totalMs, errorCount }
+
+  function recordGlobalKbStat({ endpoint, durationMs, success }) {
+    if (!endpoint) return;
+    const s = kbGlobalStats.get(endpoint) || { count: 0, totalMs: 0, errorCount: 0 };
+    s.count += 1;
+    s.totalMs += durationMs || 0;
+    if (!success) s.errorCount += 1;
+    kbGlobalStats.set(endpoint, s);
+  }
 
   const app = express();
   app.use(cors());
@@ -96,7 +143,6 @@ export function createServer(options = {}) {
         baseUrl: externalApiBaseUrl,
         timeoutMs: externalApiTimeoutMs,
       });
-
   cleanSessionDbForTest({
     enabled: testMode && cleanSessionDb,
     dbPath: chatDbPath,
@@ -136,6 +182,9 @@ export function createServer(options = {}) {
     externalTimeoutMs: externalApiTimeoutMs,
     chatDbPath: chatDbPath || null,
     cleanSessionDb: testMode && cleanSessionDb,
+    kbEnhanceEnabled,
+    kbApiBaseUrl: kbEnhanceEnabled ? kbApiBaseUrl : null,
+    kbPhaseFlags: kbEnhanceEnabled ? kbPhaseFlags : null,
   });
 
   app.get("/v1/health", (_, res) => {
@@ -157,7 +206,16 @@ export function createServer(options = {}) {
       sessionStore?.clear();
       requestLogStore?.clear();
       messageJobStore?.clear();
+      kbGlobalStats.clear();
       res.json({ status: "ok" });
+    });
+
+    app.get("/v1/debug/kb-stats", (req, res) => {
+      const stats = {};
+      for (const [endpoint, data] of kbGlobalStats) {
+        stats[endpoint] = { ...data };
+      }
+      res.json({ stats, kbEnhanceEnabled, kbPhaseFlags });
     });
 
     app.post("/v1/test/provider-behavior", (req, res) => {
@@ -726,6 +784,24 @@ export function createServer(options = {}) {
     onStage,
     requestLogContext,
   }) {
+    // Create a per-request KbApiClient that tracks stats into kbRequestStats
+    // and also accumulates into the process-level kbGlobalStats store.
+    const kbRequestStats = { callCount: 0, totalMs: 0, errorCount: 0 };
+    const kbApiClient = kbApiBaseConfig
+      ? new KbApiClient({
+          ...kbApiBaseConfig,
+          onCallComplete: ({ endpoint, durationMs, success }) => {
+            kbRequestStats.callCount++;
+            kbRequestStats.totalMs += durationMs || 0;
+            if (!success) kbRequestStats.errorCount++;
+            recordGlobalKbStat({ endpoint, durationMs, success });
+          },
+        })
+      : null;
+
+    // Effective KB config for this model (env defaults → workflowDefaults.kb → model kb overrides)
+    const kbModelConfig = kbApiClient ? getKbWorkflowConfig(model.id) : null;
+
     requestLogContext.provider = model.provider;
     requestLogContext.keywordModel = model.id;
     log.info("model_prompt_root", {
@@ -820,6 +896,65 @@ export function createServer(options = {}) {
       });
     }
 
+    if (kbApiClient && kbPhaseFlags.keywordResolve) {
+      keywordResult = await runKbKeywordCheck({
+        step1Result: keywordResult,
+        kbApiClient,
+        provider,
+        question: content,
+        requestId,
+        modelId: model.id,
+        gujChunks,
+        llmCallsCollector: requestLogContext.llmCalls,
+      });
+    }
+
+    // Await topic-match before workflow so mergedTopics can populate guided_filters
+    // on every external_search call (Phase 4). Parallelism with keyword extraction
+    // is maintained; the sequential wait here is intentional.
+    const mergedTopics = (kbApiClient && kbPhaseFlags.topicMatch)
+      ? await runKbTopicMatch({ keywordResult, kbApiClient, requestId })
+      : [];
+
+    // When guidedFilters phase is disabled, pass empty topics to the workflow so
+    // no guided filters are derived and no extra filtered searches are fired.
+    const mergedTopicsForWorkflow = kbPhaseFlags.guidedFilters ? mergedTopics : [];
+
+    // Phase 7: fetch Hindi definitions for all used Jain keywords in parallel with
+    // the retrieval workflow. mergedTopics is already resolved so seed keywords
+    // from topic matches are available. Skipped for metadata workflow.
+    const earlyWorkflow = keywordResult.workflow || "basic_question_v1";
+    const isMetadataWorkflowEarly = earlyWorkflow === "metadata_question_v1";
+
+    const kbDefinitionsPromise =
+      kbApiClient && !isMetadataWorkflowEarly && kbPhaseFlags.definitions
+        ? fetchKbDefinitions({
+            usedJainKeywords: collectUsedJainKeywords(keywordResult, mergedTopics),
+            kbApiClient,
+            requestId,
+          }).catch((err) => {
+            log.warn("kb_definitions_pipeline_failed", { requestId, error: err?.message || String(err) });
+            return { text: "", citations: [] };
+          })
+        : Promise.resolve({ text: "", citations: [] });
+
+    const kbMetadataPromise =
+      kbApiClient && !isMetadataWorkflowEarly && kbPhaseFlags.metadata
+        ? fetchKbMetadataMatches(kbApiClient, keywordResult.kb_entities, requestId).catch((err) => {
+            log.warn("kb_metadata_match_pipeline_failed", { requestId, error: err?.message || String(err) });
+            return null;
+          })
+        : Promise.resolve(null);
+
+    const kbSubworkflowsPromise =
+      kbApiClient && !isMetadataWorkflowEarly && kbPhaseFlags.subworkflows &&
+      Array.isArray(keywordResult.kb_subworkflows) && keywordResult.kb_subworkflows.length > 0
+        ? runKbSubworkflows(keywordResult.kb_subworkflows, kbApiClient, requestId).catch((err) => {
+            log.warn("kb_subworkflows_pipeline_failed", { requestId, error: err?.message || String(err) });
+            return [];
+          })
+        : Promise.resolve([]);
+
     onStage?.("searching");
     const workflowOutcome = await retryWorkflowOnEmptyChunks({
       initialKeywordResult: keywordResult,
@@ -827,9 +962,11 @@ export function createServer(options = {}) {
       requestId,
       provider,
       externalApi,
+      kbApiClient,
       modelId: model.id,
       gujChunks,
       llmCallsCollector: requestLogContext.llmCalls,
+      mergedTopics: mergedTopicsForWorkflow,
       prepareKeywordResult: (result) => {
         const prepared = { ...result };
         if (normalizedUiFilters) {
@@ -845,6 +982,7 @@ export function createServer(options = {}) {
     let {
       workflowName,
       chunks,
+      guidedResults,
       toolCallsUsed,
       keywordResult: finalKeywordResult,
       keywordFixApplied,
@@ -866,7 +1004,8 @@ export function createServer(options = {}) {
       requestLogContext.contentType;
 
     const isMetadataWorkflow = workflowName === "metadata_question_v1";
-    const metadataByRealId = isMetadataWorkflow ? {} : buildChunkMetadataMap(chunks);
+    const guidedRawChunks = Array.isArray(guidedResults) ? guidedResults.flatMap((r) => Array.isArray(r.results) ? r.results : []) : [];
+    const metadataByRealId = isMetadataWorkflow ? {} : buildChunkMetadataMap([...chunks, ...guidedRawChunks]);
 
     // When gujChunks is active, split raw chunks by language tag before cleaning
     // so that deduplication is per-language and context sections stay separate.
@@ -906,9 +1045,63 @@ export function createServer(options = {}) {
     const hashedHindi = isMetadataWorkflow ? cleanedHindi : buildHashedChunks(cleanedHindi, session);
     const hashedGuj = useGujContext ? buildHashedChunks(cleanedGuj, session) : [];
     const hashedChunks = useGujContext ? [...hashedHindi, ...hashedGuj] : hashedHindi;
-    const context = useGujContext
+
+    // Build guided passages: clean, hash, and collect into labelled context section
+    const rawGuidedResults = !isMetadataWorkflow && Array.isArray(guidedResults) ? guidedResults : [];
+    const cleanedGuidedResults = rawGuidedResults
+      .map(({ guided_filter, results: grResults }) => ({
+        guided_filter,
+        chunks: cleanChunks(Array.isArray(grResults) ? grResults : []),
+      }))
+      .filter(({ chunks: gc }) => gc.length > 0);
+    const hashedGuidedResults = cleanedGuidedResults.map(({ guided_filter, chunks: gc }) => ({
+      guided_filter,
+      chunks: buildHashedChunks(gc, session),
+    }));
+    // Include guided chunks in hashedChunks so scoring/citations cover them
+    const hashedGuidedFlat = hashedGuidedResults.flatMap((r) => r.chunks);
+    const allHashedChunks = [...hashedChunks, ...hashedGuidedFlat];
+
+    const chunksContext = useGujContext
       ? buildMultiLangContext(hashedHindi, hashedGuj)
       : buildContext(hashedChunks);
+    const guidedSection = buildGuidedContext(hashedGuidedResults);
+
+    const kbTopics = !isMetadataWorkflow ? formatKbTopicsContext(mergedTopics) : { text: "", citations: [] };
+    const kbTopicsSection = kbTopics.text;
+
+    // Resolve kb metadata section: from workflow result (metadata) or parallel promise (others)
+    const kbMetadataSection = isMetadataWorkflow
+      ? (workflowOutcome.kbMetadataSection || "")
+      : buildKbMetadataSection(await kbMetadataPromise);
+
+    const subworkflowResults = isMetadataWorkflow ? [] : await kbSubworkflowsPromise;
+    const kbSubworkflowsSection = formatKbSubworkflowsContext(subworkflowResults);
+
+    const kbDefinitions = isMetadataWorkflow ? { text: "", citations: [] } : await kbDefinitionsPromise;
+    const kbDefinitionsSection = kbDefinitions.text;
+
+    // Map of citable KB ids (KB-D-n / KB-T-n) → { source_url, label }, used to
+    // resolve KB ids the LLM reports in `scoring` back into reference URLs.
+    const kbCitationMap = buildKbCitationMap(kbDefinitions.citations, kbTopics.citations);
+
+    const context = [kbMetadataSection, kbDefinitionsSection, kbTopicsSection, kbSubworkflowsSection, chunksContext, guidedSection].filter(Boolean).join("\n\n");
+    requestLogContext.kbCallCount = kbRequestStats.callCount;
+    requestLogContext.kbCallTotalMs = kbRequestStats.totalMs;
+    requestLogContext.kbCallErrorCount = kbRequestStats.errorCount;
+    log.info("kb_topic_match_injected", {
+      requestId,
+      topicsCount: mergedTopics.length,
+      injected: kbTopicsSection.length > 0,
+      guidedResultSets: hashedGuidedResults.length,
+      guidedChunks: hashedGuidedFlat.length,
+      kbMetadataSectionPresent: kbMetadataSection.length > 0,
+      kbSubworkflowsCount: subworkflowResults.length,
+      kbDefinitionsSectionPresent: kbDefinitionsSection.length > 0,
+      kbCallCount: kbRequestStats.callCount,
+      kbCallTotalMs: kbRequestStats.totalMs,
+      kbCallErrorCount: kbRequestStats.errorCount,
+    });
     const warnings = [];
     if (!cleanedChunks.length) {
       warnings.push("no_context_found");
@@ -1020,7 +1213,7 @@ export function createServer(options = {}) {
     const expandedAnswer = fullCitationsEnabled
       ? expandChunkCitations(
           resolvedAnswer,
-          buildChunkCitationMap(hashedChunks, session.chunkIdMap, metadataByRealId)
+          buildChunkCitationMap(allHashedChunks, session.chunkIdMap, metadataByRealId)
         )
       : resolvedAnswer;
 
@@ -1032,7 +1225,7 @@ export function createServer(options = {}) {
     const normalizedForParsing = normalizeAnswerTextForParsing(cleanedRaw);
     const cleaned = stripCitations(normalizedForParsing);
 
-    const hashedChunkIds = extractChunkIds(hashedChunks);
+    const hashedChunkIds = extractChunkIds(allHashedChunks);
     const scoring = !isNoAnswer && Array.isArray(answerPayload?.scoring) ? answerPayload.scoring : [];
     const scoredChunks = buildScoredChunks(scoring, hashedChunkIds);
 
@@ -1051,6 +1244,26 @@ export function createServer(options = {}) {
           metadataByRealId,
           language: keywordResult.language,
         });
+
+    // Merge KB source URLs (jainkosh) for any KB context items the LLM cited via
+    // `scoring` (KB-D-n / KB-T-n ids). Appended after chunk references so they
+    // render in the same references[] list, mirroring chunk URLs.
+    if (!isNoAnswer && kbCitationMap.size > 0) {
+      const kbRefs = buildKbReferencesFromScoring({
+        scoring,
+        kbCitationMap,
+        language: keywordResult.language,
+      });
+      if (kbRefs.references.length) {
+        structured.references.push(...kbRefs.references);
+        structured.citations.push(...kbRefs.citations);
+        log.info("kb_references_merged", {
+          requestId,
+          sessionId: session.sessionId,
+          kbReferences: kbRefs.references.length,
+        });
+      }
+    }
 
     if (responseFormat === "structured") {
       const { answer: answerWithoutFollowUps, followUpQuestions: extractedFollowUps } = extractFollowUpQuestionsFromAnswer(cleaned);
@@ -1227,6 +1440,9 @@ function writeRequestLog({ requestLogStore, requestId, requestStartedAt, request
       tool_calls_used: requestLogContext.toolCallsUsed ?? null,
       content_type: requestLogContext.contentType ?? null,
       answer: requestLogContext.answer ?? null,
+      kb_call_count: requestLogContext.kbCallCount ?? null,
+      kb_call_total_ms: requestLogContext.kbCallTotalMs ?? null,
+      kb_call_error_count: requestLogContext.kbCallErrorCount ?? null,
       llm_calls: llmCalls.length ? llmCalls : undefined,
       llm_usage_summary: llmCalls.length ? llmUsageSummary : undefined,
     },

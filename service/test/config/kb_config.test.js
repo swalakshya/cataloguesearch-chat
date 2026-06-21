@@ -117,9 +117,11 @@ describe("KB_CAPS_DEFAULTS", () => {
   test("exports all required cap keys", () => {
     const keys = [
       "keyword_resolve_max_tokens", "keyword_fuzzy_top_k", "keyword_fuzzy_min_sim",
-      "topic_match_limit", "graphrag_limit", "topic_merge_limit", "topic_extract_truncate_chars",
+      "topic_match_limit", "graphrag_limit", "topic_neighbors_limit", "topic_neighbors_max_hops",
+      "topic_neighbors_include_extracts", "topic_merge_limit", "topic_extract_truncate_chars",
       "guided_filters_cap", "metadata_fuzzy_limit", "metadata_fuzzy_min_sim",
       "subworkflows_max", "subworkflow_timeout_ms", "definitions_max_keywords", "definitions_per_keyword",
+      "related_keyword_definitions_max",
     ];
     for (const key of keys) {
       assert.ok(key in KB_CAPS_DEFAULTS, `missing key: ${key}`);
@@ -136,6 +138,18 @@ describe("KB_CAPS_DEFAULTS", () => {
 
   test("topic_merge_limit defaults to 5", () => {
     assert.equal(KB_CAPS_DEFAULTS.topic_merge_limit, 5);
+  });
+
+  test("topic_neighbors_max_hops defaults to 2", () => {
+    assert.equal(KB_CAPS_DEFAULTS.topic_neighbors_max_hops, 2);
+  });
+
+  test("topic_neighbors_include_extracts defaults to true", () => {
+    assert.equal(KB_CAPS_DEFAULTS.topic_neighbors_include_extracts, true);
+  });
+
+  test("related_keyword_definitions_max defaults to 20", () => {
+    assert.equal(KB_CAPS_DEFAULTS.related_keyword_definitions_max, 20);
   });
 
   test("definitions_max_keywords defaults to 15", () => {

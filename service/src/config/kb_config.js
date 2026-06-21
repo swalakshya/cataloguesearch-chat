@@ -51,6 +51,8 @@ export const KB_CAPS_DEFAULTS = {
   topic_match_limit:            readInt("KB_TOPIC_MATCH_LIMIT",          5),
   graphrag_limit:               readInt("KB_GRAPHRAG_LIMIT",             5),
   topic_neighbors_limit:        readInt("KB_TOPIC_NEIGHBORS_LIMIT",      10),
+  topic_neighbors_max_hops:     readInt("KB_TOPIC_NEIGHBORS_MAX_HOPS",   2),
+  topic_neighbors_include_extracts: readBool("KB_TOPIC_NEIGHBORS_INCLUDE_EXTRACTS", true),
   topic_merge_limit:            readInt("KB_TOPIC_MERGE_LIMIT",          5),
   topic_extract_truncate_chars: readInt("KB_TOPIC_EXTRACT_TRUNCATE_CHARS", 1500),
   guided_filters_cap:           readInt("KB_GUIDED_FILTERS_CAP",        5),
@@ -60,6 +62,7 @@ export const KB_CAPS_DEFAULTS = {
   subworkflow_timeout_ms:       readInt("KB_SUBWORKFLOW_TIMEOUT_MS",     10000),
   definitions_max_keywords:     readInt("KB_DEFINITIONS_MAX_KEYWORDS",   15),
   definitions_per_keyword:      readInt("KB_DEFINITIONS_PER_KEYWORD",    0),
+  related_keyword_definitions_max: readInt("KB_RELATED_KEYWORD_DEFINITIONS_MAX", 20),
 };
 
 // ─── Per-model override merge ──────────────────────────────────────────────────

@@ -41,6 +41,9 @@ KB_REQUEST_MAX_RETRIES=1
 | `KB_KEYWORD_FUZZY_MIN_SIM` | 0.35 | Phase 2 |
 | `KB_TOPIC_MATCH_LIMIT` | 5 | Phase 3 |
 | `KB_GRAPHRAG_LIMIT` | 5 | Phase 3 |
+| `KB_TOPIC_NEIGHBORS_LIMIT` | 10 | Phase 3 / 3a / 3b |
+| `KB_TOPIC_NEIGHBORS_MAX_HOPS` | 2 | Phase 3b content-hop depth for `topic_neighbors` |
+| `KB_TOPIC_NEIGHBORS_INCLUDE_EXTRACTS` | true | Phase 3b related-topic extract hydration toggle |
 | `KB_TOPIC_MERGE_LIMIT` | 5 | Phase 3 |
 | `KB_TOPIC_EXTRACT_TRUNCATE_CHARS` | 1500 | Phase 3 (kb-side enforced; doc-only here) |
 | `KB_GUIDED_FILTERS_CAP` | 5 | Phase 4 |
@@ -50,6 +53,7 @@ KB_REQUEST_MAX_RETRIES=1
 | `KB_SUBWORKFLOW_TIMEOUT_MS` | 10000 | Phase 6 |
 | `KB_DEFINITIONS_MAX_KEYWORDS` | 15 | Phase 7 |
 | `KB_DEFINITIONS_PER_KEYWORD` | 0 (=all) | Phase 7 |
+| `KB_RELATED_KEYWORD_DEFINITIONS_MAX` | 20 | Phase 3b related-keyword definition batch cap |
 
 ## Per-model overrides
 
@@ -92,3 +96,10 @@ resolutions/topics/etc.) — never includes full text bodies.
 - [x] Master + per-phase flags respected at call sites (per-phase flag checks at every KB call site in `server.js`).
 - [ ] Per-model overrides applied during routing — `getKbWorkflowConfig` is computed per-request and available as `kbModelConfig`, but threading it to orchestrator functions (`runKbTopicMatch`, `runKbSubworkflows`, `fetchKbDefinitions`) is deferred.
 - [x] Logging shape verified by test (4 logging-shape tests in `kb_config.test.js`: `kb_api_response` fields, `kb_api_failed` fields, `onCallComplete` success and error).
+
+## Implementation Notes (2026-06-22)
+
+- Phase 3b defaults now live in `KB_CAPS_DEFAULTS` so future per-model override
+  threading can see them without changing config shape again.
+- The current orchestrator still reads `process.env` directly for Phase 3 flags,
+  matching the pre-existing Phase 3a style described above.

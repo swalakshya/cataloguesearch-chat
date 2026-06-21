@@ -1,5 +1,10 @@
 # Phase 3a (chat) — Sequential Topic Anchor → Expand
 
+> **Extended by [`03b_two_hop_related_extracts.md`](03b_two_hop_related_extracts.md)**
+> — hydrates related topics' extracts + related keywords' definitions, expands to
+> 2 content-hops, and renders them nested under each anchor (supersedes the
+> names-only `related:` line described here).
+
 **Supersedes the parallel design in
 [`03_topic_match_and_extracts.md`](03_topic_match_and_extracts.md).** That phase
 fired `topics_match` and `graphrag` in parallel and merged by `topic_natural_key`.

@@ -86,10 +86,10 @@ export class KbApiClient {
     return Array.isArray(parsed?.shastras) ? parsed.shastras : [];
   }
 
-  async topicsMatch({ keywords, limit = 5, includeExtracts = true, includeReferences = true } = {}, requestId) {
+  async topicsMatch({ keywords, limit = 5, contentOnly = true, includeExtracts = true, includeReferences = true } = {}, requestId) {
     const parsed = await this.#post(
       "/v1/query/topics_match",
-      { keywords, limit, include_extracts: includeExtracts, include_references: includeReferences },
+      { keywords, limit, content_only: contentOnly, include_extracts: includeExtracts, include_references: includeReferences },
       requestId
     );
     return Array.isArray(parsed?.matches) ? parsed.matches : [];
@@ -104,10 +104,16 @@ export class KbApiClient {
     return Array.isArray(parsed?.ranked_topics) ? parsed.ranked_topics : [];
   }
 
-  async topicNeighbors({ topicNaturalKeys, maxNeighborsPerTopic = 10, includeExtracts = false, includeReferences = false } = {}, requestId) {
+  async topicNeighbors({ topicNaturalKeys, maxNeighborsPerTopic = 10, maxHops = 1, includeExtracts = false, includeReferences = false } = {}, requestId) {
     const parsed = await this.#post(
       "/v1/query/topic_neighbors",
-      { topic_natural_keys: topicNaturalKeys, max_neighbors_per_topic: maxNeighborsPerTopic, include_extracts: includeExtracts, include_references: includeReferences },
+      {
+        topic_natural_keys: topicNaturalKeys,
+        max_neighbors_per_topic: maxNeighborsPerTopic,
+        max_hops: maxHops,
+        include_extracts: includeExtracts,
+        include_references: includeReferences,
+      },
       requestId
     );
     // The query-service returns `neighbors_by_anchor` as a LIST of

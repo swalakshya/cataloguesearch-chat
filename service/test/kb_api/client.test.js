@@ -243,6 +243,50 @@ test("KbApiClient.keywordResolveBatch: returns [] when resolutions missing", asy
   }
 });
 
+test("KbApiClient.topicsMatch: sends content_only when requested", async () => {
+  const { calls, restore } = mockFetch(JSON.stringify({ matches: [], tool_trace_id: "t1" }));
+  try {
+    const client = new KbApiClient({ baseUrl: "http://kb.example.com", timeoutMs: 200 });
+    await client.topicsMatch(
+      { keywords: ["आत्मा"], limit: 5, contentOnly: true, includeExtracts: true, includeReferences: true },
+      "r-topics-match"
+    );
+
+    const body = JSON.parse(calls[0].options.body);
+    assert.equal(body.content_only, true);
+    assert.equal(body.include_extracts, true);
+    assert.equal(body.include_references, true);
+  } finally {
+    restore();
+  }
+});
+
+test("KbApiClient.topicNeighbors: sends max_hops and extract hydration flags", async () => {
+  const { calls, restore } = mockFetch(JSON.stringify({ neighbors_by_anchor: [], tool_trace_id: "t1" }));
+  try {
+    const client = new KbApiClient({ baseUrl: "http://kb.example.com", timeoutMs: 200 });
+    await client.topicNeighbors(
+      {
+        topicNaturalKeys: ["आत्मा"],
+        maxNeighborsPerTopic: 10,
+        maxHops: 2,
+        includeExtracts: true,
+        includeReferences: true,
+      },
+      "r-topic-neighbors"
+    );
+
+    const body = JSON.parse(calls[0].options.body);
+    assert.deepEqual(body.topic_natural_keys, ["आत्मा"]);
+    assert.equal(body.max_neighbors_per_topic, 10);
+    assert.equal(body.max_hops, 2);
+    assert.equal(body.include_extracts, true);
+    assert.equal(body.include_references, true);
+  } finally {
+    restore();
+  }
+});
+
 // ─── shastrasForTopic ─────────────────────────────────────────────────────────
 
 test("KbApiClient.shastrasForTopic: issues POST with body params", async () => {

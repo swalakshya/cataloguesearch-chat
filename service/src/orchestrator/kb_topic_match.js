@@ -69,6 +69,8 @@ export async function runKbTopicMatch({ keywordResult, kbApiClient, requestId })
 
   const topicMatchLimit = Number(process.env.KB_TOPIC_MATCH_LIMIT || 5);
   const topicNeighborsLimit = Number(process.env.KB_TOPIC_NEIGHBORS_LIMIT || 10);
+  const topicNeighborsMaxHops = Number(process.env.KB_TOPIC_NEIGHBORS_MAX_HOPS || 2);
+  const topicNeighborsIncludeExtracts = String(process.env.KB_TOPIC_NEIGHBORS_INCLUDE_EXTRACTS || "true").toLowerCase() === "true";
   const mergeLimit = Number(process.env.KB_TOPIC_MERGE_LIMIT || 5);
 
   log.info("kb_topic_match_start", {
@@ -79,7 +81,15 @@ export async function runKbTopicMatch({ keywordResult, kbApiClient, requestId })
 
   const setResults = await Promise.all(
     keywordSets.map((keywords) =>
-      runSingleKeywordSet({ keywords, kbApiClient, requestId, topicMatchLimit, topicNeighborsLimit })
+      runSingleKeywordSet({
+        keywords,
+        kbApiClient,
+        requestId,
+        topicMatchLimit,
+        topicNeighborsLimit,
+        topicNeighborsMaxHops,
+        topicNeighborsIncludeExtracts,
+      })
     )
   );
 
@@ -104,21 +114,31 @@ export async function runKbTopicMatch({ keywordResult, kbApiClient, requestId })
     .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
     .slice(0, mergeLimit);
 
+  const hydrated = await hydrateRelatedKeywordDefinitions({ mergedTopics: merged, kbApiClient, requestId });
+
   log.info("kb_topic_match_complete", {
     requestId,
     totalAnchors: uniqueAnchors.length,
-    merged: merged.length,
+    merged: hydrated.length,
   });
 
-  return merged;
+  return hydrated;
 }
 
-async function runSingleKeywordSet({ keywords, kbApiClient, requestId, topicMatchLimit, topicNeighborsLimit }) {
+async function runSingleKeywordSet({
+  keywords,
+  kbApiClient,
+  requestId,
+  topicMatchLimit,
+  topicNeighborsLimit,
+  topicNeighborsMaxHops,
+  topicNeighborsIncludeExtracts,
+}) {
   // Stage 1: anchor via topics_match
   let anchors = [];
   try {
     const result = await kbApiClient.topicsMatch(
-      { keywords, limit: topicMatchLimit, includeExtracts: true, includeReferences: true },
+      { keywords, limit: topicMatchLimit, contentOnly: true, includeExtracts: true, includeReferences: true },
       requestId
     );
     anchors = Array.isArray(result) ? result : [];
@@ -140,7 +160,13 @@ async function runSingleKeywordSet({ keywords, kbApiClient, requestId, topicMatc
   try {
     const naturalKeys = anchors.map((a) => a.topic_natural_key).filter(Boolean);
     neighborsByAnchor = await kbApiClient.topicNeighbors(
-      { topicNaturalKeys: naturalKeys, maxNeighborsPerTopic: topicNeighborsLimit, includeExtracts: false, includeReferences: false },
+      {
+        topicNaturalKeys: naturalKeys,
+        maxNeighborsPerTopic: topicNeighborsLimit,
+        maxHops: topicNeighborsMaxHops,
+        includeExtracts: topicNeighborsIncludeExtracts,
+        includeReferences: topicNeighborsIncludeExtracts,
+      },
       requestId
     );
   } catch (err) {
@@ -152,6 +178,72 @@ async function runSingleKeywordSet({ keywords, kbApiClient, requestId, topicMatc
   }
 
   return { anchors, neighborsByAnchor };
+}
+
+export async function hydrateRelatedKeywordDefinitions({ mergedTopics, kbApiClient, requestId }) {
+  if (!Array.isArray(mergedTopics) || mergedTopics.length === 0) return [];
+
+  const maxKeywords = Number(process.env.KB_RELATED_KEYWORD_DEFINITIONS_MAX || 20);
+  if (maxKeywords === 0 || typeof kbApiClient?.keywordResolveBatch !== "function") {
+    return mergedTopics;
+  }
+
+  const definitionsPerKeyword = Number(process.env.KB_DEFINITIONS_PER_KEYWORD || 0);
+  const uniqueKeywordNaturalKeys = [];
+  const seen = new Set();
+
+  for (const topic of mergedTopics) {
+    for (const relatedKeyword of (topic?.neighbors?.related_keywords || [])) {
+      const keywordNaturalKey = String(relatedKeyword?.keyword_natural_key || "").trim();
+      if (!keywordNaturalKey || seen.has(keywordNaturalKey)) continue;
+      seen.add(keywordNaturalKey);
+      uniqueKeywordNaturalKeys.push(keywordNaturalKey);
+      if (uniqueKeywordNaturalKeys.length >= maxKeywords) break;
+    }
+    if (uniqueKeywordNaturalKeys.length >= maxKeywords) break;
+  }
+
+  if (uniqueKeywordNaturalKeys.length === 0) return mergedTopics;
+
+  try {
+    const resolutions = await kbApiClient.keywordResolveBatch(
+      uniqueKeywordNaturalKeys,
+      { fuzzyTopK: 0, includeDefinitions: true, definitionsPerKeyword },
+      requestId
+    );
+
+    const definitionsByKeywordNaturalKey = new Map();
+    for (const resolution of resolutions || []) {
+      const keywordNaturalKey = String(resolution?.keyword_natural_key || "").trim();
+      if (!keywordNaturalKey) continue;
+      if (Array.isArray(resolution.definitions) && resolution.definitions.length > 0) {
+        definitionsByKeywordNaturalKey.set(keywordNaturalKey, resolution.definitions);
+      }
+    }
+
+    return mergedTopics.map((topic) => {
+      const relatedKeywords = topic?.neighbors?.related_keywords;
+      if (!Array.isArray(relatedKeywords) || relatedKeywords.length === 0) return topic;
+      return {
+        ...topic,
+        neighbors: {
+          ...topic.neighbors,
+          related_keywords: relatedKeywords.map((relatedKeyword) => {
+            const keywordNaturalKey = String(relatedKeyword?.keyword_natural_key || "").trim();
+            const definitions = definitionsByKeywordNaturalKey.get(keywordNaturalKey);
+            return definitions ? { ...relatedKeyword, definitions } : relatedKeyword;
+          }),
+        },
+      };
+    });
+  } catch (err) {
+    log.warn("kb_related_keyword_definitions_failed", {
+      requestId,
+      requestedKeywords: uniqueKeywordNaturalKeys.length,
+      error: err?.message || String(err),
+    });
+    return mergedTopics;
+  }
 }
 
 /**
@@ -179,7 +271,7 @@ export function attachNeighbors(anchors, neighborsByAnchor) {
  * Returns `{ text, citations }`. `text` is "" when there are no topics; `citations`
  * is `[{ id, label, source_url }]` for the tagged topics.
  */
-export function formatKbTopicsContext(mergedTopics) {
+export function formatKbTopicsContext(mergedTopics, { includeRelatedTopicExtracts = true } = {}) {
   if (!Array.isArray(mergedTopics) || mergedTopics.length === 0) {
     return { text: "", citations: [] };
   }
@@ -210,13 +302,41 @@ export function formatKbTopicsContext(mergedTopics) {
       if (ref) lines.push(`  ref: ${ref}`);
     }
 
-    const relatedTopics = topic.neighbors?.related_topics;
-    if (Array.isArray(relatedTopics) && relatedTopics.length > 0) {
-      const relatedLine = relatedTopics
-        .map((rt) => rt.display_text_hi || rt.topic_natural_key || "")
-        .filter(Boolean)
-        .join(", ");
-      if (relatedLine) lines.push(`  related: ${relatedLine}`);
+    const relatedTopics = Array.isArray(topic.neighbors?.related_topics) ? [...topic.neighbors.related_topics] : [];
+    if (relatedTopics.length > 0) {
+      const sortedRelatedTopics = relatedTopics.sort((a, b) => (a?.hops ?? 999) - (b?.hops ?? 999));
+      if (!includeRelatedTopicExtracts) {
+        const relatedLine = sortedRelatedTopics
+          .map((rt) => rt.display_text_hi || rt.topic_natural_key || "")
+          .filter(Boolean)
+          .join(", ");
+        if (relatedLine) lines.push(`  related: ${relatedLine}`);
+      } else {
+        for (const relatedTopic of sortedRelatedTopics) {
+          const displayRelated = relatedTopic.display_text_hi || relatedTopic.topic_natural_key || "";
+          if (!displayRelated) continue;
+          const hopLabel = Number.isFinite(relatedTopic.hops) ? relatedTopic.hops : "?";
+          lines.push(`  related topic (hop ${hopLabel}): ${displayRelated}`);
+          const relatedExtracts = Array.isArray(relatedTopic.extracts_hi) ? relatedTopic.extracts_hi : [];
+          for (const extract of relatedExtracts) {
+            if (!extract?.text_hi) continue;
+            lines.push(`    extract: ${extract.text_hi}`);
+            const ref = formatMainRef(extract.main_reference);
+            if (ref) lines.push(`    ref: ${ref}`);
+          }
+        }
+      }
+    }
+
+    const relatedKeywords = Array.isArray(topic.neighbors?.related_keywords) ? topic.neighbors.related_keywords : [];
+    for (const relatedKeyword of relatedKeywords) {
+      const displayKeyword = relatedKeyword.display_text_hi || relatedKeyword.name_hi || relatedKeyword.keyword_natural_key || "";
+      if (!displayKeyword) continue;
+      lines.push(`  related keyword: ${displayKeyword}`);
+      for (const definition of (relatedKeyword.definitions || [])) {
+        if (!definition?.text_hi) continue;
+        lines.push(`    definition: ${definition.text_hi}`);
+      }
     }
   }
 

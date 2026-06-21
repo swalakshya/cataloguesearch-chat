@@ -30,7 +30,15 @@ const kbTopicsMatchResponse = {
       score: 0.9,
       ancestors_hi: ["आत्मा"],
       source_url: "https://www.jainkosh.org/wiki/आत्मा#3.1",
-      extracts_hi: [{ block_index: 1, text_hi: "आत्मा नित्य है।" }],
+      extracts_hi: [{
+        block_index: 1,
+        text_hi: "आत्मा नित्य है।",
+        main_reference: {
+          shastra_name: "समयसार",
+          teeka_name: null,
+          resolved_fields: [{ field: "गाथा", value: 1 }],
+        },
+      }],
       references: [{ shastra_natural_key: "samaysaar", gatha_number: 1 }],
     },
   ],
@@ -75,14 +83,27 @@ const kbKeywordResolveResponse = {
   tool_trace_id: "mock-trace-kw",
 };
 
-// Topic-neighbors fixture carrying related_topics so the `related:` context
-// line is exercised end-to-end (list→map conversion + formatKbTopicsContext).
+// Topic-neighbors fixture carrying hydrated related_topics + related_keywords
+// so the 03b nested context rendering is exercised end-to-end.
 const kbTopicNeighborsWithRelated = {
   neighbors_by_anchor: [
     {
       anchor_topic_natural_key: "आत्मा/स्वरूप",
-      related_topics: [{ topic_natural_key: "आत्मा/लक्षण", display_text_hi: "आत्मा का लक्षण" }],
-      related_keywords: [],
+      related_topics: [{
+        topic_natural_key: "आत्मा/लक्षण",
+        display_text_hi: "आत्मा का लक्षण",
+        hops: 1,
+        extracts_hi: [{
+          block_index: 0,
+          text_hi: "आत्मा ज्ञाता-द्रष्टा है।",
+          main_reference: {
+            shastra_name: "प्रवचनसार",
+            teeka_name: null,
+            resolved_fields: [{ field: "गाथा", value: 2 }],
+          },
+        }],
+      }],
+      related_keywords: [{ keyword_natural_key: "आत्मा", display_text_hi: "आत्मा" }],
       mentioned_in_gathas: [{ shastra_natural_key: "samaysaar", gatha_number: null }],
     },
   ],
@@ -462,7 +483,7 @@ integrationTest("scenario 5: backward compat — old agent API without guided_re
 
 // ─── Scenario 6: Phase 3 — topic extracts + neighbors reach Step2 context ────
 
-integrationTest("scenario 6: topic extracts and neighbor `related:` line are injected into the Step2 context", async () => {
+integrationTest("scenario 6: topic extracts, nested related topics, and related keyword definitions reach the Step2 context", async () => {
   await withKbServer({
     content: "JAIN_QUESTION आत्मा क्या है?",
     behaviors: {
@@ -475,9 +496,17 @@ integrationTest("scenario 6: topic extracts and neighbor `related:` line are inj
     assert.ok(context.includes("### KB Topics"), "KB Topics section should be in the synthesis context");
     assert.ok(context.includes("आत्मा का स्वरूप"), "anchor topic display name should be present");
     assert.ok(context.includes("आत्मा नित्य है।"), "topic Hindi extract should be present");
-    // The neighbor (list→map conversion) must surface as a `related:` line.
-    assert.ok(context.includes("related: आत्मा का लक्षण"), "neighbor related topic should be rendered");
+    assert.ok(context.includes("ref: shastra=समयसार, गाथा=1"), "anchor extract ref should be rendered");
+    assert.ok(context.includes("related topic (hop 1): आत्मा का लक्षण"), "related topic should be nested");
+    assert.ok(context.includes("extract: आत्मा ज्ञाता-द्रष्टा है।"), "related topic extract should be rendered");
+    assert.ok(context.includes("ref: shastra=प्रवचनसार, गाथा=2"), "related topic ref should be rendered");
+    assert.ok(context.includes("related keyword: आत्मा"), "related keyword should be rendered");
+    assert.ok(context.includes("definition: आत्मा: जीव का शुद्ध स्वरूप।"), "related keyword definition should be rendered");
     assert.ok(kbMock.callCountFor("topic_neighbors") >= 1, "topic_neighbors should have been called");
+    const topicsMatchBody = kbMock.callsFor("topics_match").at(-1)?.body;
+    const topicNeighborsBody = kbMock.callsFor("topic_neighbors").at(-1)?.body;
+    assert.equal(topicsMatchBody.content_only, true, "topics_match should request content-only anchors");
+    assert.equal(topicNeighborsBody.max_hops, 2, "topic_neighbors should request 2-hop expansion");
   });
 });
 

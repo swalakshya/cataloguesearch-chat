@@ -262,6 +262,7 @@ For detailed specs including prompt changes, JSON schemas, and API contracts:
 - [01_step1_jain_keyword_classification.md](01_step1_jain_keyword_classification.md) — Step1 schema extension
 - [02_keyword_dictionary_check_and_fix.md](02_keyword_dictionary_check_and_fix.md) — keyword resolve + Step1b integration
 - [03a_sequential_topic_anchor_expand.md](03a_sequential_topic_anchor_expand.md) — topic match + neighbors (active spec; 03 superseded)
+- [03b_two_hop_related_extracts.md](03b_two_hop_related_extracts.md) — 2-hop related topic extracts + related keyword definitions, nested in Step2 (extends 03a; needs backend [08](../../../../dictionary-and-metadata-service/docs/design/query_engine/08_content_gated_topic_neighbors.md))
 - [04_guided_filters_in_agent_api.md](04_guided_filters_in_agent_api.md) — guided filter search calls
 - [05_metadata_enhancement.md](05_metadata_enhancement.md) — fuzzy shastra/author match
 - [06_kb_subworkflows.md](06_kb_subworkflows.md) — sub-workflow dispatch

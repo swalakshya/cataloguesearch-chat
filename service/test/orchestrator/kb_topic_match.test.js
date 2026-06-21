@@ -5,6 +5,7 @@ import {
   attachNeighbors,
   extractKeywordSets,
   formatKbTopicsContext,
+  hydrateRelatedKeywordDefinitions,
   runKbTopicMatch,
 } from "../../src/orchestrator/kb_topic_match.js";
 
@@ -34,7 +35,7 @@ function makeTopic(overrides = {}) {
 
 function makeNeighbors(overrides = {}) {
   return {
-    related_topics: [{ topic_natural_key: "मोक्ष", display_text_hi: "मोक्ष" }],
+    related_topics: [{ topic_natural_key: "मोक्ष", display_text_hi: "मोक्ष", hops: 1 }],
     related_keywords: [],
     mentioned_in_gathas: [],
     ...overrides,
@@ -292,19 +293,71 @@ test("formatKbTopicsContext: extract with no main_reference — no ref line", ()
   assert.ok(!out.includes("ref:"), "ref line absent when no main_reference");
 });
 
-test("formatKbTopicsContext: topic with neighbors — related line rendered", () => {
+test("formatKbTopicsContext: nested related topics and keyword definitions rendered in hops order", () => {
   const topics = [makeTopic({
     neighbors: {
       related_topics: [
-        { topic_natural_key: "मोक्ष", display_text_hi: "मोक्ष" },
-        { topic_natural_key: "कर्म", display_text_hi: "कर्म" },
+        {
+          topic_natural_key: "कर्म",
+          display_text_hi: "कर्म",
+          hops: 2,
+          extracts_hi: [{ text_hi: "कर्म का बंध।", main_reference: { shastra_name: "समयसार", teeka_name: null, resolved_fields: [{ field: "गाथा", value: 12 }] } }],
+        },
+        {
+          topic_natural_key: "मोक्ष",
+          display_text_hi: "मोक्ष",
+          hops: 1,
+          extracts_hi: [{ text_hi: "मोक्ष का स्वरूप।", main_reference: { shastra_name: "प्रवचनसार", teeka_name: null, resolved_fields: [{ field: "गाथा", value: 21 }] } }],
+        },
       ],
+      related_keywords: [
+        {
+          keyword_natural_key: "भेदाभेद",
+          display_text_hi: "भेदाभेद",
+          definitions: [{ text_hi: "भेद और अभेद का सिद्धांत।" }],
+        },
+      ],
+      mentioned_in_gathas: [],
+    },
+  })];
+  const out = formatKbTopicsContext(topics).text;
+  const hop1Index = out.indexOf("related topic (hop 1): मोक्ष");
+  const hop2Index = out.indexOf("related topic (hop 2): कर्म");
+  assert.ok(hop1Index !== -1, "hop 1 related topic present");
+  assert.ok(hop2Index !== -1, "hop 2 related topic present");
+  assert.ok(hop1Index < hop2Index, "related topics sorted by hops ASC");
+  assert.ok(out.includes("extract: मोक्ष का स्वरूप।"), "related topic extract rendered");
+  assert.ok(out.includes("ref: shastra=प्रवचनसार, गाथा=21"), "related topic ref rendered");
+  assert.ok(out.includes("related keyword: भेदाभेद"), "related keyword line rendered");
+  assert.ok(out.includes("definition: भेद और अभेद का सिद्धांत।"), "related keyword definition rendered");
+});
+
+test("formatKbTopicsContext: related topic with no extracts falls back to name only", () => {
+  const topics = [makeTopic({
+    neighbors: {
+      related_topics: [{ topic_natural_key: "मोक्ष", display_text_hi: "मोक्ष", hops: 1, extracts_hi: [] }],
       related_keywords: [],
       mentioned_in_gathas: [],
     },
   })];
   const out = formatKbTopicsContext(topics).text;
-  assert.ok(out.includes("related: मोक्ष, कर्म"), "related line with comma-joined topics");
+  assert.ok(out.includes("related topic (hop 1): मोक्ष"), "name-only related topic line rendered");
+  assert.ok(!out.includes("extract: मोक्ष"), "no extract line when related topic has no extracts");
+});
+
+test("formatKbTopicsContext: names-only related line retained when related extracts disabled", () => {
+  const topics = [makeTopic({
+    neighbors: {
+      related_topics: [
+        { topic_natural_key: "मोक्ष", display_text_hi: "मोक्ष", hops: 1 },
+        { topic_natural_key: "कर्म", display_text_hi: "कर्म", hops: 2 },
+      ],
+      related_keywords: [],
+      mentioned_in_gathas: [],
+    },
+  })];
+  const out = formatKbTopicsContext(topics, { includeRelatedTopicExtracts: false }).text;
+  assert.ok(out.includes("related: मोक्ष, कर्म"), "flat related line preserved");
 });
 
 test("formatKbTopicsContext: topic with empty related_topics — no related line", () => {
@@ -335,8 +388,10 @@ test("formatKbTopicsContext: multiple topics — all rendered in order", () => {
 function makeKbClient({
   topicsMatchResult = [],
   topicNeighborsResult = {},
+  keywordResolveBatchResult = [],
   topicsMatchFails = false,
   topicNeighborsFails = false,
+  keywordResolveBatchFails = false,
 } = {}) {
   return {
     topicsMatch: async () => {
@@ -346,6 +401,10 @@ function makeKbClient({
     topicNeighbors: async () => {
       if (topicNeighborsFails) throw new Error("topic_neighbors unreachable");
       return topicNeighborsResult;
+    },
+    keywordResolveBatch: async () => {
+      if (keywordResolveBatchFails) throw new Error("keyword_resolve_batch unreachable");
+      return keywordResolveBatchResult;
     },
   };
 }
@@ -386,6 +445,41 @@ test("runKbTopicMatch: topicNeighbors receives exact anchor natural_keys", async
   });
 
   assert.deepEqual(receivedKeys, ["आत्मा", "कर्म"]);
+});
+
+test("runKbTopicMatch: topicsMatch and topicNeighbors receive 03b payload flags", async () => {
+  const originalHops = process.env.KB_TOPIC_NEIGHBORS_MAX_HOPS;
+  try {
+    process.env.KB_TOPIC_NEIGHBORS_MAX_HOPS = "2";
+    const calls = { topicsMatch: null, topicNeighbors: null };
+    const kbClient = {
+      topicsMatch: async (args) => {
+        calls.topicsMatch = args;
+        return [makeTopic({ topic_natural_key: "आत्मा" })];
+      },
+      topicNeighbors: async (args) => {
+        calls.topicNeighbors = args;
+        return {};
+      },
+      keywordResolveBatch: async () => [],
+    };
+
+    await runKbTopicMatch({
+      keywordResult: { workflow: "basic_question_v1", keywords: ["आत्मा"] },
+      kbApiClient: kbClient,
+      requestId: "r-flags",
+    });
+
+    assert.equal(calls.topicsMatch.contentOnly, true, "anchors should be content-only");
+    assert.equal(calls.topicsMatch.includeExtracts, true);
+    assert.equal(calls.topicsMatch.includeReferences, true);
+    assert.equal(calls.topicNeighbors.maxHops, 2, "topic neighbors should receive env-driven hop depth");
+    assert.equal(calls.topicNeighbors.includeExtracts, true);
+    assert.equal(calls.topicNeighbors.includeReferences, true);
+  } finally {
+    if (originalHops === undefined) delete process.env.KB_TOPIC_NEIGHBORS_MAX_HOPS;
+    else process.env.KB_TOPIC_NEIGHBORS_MAX_HOPS = originalHops;
+  }
 });
 
 test("runKbTopicMatch: followup with 2 followup sets — 3 topicsMatch + 3 topicNeighbors calls, 0 graphrag", async () => {
@@ -563,6 +657,110 @@ test("runKbTopicMatch: merge cap applied — only top KB_TOPIC_MERGE_LIMIT retur
     if (originalLimit === undefined) delete process.env.KB_TOPIC_MERGE_LIMIT;
     else process.env.KB_TOPIC_MERGE_LIMIT = originalLimit;
   }
+});
+
+test("hydrateRelatedKeywordDefinitions: dedupes, caps, and attaches by keyword_natural_key", async () => {
+  const originalCap = process.env.KB_RELATED_KEYWORD_DEFINITIONS_MAX;
+  try {
+    process.env.KB_RELATED_KEYWORD_DEFINITIONS_MAX = "2";
+    let receivedTokens = null;
+    const mergedTopics = [
+      makeTopic({
+        neighbors: {
+          related_topics: [],
+          related_keywords: [
+            { keyword_natural_key: "भेदाभेद", display_text_hi: "भेदाभेद" },
+            { keyword_natural_key: "द्रव्य", display_text_hi: "द्रव्य" },
+          ],
+          mentioned_in_gathas: [],
+        },
+      }),
+      makeTopic({
+        topic_natural_key: "कर्म",
+        display_text_hi: "कर्म",
+        neighbors: {
+          related_topics: [],
+          related_keywords: [
+            { keyword_natural_key: "भेदाभेद", display_text_hi: "भेदाभेद" },
+            { keyword_natural_key: "पर्याय", display_text_hi: "पर्याय" },
+          ],
+          mentioned_in_gathas: [],
+        },
+      }),
+    ];
+    const kbClient = {
+      keywordResolveBatch: async (tokens) => {
+        receivedTokens = tokens;
+        return [
+          { keyword_natural_key: "भेदाभेद", definitions: [{ text_hi: "भेदाभेद की परिभाषा।" }] },
+          { keyword_natural_key: "द्रव्य", definitions: [{ text_hi: "द्रव्य की परिभाषा।" }] },
+        ];
+      },
+    };
+
+    const hydrated = await hydrateRelatedKeywordDefinitions({
+      mergedTopics,
+      kbApiClient: kbClient,
+      requestId: "r-defs",
+    });
+
+    assert.deepEqual(receivedTokens, ["भेदाभेद", "द्रव्य"], "deduped tokens capped before batch call");
+    assert.deepEqual(
+      hydrated[0].neighbors.related_keywords[0].definitions,
+      [{ text_hi: "भेदाभेद की परिभाषा।" }],
+    );
+    assert.deepEqual(
+      hydrated[0].neighbors.related_keywords[1].definitions,
+      [{ text_hi: "द्रव्य की परिभाषा।" }],
+    );
+    assert.ok(!("definitions" in hydrated[1].neighbors.related_keywords[1]), "capped-out keyword left name-only");
+  } finally {
+    if (originalCap === undefined) delete process.env.KB_RELATED_KEYWORD_DEFINITIONS_MAX;
+    else process.env.KB_RELATED_KEYWORD_DEFINITIONS_MAX = originalCap;
+  }
+});
+
+test("hydrateRelatedKeywordDefinitions: cap 0 skips batch call", async () => {
+  const originalCap = process.env.KB_RELATED_KEYWORD_DEFINITIONS_MAX;
+  try {
+    process.env.KB_RELATED_KEYWORD_DEFINITIONS_MAX = "0";
+    let called = false;
+    const mergedTopics = [makeTopic({
+      neighbors: {
+        related_topics: [],
+        related_keywords: [{ keyword_natural_key: "भेदाभेद", display_text_hi: "भेदाभेद" }],
+        mentioned_in_gathas: [],
+      },
+    })];
+    const result = await hydrateRelatedKeywordDefinitions({
+      mergedTopics,
+      kbApiClient: { keywordResolveBatch: async () => { called = true; return []; } },
+      requestId: "r-no-defs",
+    });
+
+    assert.equal(called, false, "no keyword_resolve_batch call when cap is 0");
+    assert.deepEqual(result, mergedTopics);
+  } finally {
+    if (originalCap === undefined) delete process.env.KB_RELATED_KEYWORD_DEFINITIONS_MAX;
+    else process.env.KB_RELATED_KEYWORD_DEFINITIONS_MAX = originalCap;
+  }
+});
+
+test("hydrateRelatedKeywordDefinitions: batch failure degrades to names-only", async () => {
+  const mergedTopics = [makeTopic({
+    neighbors: {
+      related_topics: [],
+      related_keywords: [{ keyword_natural_key: "भेदाभेद", display_text_hi: "भेदाभेद" }],
+      mentioned_in_gathas: [],
+    },
+  })];
+  const result = await hydrateRelatedKeywordDefinitions({
+    mergedTopics,
+    kbApiClient: { keywordResolveBatch: async () => { throw new Error("boom"); } },
+    requestId: "r-defs-fail",
+  });
+
+  assert.ok(!("definitions" in result[0].neighbors.related_keywords[0]), "degrades to name-only on batch failure");
 });
 
 test("runKbTopicMatch: empty keywords array — no calls, returns []", async () => {

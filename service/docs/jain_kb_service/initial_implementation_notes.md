@@ -431,3 +431,46 @@ plus the orchestrator modules (`runKbTopicMatch`, `fetchKbMetadataMatches`,
   query/core-service endpoint resolving `(shastra_natural_key, gatha_number)` to
   a gatha and returning the projected content fields. The other two sub-workflows
   are unaffected.
+
+---
+
+# Expanded Integration Coverage (2026-06-21, follow-up)
+
+The integration suite (`test/integration/kb_enhance.integration.test.js`) was
+grown from 5 to **12 scenarios** to cover the whole KB integration, including
+the bugs fixed above. New observability + scenarios:
+
+- **Context introspection.** Added `getLastSynthesisContext()` to the test
+  provider (records the Step2 user-context string) and a test-only endpoint
+  `GET /v1/test/last-synthesis-context`. Scenarios now assert exactly which KB
+  sections reach the LLM, not just call counts.
+- **New test-provider triggers**: `METADATA_QUESTION` (routes to
+  `metadata_question_v1` with shastra/author hints) and `SUBWORKFLOW_QUESTION`
+  (emits `search_topic_in_shastra` + `search_shastra_for_topics`).
+- **New scenarios:**
+  6. Topic extracts + neighbor `related:` line injected into Step2 context
+     (exercises the list→map conversion end-to-end).
+  7. Metadata matches built from the real `{items}`+`title[]`/`display_name[]`
+     shape reach the context (regression for the resource-shape bug).
+  8. Sub-workflows render cleanly (`धवला`, `gathas 12`, no `[object Object]`).
+  9. Keyword-resolve miss-with-suggestions still answers gracefully.
+  10. `KB_ENHANCE_TOPIC_MATCH=false` → no topics_match/topic_neighbors, keyword
+      resolve still runs, no KB Topics section.
+  11. `KB_ENHANCE_METADATA=false` → metadata workflow makes no shastras/authors
+      calls (see gating fix below).
+  12. Jain keyword definition injected + cited (`KB-D-n`) and its source_url
+      merged into references.
+
+## Additional bug found & fixed (caught by scenario 11)
+
+- **Metadata phase flag did not gate the metadata-workflow path.** The non-
+  metadata pipeline gated `fetchKbMetadataMatches` behind
+  `kbPhaseFlags.metadata`, but `runMetadataQuestion` received `kbApiClient`
+  unconditionally and called KB metadata internally — so `KB_ENHANCE_METADATA=
+  false` still issued shastras/authors calls. **Fix:** `server.js` now passes a
+  `workflowKbApiClient` that is `null` for the metadata workflow when the
+  metadata phase is off (retrieval workflows don't call the client directly, so
+  this is a no-op for them).
+
+All 12 scenarios pass under `TEST_MODE=true`. (The unrelated pre-existing
+`model_failover` / `session_restart` integration failures persist — untouched.)

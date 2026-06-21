@@ -61,6 +61,7 @@ import { getKbWorkflowConfig } from "./config/kb_config.js";
 import {
   buildTestProviderFactory,
   getTestProviderStats,
+  getLastSynthesisContext,
   resetTestProviderStats,
   setTestProviderBehavior,
 } from "./testing/test_provider_factory.js";
@@ -225,6 +226,12 @@ export function createServer(options = {}) {
 
     app.get("/v1/test/provider-stats", (req, res) => {
       res.json({ calls: getTestProviderStats() });
+    });
+
+    // Exposes the most recent answer-synthesis (Step2) context string so KB
+    // integration tests can assert which KB sections were injected.
+    app.get("/v1/test/last-synthesis-context", (req, res) => {
+      res.json({ context: getLastSynthesisContext() });
     });
 
     app.get("/v1/test/prompt-root", (req, res) => {
@@ -956,13 +963,20 @@ export function createServer(options = {}) {
         : Promise.resolve([]);
 
     onStage?.("searching");
+    // The metadata workflow consumes kbApiClient directly (fetchKbMetadataMatches);
+    // gate it behind the metadata phase flag so KB_ENHANCE_METADATA=false truly
+    // suppresses all KB metadata calls. Retrieval workflows don't call the client
+    // directly (guided filters are driven by mergedTopicsForWorkflow), so passing
+    // the client through for them is a no-op.
+    const workflowKbApiClient =
+      isMetadataWorkflowEarly && !kbPhaseFlags.metadata ? null : kbApiClient;
     const workflowOutcome = await retryWorkflowOnEmptyChunks({
       initialKeywordResult: keywordResult,
       question: content,
       requestId,
       provider,
       externalApi,
-      kbApiClient,
+      kbApiClient: workflowKbApiClient,
       modelId: model.id,
       gujChunks,
       llmCallsCollector: requestLogContext.llmCalls,

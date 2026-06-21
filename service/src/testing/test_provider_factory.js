@@ -1,5 +1,9 @@
 const behaviorByModel = new Map();
 const callCounts = new Map();
+// Captures the most recent answer-synthesis (Step2) user-context string so
+// integration tests can assert which KB sections were actually injected into the
+// LLM context (topics, definitions, metadata, sub-workflows, guided passages).
+let lastSynthesisContext = null;
 
 export function setTestProviderBehavior(behaviorMap) {
   behaviorByModel.clear();
@@ -10,6 +14,11 @@ export function setTestProviderBehavior(behaviorMap) {
 
 export function resetTestProviderStats() {
   callCounts.clear();
+  lastSynthesisContext = null;
+}
+
+export function getLastSynthesisContext() {
+  return lastSynthesisContext;
 }
 
 export function getTestProviderStats() {
@@ -65,6 +74,44 @@ class TestProvider {
           jain_keywords: ["आत्मा"],
           normal_keywords: ["definition"],
           kb_subworkflows: null,
+          kb_entities: { shastra_hints: [], author_hints: [] },
+          filters: {},
+        }));
+      }
+
+      // Metadata question trigger (Phase 5) — routes to metadata_question_v1 with
+      // shastra/author hints so kb metadata matching fires.
+      if (userContent.includes("METADATA_QUESTION")) {
+        return wrapTestResult(JSON.stringify({
+          language: "hi",
+          script: "roman",
+          workflow: "metadata_question_v1",
+          is_followup: false,
+          keywords: ["समयसार"],
+          jain_keywords: ["समयसार"],
+          normal_keywords: [],
+          kb_subworkflows: null,
+          kb_entities: { shastra_hints: ["समयसार"], author_hints: ["कुन्दकुन्द"] },
+          asked_info: ["author"],
+          filters: { content_type: ["Granth"] },
+        }));
+      }
+
+      // Sub-workflow trigger (Phase 6) — emits the two working sub-workflows so
+      // the dispatch + context formatting path is exercised end-to-end.
+      if (userContent.includes("SUBWORKFLOW_QUESTION")) {
+        return wrapTestResult(JSON.stringify({
+          language: "hi",
+          script: "roman",
+          workflow: "basic_question_v1",
+          is_followup: false,
+          keywords: ["द्रव्य"],
+          jain_keywords: ["द्रव्य"],
+          normal_keywords: [],
+          kb_subworkflows: [
+            { name: "search_topic_in_shastra", shastra: "समयसार", gatha_number: null, want: null, topic: null },
+            { name: "search_shastra_for_topics", shastra: null, gatha_number: null, want: null, topic: "द्रव्य" },
+          ],
           kb_entities: { shastra_hints: [], author_hints: [] },
           filters: {},
         }));
@@ -139,6 +186,8 @@ class TestProvider {
       }));
     }
     const userContent = String(messages?.[1]?.content || "");
+    // Record the Step2 context for integration-test introspection.
+    lastSynthesisContext = userContent;
     // Echo any KB citation ids present in the Step2 context into `scoring`, so
     // integration tests exercise the KB source_url reference-merge deterministically.
     const kbScoring = Array.from(

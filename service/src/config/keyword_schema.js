@@ -28,10 +28,14 @@ const KB_SUBWORKFLOW_ITEM_PROP = {
     name: { type: "string", enum: ["direct_retrieval", "search_shastra_for_topics", "search_topic_in_shastra"] },
     shastra: { type: ["string", "null"] },
     gatha_number: { type: ["number", "null"] },
-    want: { type: ["array", "null"], items: { type: "string" } },
+    adhikaar_number: { type: ["number", "null"] },
     topic: { type: ["string", "null"] },
+    // direct_retrieval only: fetch the (Sanskrit) teeka commentary. Default/false
+    // returns just mool verse + bhaavarth; set true only when the user explicitly
+    // asks for the teeka/टीका.
+    include_teeka: { type: ["boolean", "null"] },
   },
-  required: ["name", "shastra", "gatha_number", "want", "topic"],
+  required: ["name", "shastra", "gatha_number", "adhikaar_number", "topic", "include_teeka"],
   additionalProperties: false,
 };
 
@@ -72,6 +76,7 @@ export const KEYWORD_EXTRACTION_SCHEMA = {
     jain_keywords: JAIN_KEYWORDS_PROP,
     normal_keywords: NORMAL_KEYWORDS_PROP,
     kb_subworkflows: { type: ["array", "null"], items: KB_SUBWORKFLOW_ITEM_PROP },
+    direct_retrieval_only: { type: ["boolean", "null"] },
     kb_entities: KB_ENTITIES_PROP,
     filters: {
       type: ["object", "null"],
@@ -154,6 +159,7 @@ export const KEYWORD_EXTRACTION_SCHEMA = {
     "jain_keywords",
     "normal_keywords",
     "kb_subworkflows",
+    "direct_retrieval_only",
     "kb_entities",
     "filters",
     "followup_keywords",
@@ -196,6 +202,7 @@ export const KEYWORD_EXTRACTION_SCHEMA_GUJ_SEARCH = {
     jain_keywords: JAIN_KEYWORDS_PROP,
     normal_keywords: NORMAL_KEYWORDS_PROP,
     kb_subworkflows: { type: ["array", "null"], items: KB_SUBWORKFLOW_ITEM_PROP },
+    direct_retrieval_only: { type: ["boolean", "null"] },
     kb_entities: KB_ENTITIES_PROP,
     filters: {
       type: ["object", "null"],
@@ -283,6 +290,7 @@ export const KEYWORD_EXTRACTION_SCHEMA_GUJ_SEARCH = {
     "jain_keywords",
     "normal_keywords",
     "kb_subworkflows",
+    "direct_retrieval_only",
     "kb_entities",
     "filters",
     "followup_keywords",

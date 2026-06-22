@@ -18,6 +18,14 @@ function applyJainPartitionDefaults(parsed) {
   return parsed;
 }
 
+// Normalize direct_retrieval_only to a strict boolean. Default false (= do not
+// skip topic match / guided filters) when the LLM omits or nulls the field, so
+// behavior is unchanged unless the LLM explicitly opts in.
+function applyDirectRetrievalDefault(parsed) {
+  parsed.direct_retrieval_only = parsed.direct_retrieval_only === true;
+  return parsed;
+}
+
 // Remove sub-workflow entries with unrecognised names to prevent downstream errors.
 function stripUnknownSubworkflows(parsed) {
   if (!Array.isArray(parsed.kb_subworkflows)) return parsed;
@@ -97,6 +105,7 @@ export async function runKeywordExtraction({
   }
 
   applyJainPartitionDefaults(parsed);
+  applyDirectRetrievalDefault(parsed);
   stripUnknownSubworkflows(parsed);
 
   log.verbose("keyword_extract_parsed", {
@@ -105,6 +114,7 @@ export async function runKeywordExtraction({
     jain_keywords: parsed.jain_keywords,
     normal_keywords: parsed.normal_keywords,
     kb_subworkflows_count: parsed.kb_subworkflows?.length ?? 0,
+    direct_retrieval_only: parsed.direct_retrieval_only,
   });
   return parsed;
 }

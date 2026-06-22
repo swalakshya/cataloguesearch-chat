@@ -12,30 +12,41 @@ async function canonicalizeShastra(kbApiClient, shastra, requestId) {
   return match?.natural_key || shastra;
 }
 
+// direct_retrieval returns the mool verse + commentary layers. The (Sanskrit)
+// teeka is only fetched/projected when the user explicitly asks for it
+// (include_teeka); the LLM no longer selects individual fields otherwise.
+// Projection order doubles as the context render order: teeka (Sanskrit
+// commentary) is placed ahead of bhaavarth when present.
+const CONTENT_FIELDS = ["prakrit", "sanskrit", "anyavaarth", "teeka", "bhaavarth"];
+
+// Display labels for the context render; fields not listed render under their key.
+const CONTENT_FIELD_LABELS = { teeka: "sanskrit teeka", bhaavarth: "teeka-bhaavarth (hindi)" };
+
 async function dispatchDirectRetrieval(entry, kbApiClient, requestId) {
-  const { shastra, gatha_number, want } = entry;
+  const { shastra, gatha_number, adhikaar_number } = entry;
+  const includeTeeka = entry.include_teeka === true;
   if (!shastra || gatha_number == null) {
     log.warn("kb_subworkflow_invalid_entry", { requestId, name: "direct_retrieval", missing: !shastra ? "shastra" : "gatha_number" });
     return null;
   }
 
   const naturalKey = await canonicalizeShastra(kbApiClient, shastra, requestId);
-  const gathaData = await kbApiClient.gathaDetail({ shastra: naturalKey, number: gatha_number }, requestId);
-
-  const wantFields =
-    Array.isArray(want) && want.length > 0
-      ? want
-      : ["prakrit", "sanskrit", "bhaavarth"];
+  const gathaData = await kbApiClient.gathaDetail(
+    { shastra: naturalKey, number: gatha_number, adhikaar: adhikaar_number ?? null, includeTeeka },
+    requestId
+  );
 
   const projected = {};
-  for (const field of wantFields) {
-    if (gathaData != null && gathaData[field] != null) {
+  for (const field of CONTENT_FIELDS) {
+    // teeka is only surfaced when explicitly requested, even if the API returns it.
+    if (field === "teeka" && !includeTeeka) continue;
+    if (gathaData != null && gathaData[field] != null && gathaData[field] !== "") {
       projected[field] = gathaData[field];
     }
   }
 
-  log.info("kb_subworkflow_direct_retrieval_complete", { requestId, shastra: naturalKey, gatha_number, fields: Object.keys(projected) });
-  return { name: "direct_retrieval", shastra: naturalKey, gatha_number, data: projected };
+  log.info("kb_subworkflow_direct_retrieval_complete", { requestId, shastra: naturalKey, gatha_number, adhikaar_number: adhikaar_number ?? null, includeTeeka, fields: Object.keys(projected) });
+  return { name: "direct_retrieval", shastra: naturalKey, gatha_number, adhikaar_number: adhikaar_number ?? null, data: projected };
 }
 
 async function dispatchSearchTopicInShastra(entry, kbApiClient, requestId) {
@@ -162,9 +173,10 @@ export function formatKbSubworkflowsContext(subworkflowResults) {
     if (!result) continue;
 
     if (result.name === "direct_retrieval") {
-      lines.push(`\n[direct_retrieval] ${result.shastra} gatha ${result.gatha_number}:`);
+      const adhikaarLabel = result.adhikaar_number != null ? `adhikaar ${result.adhikaar_number} ` : "";
+      lines.push(`\n[direct_retrieval] ${result.shastra} ${adhikaarLabel}gatha ${result.gatha_number}:`);
       for (const [field, value] of Object.entries(result.data || {})) {
-        lines.push(`  ${field}: ${value}`);
+        lines.push(`  ${CONTENT_FIELD_LABELS[field] || field}: ${value}`);
       }
     } else if (result.name === "search_topic_in_shastra") {
       const gathaLabel = result.gatha_number != null ? ` gatha ${result.gatha_number}` : "";

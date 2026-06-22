@@ -117,7 +117,10 @@ class TestProvider {
         }));
       }
 
-      // Direct retrieval sub-workflow trigger
+      // Direct retrieval sub-workflow trigger. By default it is a pure lookup
+      // (direct_retrieval_only=true → topic match + guided filters skipped). Add
+      // "COMBINED" to the question to simulate a lookup plus a conceptual
+      // sub-question (direct_retrieval_only=false → topics still fetched).
       if (userContent.includes("DIRECT_RETRIEVAL_QUESTION")) {
         return wrapTestResult(JSON.stringify({
           language: "hi",
@@ -128,6 +131,7 @@ class TestProvider {
           jain_keywords: ["समयसार"],
           normal_keywords: [],
           kb_subworkflows: [{ name: "direct_retrieval", shastra: "samaysaar", gatha_number: 6, want: null, topic: null }],
+          direct_retrieval_only: !userContent.includes("COMBINED"),
           kb_entities: { shastra_hints: ["samaysaar"], author_hints: [] },
           filters: {},
         }));

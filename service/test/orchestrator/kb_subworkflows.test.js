@@ -37,6 +37,19 @@ test("formatKbSubworkflowsContext: direct_retrieval — correct header and field
   assert.ok(out.includes("sanskrit: त्रय लोक..."), "sanskrit field present");
 });
 
+test("formatKbSubworkflowsContext: direct_retrieval — teeka labeled 'sanskrit teeka' and rendered before bhaavarth", () => {
+  const result = {
+    name: "direct_retrieval",
+    shastra: "samaysaar",
+    gatha_number: 6,
+    data: { teeka: "टीका...", bhaavarth: "भावार्थ..." },
+  };
+  const out = formatKbSubworkflowsContext([result]);
+  assert.ok(out.includes("sanskrit teeka: टीका..."), "teeka labeled sanskrit teeka");
+  assert.ok(out.includes("teeka-bhaavarth (hindi): भावार्थ..."), "bhaavarth labeled teeka-bhaavarth (hindi)");
+  assert.ok(out.indexOf("sanskrit teeka:") < out.indexOf("teeka-bhaavarth (hindi):"), "teeka rendered before bhaavarth");
+});
+
 test("formatKbSubworkflowsContext: search_topic_in_shastra — correct format with gatha", () => {
   const result = {
     name: "search_topic_in_shastra",
@@ -144,27 +157,46 @@ test("runKbSubworkflows: direct_retrieval — calls shastras then gathaDetail", 
   assert.equal(gathaCall.number, 6);
 });
 
-test("runKbSubworkflows: direct_retrieval — projects only want fields", async () => {
+test("runKbSubworkflows: direct_retrieval — projects all content fields incl. teeka when include_teeka", async () => {
+  let calledWith;
   const kbClient = makeKbClient({
-    gathaDetail: async () => ({ prakrit: "P", sanskrit: "S", bhaavarth: "B", teeka: "T" }),
+    gathaDetail: async (args) => { calledWith = args; return { prakrit: "P", sanskrit: "S", anyavaarth: "A", bhaavarth: "B", teeka: "T" }; },
   });
-  const entries = [{ name: "direct_retrieval", shastra: "samaysaar", gatha_number: 6, want: ["sanskrit"] }];
+  const entries = [{ name: "direct_retrieval", shastra: "samaysaar", gatha_number: 6, include_teeka: true }];
   const results = await runKbSubworkflows(entries, kbClient, "r1");
 
-  assert.deepEqual(Object.keys(results[0].data), ["sanskrit"], "only want fields projected");
+  assert.equal(calledWith.includeTeeka, true, "includeTeeka forwarded to gathaDetail");
+  const fields = Object.keys(results[0].data);
+  for (const f of ["prakrit", "sanskrit", "anyavaarth", "bhaavarth", "teeka"]) {
+    assert.ok(fields.includes(f), `${f} projected`);
+  }
 });
 
-test("runKbSubworkflows: direct_retrieval — uses default want fields when want is empty/null", async () => {
+test("runKbSubworkflows: direct_retrieval — omits teeka and does not request it when include_teeka is absent/false", async () => {
+  let calledWith;
   const kbClient = makeKbClient({
-    gathaDetail: async () => ({ prakrit: "P", sanskrit: "S", bhaavarth: "B", teeka: "T" }),
+    gathaDetail: async (args) => { calledWith = args; return { prakrit: "P", bhaavarth: "B", teeka: "T" }; },
   });
-  const entries = [{ name: "direct_retrieval", shastra: "samaysaar", gatha_number: 6, want: null }];
+  const entries = [{ name: "direct_retrieval", shastra: "samaysaar", gatha_number: 6 }];
+  const results = await runKbSubworkflows(entries, kbClient, "r1");
+
+  assert.equal(calledWith.includeTeeka, false, "includeTeeka false by default");
+  const fields = Object.keys(results[0].data);
+  assert.ok(fields.includes("prakrit") && fields.includes("bhaavarth"));
+  assert.ok(!fields.includes("teeka"), "teeka omitted when not requested");
+});
+
+test("runKbSubworkflows: direct_retrieval — omits empty/missing content fields", async () => {
+  const kbClient = makeKbClient({
+    gathaDetail: async () => ({ prakrit: "P", sanskrit: "S", anyavaarth: "", bhaavarth: "B" }),
+  });
+  const entries = [{ name: "direct_retrieval", shastra: "samaysaar", gatha_number: 6 }];
   const results = await runKbSubworkflows(entries, kbClient, "r1");
 
   const fields = Object.keys(results[0].data);
-  assert.ok(fields.includes("prakrit"), "default includes prakrit");
-  assert.ok(fields.includes("sanskrit"), "default includes sanskrit");
-  assert.ok(fields.includes("bhaavarth"), "default includes bhaavarth");
+  assert.ok(fields.includes("prakrit") && fields.includes("sanskrit") && fields.includes("bhaavarth"));
+  assert.ok(!fields.includes("anyavaarth"), "empty field omitted");
+  assert.ok(!fields.includes("teeka"), "missing field omitted");
 });
 
 test("runKbSubworkflows: direct_retrieval — returns null result when shastra missing", async () => {

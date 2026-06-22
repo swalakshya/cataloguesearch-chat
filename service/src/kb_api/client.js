@@ -1,4 +1,5 @@
 import { log } from "../utils/log.js";
+import { cleanScriptureBlocks, cleanScriptureText } from "../utils/scripture_text.js";
 
 /**
  * Pick the Hindi (or first available) text from a core-service localized-string
@@ -24,6 +25,62 @@ function normalizeResourceItems(parsed, nameField) {
     const name = item.name != null ? item.name : pickLocalizedText(item[nameField]);
     return { ...item, name };
   });
+}
+
+/**
+ * Extract the teeka (commentary) name from a teeka block's natural key.
+ * `तत्त्वार्थसूत्र:राजवार्तिक:अध्याय:6:सूत्र:10` → `राजवार्तिक` (the 2nd segment).
+ */
+function teekaNameFromBlock(block) {
+  const nk = block?.gatha_teeka_natural_key || block?.gatha_teeka_bhaavarth_natural_key || block?.natural_key || "";
+  const parts = String(nk).split(":");
+  return parts.length > 1 ? parts[1] : "";
+}
+
+/**
+ * Clean + join teeka blocks, labeling each with its commentary name so multiple
+ * teekas (e.g. राजवार्तिक and सर्वार्थसिद्धि) stay distinguishable in context.
+ */
+function cleanLabeledTeekaBlocks(blocks, pickText) {
+  if (!Array.isArray(blocks)) return "";
+  return blocks
+    .map((b) => {
+      const body = cleanScriptureText(pickText(b?.text));
+      if (!body) return "";
+      const name = teekaNameFromBlock(b);
+      return name ? `**[${name}]**\n${body}` : body;
+    })
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/**
+ * Flatten the core-service gatha-detail payload into the flat field shape the
+ * direct_retrieval orchestrator consumes:
+ *   prakrit, sanskrit, anyavaarth, bhaavarth, teeka.
+ * Tolerates an already-flat object (test mocks) by passing it through.
+ */
+export function normalizeGathaDetail(detail) {
+  if (!detail || typeof detail !== "object") return detail;
+  // Already flat (mock supplies plain strings) — keep as is.
+  if (typeof detail.prakrit === "string" || typeof detail.sanskrit === "string") {
+    return detail;
+  }
+  return {
+    natural_key: detail.natural_key,
+    gatha_number: detail.gatha_number,
+    // Verse text (prakrit/sanskrit) is plain; prose (anyavaarth/bhaavarth/teeka)
+    // is publisher HTML → convert to Markdown and tidy organization. Teeka-backed
+    // fields (bhaavarth/teeka) carry one block per commentary, each labeled.
+    prakrit: pickLocalizedText(detail.prakrit?.text),
+    sanskrit: pickLocalizedText(detail.sanskrit?.text),
+    anyavaarth: cleanScriptureBlocks(detail.hindi_chhand, pickLocalizedText),
+    bhaavarth: cleanLabeledTeekaBlocks(detail.teeka_bhaavarth, pickLocalizedText),
+    teeka: cleanLabeledTeekaBlocks(
+      [...(detail.teeka_hindi || []), ...(detail.teeka_sanskrit || [])],
+      pickLocalizedText
+    ),
+  };
 }
 
 export class KbApiClient {
@@ -65,9 +122,25 @@ export class KbApiClient {
     return Array.isArray(parsed?.resolutions) ? parsed.resolutions : [];
   }
 
-  async gathaDetail({ shastra, number }, requestId) {
-    const params = new URLSearchParams({ shastra: String(shastra || ""), number: String(number ?? "") });
-    return this.#get(`/v1/gathas?${params}`, requestId, this.coreBaseUrl);
+  async gathaDetail({ shastra, number, adhikaar = null, includeTeeka = false } = {}, requestId) {
+    // Resolve a (shastra natural_key, integer gatha number, optional adhikaar)
+    // to gatha content via the core-service compound-aware endpoint, then
+    // flatten the nested detail payload into the flat fields the direct_retrieval
+    // orchestrator consumes: prakrit, sanskrit, anyavaarth, bhaavarth, teeka.
+    // The mool verse + bhaavarth are always retrieved; the (Sanskrit) teeka
+    // commentary is heavy and only fetched when includeTeeka is set (user asked
+    // for the teeka explicitly).
+    const params = new URLSearchParams();
+    const includes = includeTeeka
+      ? "teeka_bhaavarth,teeka_hindi,teeka_sanskrit"
+      : "teeka_bhaavarth";
+    params.set("include", includes);
+    if (adhikaar != null) params.set("adhikaar", String(adhikaar));
+    const qs = params.toString() ? `?${params}` : "";
+    const nk = encodeURIComponent(String(shastra || ""));
+    const num = encodeURIComponent(String(number ?? ""));
+    const detail = await this.#get(`/v1/shastras/${nk}/gathas/by-number/${num}${qs}`, requestId, this.coreBaseUrl);
+    return normalizeGathaDetail(detail);
   }
 
   async topicsInShastra({ shastra, gathaNumber = null, limit = 25 } = {}, requestId) {

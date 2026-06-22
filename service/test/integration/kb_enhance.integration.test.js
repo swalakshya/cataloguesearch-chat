@@ -649,3 +649,42 @@ integrationTest("scenario 12: jain keyword definition is injected into the Step2
     );
   });
 });
+
+// ─── Scenario 13: direct_retrieval_only=true — topic match + guided filters skipped ─
+
+integrationTest("scenario 13: direct_retrieval_only — topics_match/topic_neighbors skipped, no KB Topics section", async () => {
+  await withKbServer({
+    content: "DIRECT_RETRIEVAL_QUESTION समयसार गाथा 6 की टीका बताओ",
+    behaviors: {
+      shastras: kbShastrasResponse,
+      topics_match: kbTopicsMatchResponse,
+      topic_neighbors: kbTopicNeighborsResponse,
+      keyword_resolve_batch: kbKeywordResolveResponse,
+    },
+  }, ({ result, context, kbMock }) => {
+    assert.equal(result.res.status, 200);
+    // Phase 3 (topic match) and Phase 4 (guided filters) must be skipped.
+    assert.equal(kbMock.callCountFor("topics_match"), 0, "topics_match skipped for direct_retrieval_only");
+    assert.equal(kbMock.callCountFor("topic_neighbors"), 0, "topic_neighbors skipped for direct_retrieval_only");
+    assert.ok(!context.includes("### KB Topics"), "no KB Topics section for direct_retrieval_only");
+    assert.ok(!context.includes("### Guided Passages"), "no Guided Passages section for direct_retrieval_only");
+  });
+});
+
+// ─── Scenario 14: combined query (direct_retrieval_only=false) — topics still fetched ─
+
+integrationTest("scenario 14: combined direct + conceptual query — topic match still runs", async () => {
+  await withKbServer({
+    content: "DIRECT_RETRIEVAL_QUESTION COMBINED समयसार गाथा 6 का सारांश, इसमें आत्मा की स्वतंत्रता पर क्या कहा गया है?",
+    behaviors: {
+      shastras: kbShastrasResponse,
+      topics_match: kbTopicsMatchResponse,
+      topic_neighbors: kbTopicNeighborsResponse,
+      keyword_resolve_batch: kbKeywordResolveResponse,
+    },
+  }, ({ result, context, kbMock }) => {
+    assert.equal(result.res.status, 200);
+    assert.ok(kbMock.callCountFor("topics_match") >= 1, "topics_match should run for combined query");
+    assert.ok(context.includes("### KB Topics"), "KB Topics section present for combined query");
+  });
+});

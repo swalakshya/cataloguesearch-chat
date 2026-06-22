@@ -17,16 +17,25 @@ Step1 schema:
   "name": "direct_retrieval",
   "shastra": "समयसार",                       // user-supplied form; canonicalized via kb.shastras(fuzzy)
   "gatha_number": 6,
-  "want": ["sanskrit", "bhaavarth", "teeka"]     // any subset of: prakrit, sanskrit, anyavaarth, bhaavarth, teeka
+  "adhikaar_number": null,                    // chapter (अधिकार/अध्याय) for per-chapter-numbered shastras, else null
+  "include_teeka": false                      // true ONLY when the user explicitly asks for the (Sanskrit) टीका
 }
 ```
+
+The mool verse + bhaavarth are always retrieved; the LLM does not select among
+them. The heavy (Sanskrit) teeka is fetched and projected only when
+`include_teeka` is `true`.
 
 Dispatch:
 1. `kb.shastras({ q: shastra, fuzzy: true, limit: 1 })` → canonical
    `natural_key`.
-2. `kb.gathaDetail({ shastra: natural_key, number: gatha_number })`
-   (core-service `GET /v1/gathas?shastra=&number=`).
-3. Project `want[]` fields only into context.
+2. `kb.gathaDetail({ shastra: natural_key, number: gatha_number, adhikaar: adhikaar_number, includeTeeka: include_teeka })`
+   (core-service `GET /v1/shastras/{nk}/gathas/by-number/{n}`). The `include`
+   param is `teeka_bhaavarth` by default, widening to
+   `teeka_bhaavarth,teeka_hindi,teeka_sanskrit` when `includeTeeka` is set.
+3. Project every available content field (prakrit, sanskrit, anyavaarth,
+   bhaavarth, and teeka only when `include_teeka`) into context; empty/missing
+   fields are omitted.
 
 ### `search_topic_in_shastra`
 

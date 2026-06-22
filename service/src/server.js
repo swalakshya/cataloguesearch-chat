@@ -920,13 +920,27 @@ export function createServer(options = {}) {
     // Await topic-match before workflow so mergedTopics can populate guided_filters
     // on every external_search call (Phase 4). Parallelism with keyword extraction
     // is maintained; the sequential wait here is intentional.
-    const mergedTopics = (kbApiClient && kbPhaseFlags.topicMatch)
+    // For LLM-flagged direct-retrieval-only queries (e.g. "samaysaar gatha 6 ki
+    // teeka batao"), the direct_retrieval sub-workflow returns the exact gatha
+    // content, so the topic-match extracts (and the guided filters derived from
+    // them) are pure context noise. Skip Phase 3 + Phase 4 in that case.
+    const directRetrievalOnly = keywordResult.direct_retrieval_only === true;
+    if (directRetrievalOnly) {
+      log.info("kb_direct_retrieval_skip", {
+        requestId,
+        skipped: ["topic_match", "guided_filters"],
+      });
+    }
+
+    const mergedTopics = (kbApiClient && kbPhaseFlags.topicMatch && !directRetrievalOnly)
       ? await runKbTopicMatch({ keywordResult, kbApiClient, requestId })
       : [];
 
-    // When guidedFilters phase is disabled, pass empty topics to the workflow so
-    // no guided filters are derived and no extra filtered searches are fired.
-    const mergedTopicsForWorkflow = kbPhaseFlags.guidedFilters ? mergedTopics : [];
+    // When guidedFilters phase is disabled (or direct-retrieval-only), pass empty
+    // topics to the workflow so no guided filters are derived and no extra
+    // filtered searches are fired.
+    const mergedTopicsForWorkflow =
+      (kbPhaseFlags.guidedFilters && !directRetrievalOnly) ? mergedTopics : [];
 
     // Phase 7: fetch Hindi definitions for all used Jain keywords in parallel with
     // the retrieval workflow. mergedTopics is already resolved so seed keywords
@@ -1102,7 +1116,12 @@ export function createServer(options = {}) {
     // resolve KB ids the LLM reports in `scoring` back into reference URLs.
     const kbCitationMap = buildKbCitationMap(kbDefinitions.citations, kbTopics.citations);
 
-    const context = [kbMetadataSection, kbDefinitionsSection, kbTopicsSection, kbSubworkflowsSection, chunksContext, guidedSection].filter(Boolean).join("\n\n");
+    // Group KB-derived context separately from the CatalogueSearch chunk
+    // context, divided by a horizontal rule so the LLM can tell the
+    // authoritative KB lookups apart from the retrieved search chunks.
+    const kbContext = [kbMetadataSection, kbDefinitionsSection, kbTopicsSection, kbSubworkflowsSection].filter(Boolean).join("\n\n");
+    const csContext = [chunksContext, guidedSection].filter(Boolean).join("\n\n");
+    const context = [kbContext, csContext].filter(Boolean).join("\n\n---\n\n");
     saveContextLog({ requestId, sessionId: session.sessionId, question: content, context });
     requestLogContext.kbCallCount = kbRequestStats.callCount;
     requestLogContext.kbCallTotalMs = kbRequestStats.totalMs;
@@ -1110,6 +1129,7 @@ export function createServer(options = {}) {
     log.info("kb_topic_match_injected", {
       requestId,
       topicsCount: mergedTopics.length,
+      directRetrievalOnly,
       injected: kbTopicsSection.length > 0,
       guidedResultSets: hashedGuidedResults.length,
       guidedChunks: hashedGuidedFlat.length,

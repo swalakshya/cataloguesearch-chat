@@ -59,15 +59,25 @@ E.g: "Acharya kundkund ne konse granth likhe hain?" / "Samaysaar shastra kisne l
    **Rule:** Every keyword must appear in exactly one array.
 9) **KB entities**: Extract any shastra names or author names explicitly mentioned in the question into `kb_entities`.
 10) **KB sub-workflows**: If the question clearly targets a specific Jain knowledge-base operation (see KB Sub-workflow Catalog below), populate `kb_subworkflows[]`. Otherwise set to `null`.
+11) **Direct-retrieval-only flag**: Set `direct_retrieval_only: true` ONLY when the *entire* question is a specific lookup of one or more named gathas (their mool / अर्थ / भावार्थ / सारांश / टीका) with **no** separate conceptual or exploratory sub-question. If the question also asks to explore/compare/discuss a concept (even alongside a gatha lookup), set `direct_retrieval_only: false`. If unsure, set `false`.
+   - `true`: "samaysaar gatha 6 ki sanskrit teeka word by word samjhaiye", "समयसार गाथा 6 का भावार्थ बताओ"
+   - `false`: "samaysaar gatha 6 ka saaransh batao, isme atma ki swatantrata ke vishay me kya kaha gaya hai" (lookup **plus** a conceptual sub-question), "आत्मा की स्वतंत्रता पर क्या कहा गया है" (no direct lookup at all)
 
 ---
 ## KB Sub-workflow Catalog
 
 ### direct_retrieval
-Retrieve a specific gatha/verse or its anyvaarth/bhaavarth etc. by number from a named shastra.
-Fields: `name`, `shastra` (string), `gatha_number` (integer), `want` (array from: "sanskrit", "prakrit", "anyvaarth", "bhaavarth", "teeka")
+Retrieve a specific gatha/verse from a named shastra. The mool verse plus bhaavarth (prakrit, sanskrit, anyvaarth, bhaavarth — whatever exists) is always returned; you do not select which of these parts.
+Fields: `name`, `shastra` (string), `gatha_number` (integer), `adhikaar_number` (integer or null), `include_teeka` (boolean)
+- `gatha_number` is the verse/gatha/sutra/shlok number.
+- `adhikaar_number` is the chapter only when the user names one (अधिकार/अध्याय/परिच्छेद). Many shastras (e.g. तत्त्वार्थसूत्र = अध्याय+सूत्र, परमात्मप्रकाश = अधिकार+गाथा) number verses per-chapter, so the chapter is required to fetch the right verse. Set `adhikaar_number` to `null` when the user gives only a verse number.
+- `include_teeka` is the (Sanskrit) टीका commentary, which is heavy. Set it to `true` ONLY when the user explicitly asks for the teeka/टीका of the gatha. For all other requests (mool, अर्थ, भावार्थ, सारांश, etc.) set it to `false`.
 Example — "Samaysaar ki 6vi gatha ka bhaavarth batao":
-`{"name": "direct_retrieval", "shastra": "समयसार" (hindi always), "gatha_number": 6, "want": ["prakrit", "sanskrit", "bhaavarth"]}`
+`{"name": "direct_retrieval", "shastra": "समयसार" (hindi always), "gatha_number": 6, "adhikaar_number": null, "include_teeka": false}`
+Example — "Tattvarthsutra adhyay 6 sutra 10 ka saaransh":
+`{"name": "direct_retrieval", "shastra": "तत्त्वार्थसूत्र", "gatha_number": 10, "adhikaar_number": 6, "include_teeka": false}`
+Example — "Samaysaar gatha 6 ki teeka samjhao":
+`{"name": "direct_retrieval", "shastra": "समयसार", "gatha_number": 6, "adhikaar_number": null, "include_teeka": true}`
 
 ### search_shastra_for_topics
 Search for shastras which mention some topic.
@@ -107,6 +117,7 @@ Base fields:
   "jain_keywords": ["आत्मा", "द्रव्य"], # Jain-tradition terms
   "normal_keywords": ["भेद", "संबंध"], # non-Jain terms
   "kb_subworkflows": [...] | null, # see KB Sub-workflow Catalog; null if none apply
+  "direct_retrieval_only": true|false, # true ONLY for pure named-gatha lookups with no conceptual sub-question
   "kb_entities": { "shastra_hints": ["समयसार"], "author_hints": [] } # names from question; empty arrays if none
 }
 

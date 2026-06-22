@@ -84,6 +84,15 @@ test("schema includes kb_subworkflows with allowed names enum", () => {
   assert.ok(KEYWORD_EXTRACTION_SCHEMA.required.includes("kb_subworkflows"));
 });
 
+test("schema includes direct_retrieval_only as nullable boolean in both variants", () => {
+  for (const schema of [KEYWORD_EXTRACTION_SCHEMA, KEYWORD_EXTRACTION_SCHEMA_GUJ_SEARCH]) {
+    const flag = schema.properties.direct_retrieval_only;
+    assert.ok(flag, "direct_retrieval_only property present");
+    assert.ok(Array.isArray(flag.type) ? flag.type.includes("boolean") : flag.type === "boolean");
+    assert.ok(schema.required.includes("direct_retrieval_only"), "direct_retrieval_only is required");
+  }
+});
+
 test("schema includes kb_entities with shastra_hints and author_hints", () => {
   const ent = KEYWORD_EXTRACTION_SCHEMA.properties.kb_entities;
   assert.ok(Array.isArray(ent.type) ? ent.type.includes("object") : ent.type === "object");
@@ -105,6 +114,10 @@ test("kb_subworkflows item schema has all fields required and additionalProperti
   assert.ok(item.required.includes("name"));
   assert.ok(item.required.includes("shastra"));
   assert.ok(item.required.includes("gatha_number"));
-  assert.ok(item.required.includes("want"));
+  assert.ok(item.required.includes("adhikaar_number"));
   assert.ok(item.required.includes("topic"));
+  assert.ok(item.required.includes("include_teeka"));
+  assert.ok(!("want" in item.properties), "want field removed");
+  const teeka = item.properties.include_teeka;
+  assert.ok(Array.isArray(teeka.type) ? teeka.type.includes("boolean") : teeka.type === "boolean");
 });

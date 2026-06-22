@@ -101,6 +101,63 @@ test("runKeywordExtraction applies Devanagari-default partition when LLM omits j
   assert.deepEqual(result.normal_keywords, ["definition"]);
 });
 
+test("runKeywordExtraction passes through direct_retrieval_only when LLM sets true", async () => {
+  const provider = {
+    completeJson: async () => ({
+      text: JSON.stringify({
+        language: "hi",
+        workflow: "basic_question_v1",
+        is_followup: false,
+        keywords: ["समयसार"],
+        direct_retrieval_only: true,
+        filters: {},
+      }),
+      usage_normalized: {},
+    }),
+  };
+
+  const result = await runKeywordExtraction({
+    provider,
+    question: "samaysaar gatha 6 ki teeka",
+    sessionContext: { conversationHistory: [] },
+    requestId: "rdr1",
+  });
+
+  assert.equal(result.direct_retrieval_only, true);
+});
+
+test("runKeywordExtraction defaults direct_retrieval_only to false when omitted or null", async () => {
+  const makeProvider = (value) => ({
+    completeJson: async () => ({
+      text: JSON.stringify({
+        language: "hi",
+        workflow: "basic_question_v1",
+        is_followup: false,
+        keywords: ["आत्मा"],
+        ...(value === undefined ? {} : { direct_retrieval_only: value }),
+        filters: {},
+      }),
+      usage_normalized: {},
+    }),
+  });
+
+  const omitted = await runKeywordExtraction({
+    provider: makeProvider(undefined),
+    question: "atma kya hai",
+    sessionContext: { conversationHistory: [] },
+    requestId: "rdr2",
+  });
+  assert.equal(omitted.direct_retrieval_only, false);
+
+  const nulled = await runKeywordExtraction({
+    provider: makeProvider(null),
+    question: "atma kya hai",
+    sessionContext: { conversationHistory: [] },
+    requestId: "rdr3",
+  });
+  assert.equal(nulled.direct_retrieval_only, false);
+});
+
 test("runKeywordExtraction preserves LLM-provided jain/normal_keywords when both present", async () => {
   const provider = {
     completeJson: async () => ({

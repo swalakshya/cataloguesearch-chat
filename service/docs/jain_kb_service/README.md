@@ -26,15 +26,22 @@ Step1 (keyword extract + jain classification + kb_subworkflows detection)
   ├─ workflow → external_search (with guided_filters from Phase 4) → chunks
   │
   └─ Step2 context (assembled in order):
+        ── KB block ──
         kbMetadataSection
         kbDefinitionsSection
         kbTopicsSection
         kbSubworkflowsSection
+        ───  (--- divider) ───
+        ── CatalogueSearch block ──
         chunksContext (main chunks)
         guidedSection (Phase 4 filtered chunks)
 ```
 
+The KB-derived sections and the CatalogueSearch chunk sections are joined with a `\n\n---\n\n` horizontal rule so the LLM can distinguish authoritative KB lookups from retrieved search chunks.
+
 **Phase 3 is sequential before the workflow** (needed to derive `mergedTopics` for guided filters). All other KB phases run in parallel with the external search workflow.
+
+**Direct-retrieval-only short-circuit**: when Step1 sets `direct_retrieval_only: true` (a pure named-gatha lookup with no conceptual sub-question), Phase 3 (topic match) **and** Phase 4 (guided filters) are skipped — the `direct_retrieval` sub-workflow already returns the exact gatha content, so the topic extracts would only bloat the Step2 context. Phases 5/6/7 and the main external search are unchanged. The field defaults to `false` (no skip) when omitted. See [10_direct_retrieval_skip_topics.md](10_direct_retrieval_skip_topics.md).
 
 ---
 
@@ -148,7 +155,7 @@ All KB behavior is controlled by env vars. **Default: everything off** (`KB_ENHA
 | `GET` | `/v1/shastras` | Phase 5, Phase 6 (shastra canonicalization) |
 | `GET` | `/v1/authors` | Phase 5 |
 | `GET` | `/v1/teekas` | Phase 5 (client wired, not yet called in orchestrator) |
-| `GET` | `/v1/gathas` | Phase 6 `direct_retrieval` (non-functional — see known limitation) |
+| `GET` | `/v1/shastras/{nk}/gathas/by-number/{n}` | Phase 6 `direct_retrieval` (compound-aware integer→gatha resolver) |
 
 ---
 
@@ -175,9 +182,11 @@ The following fields are added to the LLM keyword extraction output:
       "name": "direct_retrieval",
       "shastra": "समयसार",
       "gatha_number": 6,
+      "adhikaar_number": null,
       "want": ["sanskrit", "bhaavarth"]
     }
   ],
+  "direct_retrieval_only": true,
   "kb_entities": {
     "shastra_hints": ["समयसार"],
     "author_hints": []
@@ -195,11 +204,11 @@ The following fields are added to the LLM keyword extraction output:
 
 | Name | Description | Key fields |
 |------|-------------|------------|
-| `direct_retrieval` | Fetch specific gatha content | `shastra`, `gatha_number`, `want[]` — **currently non-functional** (see known limitation) |
+| `direct_retrieval` | Fetch specific gatha content | `shastra`, `gatha_number`, `adhikaar_number?` (chapter for compound shastras like तत्त्वार्थसूत्र/परमात्मप्रकाश), `want[]` |
 | `search_topic_in_shastra` | List topics within a shastra (optionally near a gatha) | `shastra`, `topic`, `gatha_number?` |
 | `search_shastra_for_topics` | List shastras that cover a topic | `shastra?`, `topic` |
 
-The dispatcher canonicalizes shastras via `GET /v1/shastras?q=&fuzzy=true` before calling the data endpoint. For `search_shastra_for_topics`, if `topic` isn't a natural key, it's resolved via `topics_match` first.
+The dispatcher canonicalizes shastras via `GET /v1/shastras?q=&fuzzy=true` before calling the data endpoint. For `direct_retrieval`, the canonical natural key + integer `gatha_number` (plus optional `adhikaar_number`) are resolved to gatha content via `GET /v1/shastras/{nk}/gathas/by-number/{n}?adhikaar={a}` (compound-aware: the integer matches the गाथा/श्लोक/सूत्र/दोहक/वार्तिक component of the shastra's identifier scheme, read from `parser_configs/_manual_configs/shastra.json`; `adhikaar` disambiguates per-chapter numbering like तत्त्वार्थसूत्र अध्याय 6 सूत्र 10). Prose fields (bhaavarth/teeka/anyavaarth) are converted from publisher HTML to Markdown and lightly re-organized by `src/utils/scripture_text.js` before injection; bhaavarth/teeka carry one block per commentary, each labeled `**[<teeka>]**` (e.g. `राजवार्तिक`, `सर्वार्थसिद्धि`). For `search_shastra_for_topics`, if `topic` isn't a natural key, it's resolved via `topics_match` first.
 
 ---
 
@@ -219,6 +228,7 @@ The `kb_topic_match_injected` structured log line (emitted after context assembl
 | Field | Description |
 |-------|-------------|
 | `kbTopicCount` | Number of topics injected |
+| `directRetrievalOnly` | Whether Phase 3 + Phase 4 were skipped for a direct-retrieval-only query |
 | `kbDefinitionsSectionPresent` | Whether definition section was added |
 | `kbMetadataSectionPresent` | Whether metadata section was added |
 | `kbSubworkflowsCount` | Number of sub-workflow results |
@@ -246,11 +256,9 @@ Integration tests use an in-process Express mock (`test/test_support/kb_mock.js`
 
 ## Known Limitations
 
-1. **`direct_retrieval` sub-workflow is non-functional** against the live core-service. `GET /v1/gathas` does not support `(shastra, gatha_number)` lookup — gatha identity requires a compound natural key path. Needs a new query-service endpoint. The other two sub-workflows work.
+1. **`kbModelConfig` per-model cap overrides not yet propagated** to orchestrator functions. `getKbWorkflowConfig(modelId)` is computed per-request in `server.js` but orchestrators still read from `process.env` directly. The infrastructure is in place; wiring it to function call sites is the follow-up task.
 
-2. **`kbModelConfig` per-model cap overrides not yet propagated** to orchestrator functions. `getKbWorkflowConfig(modelId)` is computed per-request in `server.js` but orchestrators still read from `process.env` directly. The infrastructure is in place; wiring it to function call sites is the follow-up task.
-
-3. **`teekas` not called in Phase 5** — `kb_entities` has no `teeka_hints` field yet. The client method is implemented and tested.
+2. **`teekas` not called in Phase 5** — `kb_entities` has no `teeka_hints` field yet. The client method is implemented and tested.
 
 ---
 
@@ -268,6 +276,7 @@ For detailed specs including prompt changes, JSON schemas, and API contracts:
 - [06_kb_subworkflows.md](06_kb_subworkflows.md) — sub-workflow dispatch
 - [07_definitions_in_step2_context.md](07_definitions_in_step2_context.md) — keyword definitions
 - [08_config_envs_and_caps.md](08_config_envs_and_caps.md) — all env vars + per-model config
+- [10_direct_retrieval_skip_topics.md](10_direct_retrieval_skip_topics.md) — skip Phase 3 (topic match) + Phase 4 (guided filters) for LLM-flagged direct-retrieval-only queries
 - [09_rollout_and_testing.md](09_rollout_and_testing.md) — integration test strategy
 - [initial_implementation_notes.md](initial_implementation_notes.md) — implementation notes, bugs found/fixed, deviations from spec per phase
 - [manual_testing.md](manual_testing.md) — curl-based manual test scenarios

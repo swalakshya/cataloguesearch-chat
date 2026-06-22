@@ -118,20 +118,47 @@ test("KbApiClient.shastras: uses fuzzy=true and limit=5 as defaults", async () =
 
 // ─── gathaDetail ─────────────────────────────────────────────────────────────
 
-test("KbApiClient.gathaDetail: issues GET with correct URL and params", async () => {
-  const payload = { gatha_number: 6, prakrit: "तेरे लोय...", sanskrit: "त्रय लोक..." };
+test("KbApiClient.gathaDetail: issues GET to compound-aware by-number path and flattens detail", async () => {
+  const payload = {
+    natural_key: "समयसार:गाथा:6",
+    gatha_number: "6",
+    prakrit: { text: [{ lang: "pra", text: "णवि होदि..." }] },
+    sanskrit: { text: [{ lang: "san", text: "नापि भवति..." }] },
+    hindi_chhand: [{ text: [{ lang: "hin", text: "न अप्रमत्त..." }] }],
+    teeka_bhaavarth: [{ text: [{ lang: "hin", text: "जो स्वयं..." }] }],
+  };
   const { calls, restore } = mockFetch(JSON.stringify(payload));
   try {
     const client = new KbApiClient({ baseUrl: "http://kb.example.com", timeoutMs: 200 });
-    const result = await client.gathaDetail({ shastra: "samaysaar", number: 6 }, "r1");
+    const result = await client.gathaDetail({ shastra: "समयसार", number: 6 }, "r1");
 
     assert.equal(calls.length, 1);
-    assert.ok(calls[0].url.startsWith("http://kb.example.com/v1/gathas?"), "correct path");
-    assert.ok(calls[0].url.includes("shastra=samaysaar"), "shastra param present");
-    assert.ok(calls[0].url.includes("number=6"), "number param present");
+    assert.ok(
+      calls[0].url.startsWith("http://kb.example.com/v1/shastras/"),
+      "uses path-based shastra endpoint"
+    );
+    assert.ok(calls[0].url.includes("/gathas/by-number/6"), "by-number path with integer");
+    assert.ok(calls[0].url.includes("include=teeka_bhaavarth"), "always requests bhaavarth include");
+    assert.ok(!calls[0].url.includes("teeka_hindi"), "teeka_hindi not requested by default");
+    assert.ok(!calls[0].url.includes("teeka_sanskrit"), "teeka_sanskrit not requested by default");
     assert.equal(calls[0].options.method, "GET");
-    assert.equal(result.gatha_number, 6);
-    assert.equal(result.prakrit, "तेरे लोय...");
+    assert.equal(result.prakrit, "णवि होदि...", "prakrit flattened to string");
+    assert.equal(result.sanskrit, "नापि भवति...", "sanskrit flattened to string");
+    assert.equal(result.bhaavarth, "जो स्वयं...", "bhaavarth flattened from teeka_bhaavarth");
+  } finally {
+    restore();
+  }
+});
+
+test("KbApiClient.gathaDetail: requests teeka includes only when includeTeeka is set", async () => {
+  const { calls, restore } = mockFetch(JSON.stringify({}));
+  try {
+    const client = new KbApiClient({ baseUrl: "http://kb.example.com", timeoutMs: 200 });
+    await client.gathaDetail({ shastra: "समयसार", number: 6, includeTeeka: true }, "r1");
+
+    assert.ok(calls[0].url.includes("teeka_bhaavarth"), "still requests bhaavarth");
+    assert.ok(calls[0].url.includes("teeka_hindi"), "requests teeka_hindi when includeTeeka");
+    assert.ok(calls[0].url.includes("teeka_sanskrit"), "requests teeka_sanskrit when includeTeeka");
   } finally {
     restore();
   }

@@ -204,7 +204,7 @@ test("basic workflow fires a separate filtered search per guided filter", async 
     mergedTopics: [
       {
         topic_natural_key: "moksha",
-        references: [{ shastra_natural_key: "samaysaar", gatha_number: 6, page_number: null, teeka_natural_key: null }],
+        references: [{ shastra_natural_key: "नियमसार", gatha_number: 6, page_number: null, teeka_natural_key: null }],
       },
     ],
   };
@@ -219,7 +219,7 @@ test("basic workflow fires a separate filtered search per guided filter", async 
 
   // 1 default search + 1 guided search (shastra → granth, page_size 3)
   assert.equal(calls.length, 2);
-  const guidedCall = calls.find((c) => c.granth === "samaysaar");
+  const guidedCall = calls.find((c) => c.granth === "Niyamsaar");
   assert.ok(guidedCall, "expected a guided search mapping shastra → granth");
   assert.equal(guidedCall.page_size, 3);
   assert.equal(guidedCall.query, "मोक्ष");
@@ -250,7 +250,7 @@ test("basic workflow fires no guided search when mergedTopics is empty", async (
 test("basic workflow collects guided_results from the per-filter searches", async () => {
   const externalApi = {
     search: async (payload) => {
-      if (payload.granth === "samaysaar") {
+      if (payload.granth === "Niyamsaar") {
         return [{ chunk_id: "g1", text_content: "guided text" }];
       }
       return [{ chunk_id: "c1" }];
@@ -261,7 +261,7 @@ test("basic workflow collects guided_results from the per-filter searches", asyn
     language: "hi",
     keywords: ["मोक्ष"],
     filters: {},
-    mergedTopics: [{ references: [{ shastra_natural_key: "samaysaar", gatha_number: 6 }] }],
+    mergedTopics: [{ references: [{ shastra_natural_key: "नियमसार", gatha_number: 6 }] }],
   };
 
   const { guidedResults } = await runBasicQuestion({
@@ -273,7 +273,7 @@ test("basic workflow collects guided_results from the per-filter searches", asyn
   });
 
   assert.equal(guidedResults.length, 1);
-  assert.equal(guidedResults[0].guided_filter.shastra, "samaysaar");
+  assert.equal(guidedResults[0].guided_filter.shastra, "नियमसार");
   assert.equal(guidedResults[0].guided_filter.gatha, 6);
   assert.equal(guidedResults[0].results.length, 1);
 });

@@ -24,7 +24,9 @@ export const SHASTRA_CANONICAL_TRANSLATED_NAMING = [
     "english_name": "Anagaar Dharmamrut",
     "hindi_name": "अनगारधर्मामृत",
     "content_types": ["Granth"],
-    "mapped": true
+    "mapped": true,
+    "gatha_identifier": "अधिकार,श्लोक",
+    "includes_adhikaar": true
   },
   {
     "english_name": "Anubhav Anand",
@@ -48,7 +50,8 @@ export const SHASTRA_CANONICAL_TRANSLATED_NAMING = [
     "english_name": "Atmanushashan",
     "hindi_name": "आत्मानुशासन",
     "content_types": ["Granth"],
-    "mapped": true
+    "mapped": true,
+    "gatha_identifier": "श्लोक",
   },
   {
     "english_name": "Bahinshree Na Vachanamrut",
@@ -120,7 +123,9 @@ export const SHASTRA_CANONICAL_TRANSLATED_NAMING = [
     "english_name": "Gnaanarnav",
     "hindi_name": "ज्ञानार्णव",
     "content_types": ["Granth"],
-    "mapped": true
+    "mapped": true,
+    "gatha_identifier": "अधिकार,दोहक",
+    "includes_adhikaar": true
   },
   {
     "english_name": "Gommatsaar Jeevkand",
@@ -150,13 +155,17 @@ export const SHASTRA_CANONICAL_TRANSLATED_NAMING = [
     "english_name": "Harivansh Puran",
     "hindi_name": "हरिवंश पुराण",
     "content_types": ["Granth"],
-    "mapped": true
+    "mapped": true,
+    "gatha_identifier": "सर्ग,श्लोक",
+    "adhikaar_identifier": "सर्ग",
+    "includes_adhikaar": true,
   },
   {
     "english_name": "Ishtopadesh",
     "hindi_name": "इष्टोपदेश",
     "content_types": ["Granth", "Pravachan"],
-    "mapped": true
+    "mapped": true,
+    "gatha_identifier": "श्लोक"
   },
   {
     "english_name": "Jain Siddhant Darpan",
@@ -168,7 +177,8 @@ export const SHASTRA_CANONICAL_TRANSLATED_NAMING = [
     "english_name": "Jain Siddhant Praveshika",
     "hindi_name": "जैन सिद्धांत प्रवेशिका",
     "content_types": ["Granth"],
-    "mapped": true
+    "mapped": true,
+    "gatha_identifier": "प्रश्न"
   },
   {
     "english_name": "Jambu Swami Charitra",
@@ -192,7 +202,8 @@ export const SHASTRA_CANONICAL_TRANSLATED_NAMING = [
     "english_name": "Moksh Marg Prakashak",
     "hindi_name": "मोक्षमार्गप्रकाशक",
     "content_types": ["Granth", "Pravachan"],
-    "mapped": true
+    "mapped": true,
+    "includes_adhikaar": true
   },
   {
     "english_name": "Moksh Marg Prakashak Parishisht",
@@ -226,15 +237,19 @@ export const SHASTRA_CANONICAL_TRANSLATED_NAMING = [
   },
   {
     "english_name": "Padmanandi Panchvinchhati",
-    "hindi_name": "पद्मनन्दि पंचविंशतिका",
+    "hindi_name": "पद्मनन्दिपंचविंशतिका",
     "content_types": ["Granth"],
-    "mapped": true
+    "mapped": true,
+    "gatha_identifier": "अधिकार,श्लोक",
+    "includes_adhikaar": true
   },
   {
     "english_name": "Padmanandi Panchvinshati",
-    "hindi_name": "पद्मनन्दि पंचविंशतिका",
+    "hindi_name": "पद्मनन्दिपंचविंशतिका",
     "content_types": ["Pravachan"],
-    "mapped": true
+    "mapped": true,
+    "gatha_identifier": "अधिकार,श्लोक",
+    "includes_adhikaar": true
   },
   {
     "english_name": "Panchastikaya",
@@ -264,7 +279,9 @@ export const SHASTRA_CANONICAL_TRANSLATED_NAMING = [
     "english_name": "Parmatma Prakash",
     "hindi_name": "परमात्मप्रकाश",
     "content_types": ["Granth", "Pravachan"],
-    "mapped": true
+    "mapped": true,
+    "gatha_identifier": "अधिकार,गाथा",
+    "includes_adhikaar": true
   },
   {
     "english_name": "Parmatma Puran",
@@ -288,13 +305,15 @@ export const SHASTRA_CANONICAL_TRANSLATED_NAMING = [
     "english_name": "Purusharth Siddhi Upay",
     "hindi_name": "पुरुषार्थ सिद्ध्युपाय",
     "content_types": ["Granth", "Pravachan"],
-    "mapped": true
+    "mapped": true,
+    "gatha_identifier": "श्लोक"
   },
   {
     "english_name": "Ratnakarand Shravakachar",
     "hindi_name": "रत्नकरण्ड श्रावकाचार",
     "content_types": ["Granth"],
-    "mapped": true
+    "mapped": true,
+    "gatha_identifier": "श्लोक"
   },
   {
     "english_name": "Rishabh Stotra",
@@ -304,9 +323,11 @@ export const SHASTRA_CANONICAL_TRANSLATED_NAMING = [
   },
   {
     "english_name": "Sagaar Dharmamrut",
-    "hindi_name": "सागर धर्मामृत",
+    "hindi_name": "सागरधर्मामृत",
     "content_types": ["Granth"],
-    "mapped": true
+    "mapped": true,
+    "gatha_identifier": "अधिकार,श्लोक",
+    "includes_adhikaar": true
   },
   {
     "english_name": "Samadhi Tantra",
@@ -328,9 +349,11 @@ export const SHASTRA_CANONICAL_TRANSLATED_NAMING = [
   },
   {
     "english_name": "Sarvartha Siddhi",
-    "hindi_name": "सर्वार्थसिद्धि",
+    "hindi_name": "तत्त्वार्थसूत्र",
     "content_types": ["Granth"],
-    "mapped": true
+    "mapped": true,
+    "gatha_identifier": "अध्याय,सूत्र",
+    "includes_adhikaar": true
   },
   {
     "english_name": "Satta Swaroop",
@@ -360,7 +383,8 @@ export const SHASTRA_CANONICAL_TRANSLATED_NAMING = [
     "english_name": "Tattvanushashan",
     "hindi_name": "तत्त्वानुशासन",
     "content_types": ["Granth"],
-    "mapped": true
+    "mapped": true,
+    "gatha_identifier": "श्लोक"
   },
   {
     "english_name": "Updesh Siddhant Ratnamala",

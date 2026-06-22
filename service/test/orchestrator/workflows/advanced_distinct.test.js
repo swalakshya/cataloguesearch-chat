@@ -114,7 +114,7 @@ test("advanced_distinct fires a separate filtered search per guided filter", asy
     filters: {},
     queries: [{ id: "q1", keywords: ["मोक्ष"] }],
     mergedTopics: [
-      { references: [{ shastra_natural_key: "niyamsaar", gatha_number: 10 }] },
+      { references: [{ shastra_natural_key: "नियमसार", gatha_number: 10 }] },
     ],
   };
 
@@ -126,7 +126,7 @@ test("advanced_distinct fires a separate filtered search per guided filter", asy
     modelId: "gemini-2.5-flash",
   });
 
-  const guidedCall = payloads.find((p) => p.granth === "niyamsaar");
+  const guidedCall = payloads.find((p) => p.granth === "Niyamsaar");
   assert.ok(guidedCall, "expected a guided search mapping shastra → granth");
   assert.equal(guidedCall.page_size, 3);
   assert.equal(guidedCall.query, "मोक्ष", "guided search reuses the first query");
@@ -135,7 +135,7 @@ test("advanced_distinct fires a separate filtered search per guided filter", asy
 test("advanced_distinct collects one guided result per derived filter", async () => {
   const externalApi = {
     search: async (payload) => {
-      if (payload.granth === "s1" || payload.granth === "s2") {
+      if (payload.granth === "Niyamsaar" || payload.granth === "Ishtopadesh") {
         return [{ chunk_id: `g-${payload.granth}` }];
       }
       return [];
@@ -150,8 +150,8 @@ test("advanced_distinct collects one guided result per derived filter", async ()
       { id: "q2", keywords: ["दूसरा"] },
     ],
     mergedTopics: [
-      { references: [{ shastra_natural_key: "s1", gatha_number: 1 }] },
-      { references: [{ shastra_natural_key: "s2", gatha_number: 2 }] },
+      { references: [{ shastra_natural_key: "नियमसार", gatha_number: 1 }] },
+      { references: [{ shastra_natural_key: "इष्टोपदेश", gatha_number: 2 }] },
     ],
   };
 
@@ -164,5 +164,5 @@ test("advanced_distinct collects one guided result per derived filter", async ()
   });
 
   assert.equal(guidedResults.length, 2);
-  assert.deepEqual(guidedResults.map((g) => g.guided_filter.shastra).sort(), ["s1", "s2"]);
+  assert.deepEqual(guidedResults.map((g) => g.guided_filter.shastra).sort(), ["इष्टोपदेश", "नियमसार"]);
 });

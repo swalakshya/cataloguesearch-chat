@@ -4,10 +4,12 @@ import { fileURLToPath } from "node:url";
 
 const ENABLED = process.env.SAVE_CONTEXT_LOGS === "true";
 
-const LOG_DIR = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../../logs/contexts"
-);
+const LOG_DIR = process.env.LOGS_DIR
+  ? path.join(process.env.LOGS_DIR, "contexts")
+  : path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../../../logs/contexts"
+    );
 
 let _dirReady = false;
 

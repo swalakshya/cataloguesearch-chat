@@ -1,51 +1,18 @@
-export function buildGreetingAnswer({ script, email }) {
-  const contact = email || "projectjinam@gmail.com";
-  const suggested = buildSuggestedQuestions();
-  if (String(script || "").toLowerCase() === "devanagari") {
-    return [
-      "*जय जिनेन्द्र!*",
-      "",
-      "`JINAM Chatbot` में आपका स्वागत है। यह प्लेटफॉर्म जैन दर्शन, मूल्यों और इतिहास को समझने के इच्छुक जिज्ञासुओं के लिए समर्पित है।",
-      "",
-      "_हमारा लक्ष्य प्राचीन शास्त्रों में संरक्षित आचार्यों और मुनिराजों के शाश्वत ज्ञान को तथा आधुनिक जैन विद्वानों के समर्पित प्रयासों को, सरल और सुगम भाषा में आप तक पहुँचाना है।_",
-      "",
-      "आप जैन धर्म से संबंधित अपने प्रश्न को हिंदी या अंग्रेजी में पूछ सकते हैं, जैसे -",
-      "",
-      ...suggested.devanagari,
-      "",
-      "जैन धर्म और आत्म-बोध की इस सार्थक खोजपूर्ण यात्रा के लिए हमारी मंगल भावनाएँ।",
-      "",
-      "सधन्यवाद,",
-      "टीम JINAM",
-      "(```TATTVAM``` और ```Origen Systems``` की एक पहल)",
-      `सुझाव: ${contact}`,
-      "",
-      "`कृपया ध्यान दें:`",
-      "```JINAM Chatbot``` केवल एक सहायक है, जो उत्तरों के साथ जैन ग्रंथों के संदर्भ प्रदान करता है। इसमें त्रुटियाँ हो सकती हैं—कृपया प्रत्येक उत्तर के साथ दिए गए मूल ग्रंथों पर ही विश्वास करें।"
-    ].join("\n");
-  }
+import jinam from "./greeting_content/jinam.js";
+import swalakshya from "./greeting_content/swalakshya.js";
 
-  return [
-    "*Jai Jinendra!*",
-    "",
-    "Welcome to `JINAM Chatbot`. This platform is dedicated to helping seekers explore Jain philosophy, values, and history.",
-    "",
-    "_Our mission is to guide you through the timeless wisdom of our Acharyas and Munirajas as preserved in ancient scriptures, supported by the dedicated efforts of modern Jain scholars in simple, accessible language._",
-    "",
-    "You may ask your questions related to Jainism in either English or Hindi. Try asking:",
-    "",
-    ...suggested.latin,
-    "",
-    "We wish you a meaningful journey of discovering Jainism and the self.",
-    "",
-    "Thanks,",
-    "Team JINAM",
-    "(An initiative by ```TATTVAM``` and ```Origen Systems```)",
-    `Feedback: ${contact}`,
-    "",
-    "`PLEASE NOTE:`",
-    "```JINAM Chatbot``` is only an *assistant* in providing answers along-with the references to Jain Texts. It may make mistakes. Only trust the original literature cited with each answer."
-  ].join("\n");
+const APPS = { jinam, swalakshya };
+
+export function buildGreetingAnswer({ script, email, app }) {
+  const content = APPS[String(app || "").toLowerCase()] || APPS.jinam;
+  const contact = email || content.contactEmail;
+  const isDevanagari = String(script || "").toLowerCase() === "devanagari";
+  const template = isDevanagari ? content.devanagari : content.latin;
+  const followUpQuestions = isDevanagari ? buildSuggestedQuestions().devanagari : buildSuggestedQuestions().latin;
+
+  const answer = template.join("\n").replaceAll("{{CONTACT}}", contact);
+
+  return { answer, followUpQuestions };
 }
 
 function buildSuggestedQuestions() {
@@ -103,15 +70,7 @@ function buildSuggestedQuestions() {
   };
 
   return {
-    latin: [
-      `> ${pick(english)}`,
-      `> ${pick(hindiLatin)}`,
-      `> ${pick(hindiDevanagari)}`,
-    ],
-    devanagari: [
-      `> ${pick(hindiDevanagari)}`,
-      `> ${pick(hindiLatin)}`,
-      `> ${pick(english)}`,
-    ],
+    latin: [pick(english), pick(hindiLatin), pick(hindiDevanagari)],
+    devanagari: [pick(hindiDevanagari), pick(hindiLatin), pick(english)],
   };
 }

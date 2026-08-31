@@ -16,9 +16,11 @@ Request:
 ```json
 {
   "provider": "auto",
-  "language": "hi|gu|en"
+  "language": "hi|gu|en",
+  "app": "jinam|swalakshya"
 }
 ```
+`app` selects branding for app-specific responses (currently: the greeting message). Defaults to `jinam` when omitted or unrecognized.
 
 Response:
 ```json

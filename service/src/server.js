@@ -209,7 +209,7 @@ export function createServer(options = {}) {
   }
 
   app.post("/v1/chat/sessions", async (req, res) => {
-    const { provider: providerId, language, user_id } = req.body || {};
+    const { provider: providerId, language, user_id, app: appId } = req.body || {};
     const requestedProvider = providerId ? String(providerId).toLowerCase() : "auto";
     if (requestedProvider !== "auto") {
       return res.status(400).json({ detail: "provider_not_supported" });
@@ -220,6 +220,7 @@ export function createServer(options = {}) {
       const session = {
         sessionId,
         userId: user_id ? String(user_id).trim() : null,
+        app: normalizeAppId(appId),
         provider: "auto",
         providerSessionId: null,
         language: language || "hi",
@@ -240,6 +241,7 @@ export function createServer(options = {}) {
       log.info("session_create_success", {
         sessionId,
         userId: session.userId ?? null,
+        app: session.app,
         provider: "auto",
         model: null,
         providerSessionId: null,
@@ -782,9 +784,12 @@ export function createServer(options = {}) {
     const workingHistory = keywordResult.is_followup ? baseHistory : [];
 
     if (keywordResult.workflow === "greeting_message_v1") {
-      const greeting = buildGreetingAnswer({
+      const { answer: greeting, followUpQuestions: greetingFollowUps } = buildGreetingAnswer({
         script: keywordResult.script,
-        email: process.env.GREETING_CONTACT_EMAIL,
+        email: session.app === "swalakshya"
+          ? process.env.GREETING_CONTACT_EMAIL_SWALAKSHYA
+          : process.env.GREETING_CONTACT_EMAIL,
+        app: session.app,
       });
       requestLogContext.answer = greeting;
 
@@ -811,7 +816,7 @@ export function createServer(options = {}) {
       return buildResponsePayload({
         responseFormat,
         answer: greeting,
-        followUpQuestions: [],
+        followUpQuestions: sanitizeFollowUpQuestions(greetingFollowUps),
         references: [],
         citations: [],
         provider: session.provider,
@@ -1361,6 +1366,13 @@ function sanitizeString(value) {
 function sanitizeContentType(value) {
   const normalized = sanitizeAllowedContentTypes(value, { fallbackToDefault: false });
   return normalized.length ? normalized : undefined;
+}
+
+const KNOWN_APP_IDS = new Set(["jinam", "swalakshya"]);
+
+function normalizeAppId(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return KNOWN_APP_IDS.has(normalized) ? normalized : "jinam";
 }
 
 function normalizeResponseFormat(value, { fallback = null } = {}) {

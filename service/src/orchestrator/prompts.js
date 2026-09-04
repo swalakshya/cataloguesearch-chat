@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { getAllowedContentTypes, getDefaultContentTypes } from "../config/content_types.js";
+import { getWorkflowSummaryMaxReferences } from "../config/workflow_config.js";
 import { log } from "../utils/log.js";
 import { recordPromptRootForTest } from "../testing/test_prompt_roots.js";
 
@@ -132,27 +133,34 @@ export function getAnswerPrompt(
   script = "",
   options = {}
 ) {
-  const { fullCitations } = options;
+  const { fullCitations, responseFormat, modelId } = options;
   const isFullCitations =
     fullCitations !== undefined && fullCitations !== null
       ? Boolean(fullCitations)
       : String(process.env.ENABLE_FULL_CHUNKS_IN_CITATIONS || "").toLowerCase() === "true";
+  const isSummary = responseFormat === "summary";
   const answerPromptFile =
     workflowName === "metadata_question_v1"
       ? "step_2_metadata_answer_synthesis.md"
-      : isFullCitations
-        ? "step_2_answer_synthesis_full_citations.md"
-        : "step_2_answer_synthesis.md";
+      : isSummary
+        ? "step_2_answer_synthesis_summary.md"
+        : isFullCitations
+          ? "step_2_answer_synthesis_full_citations.md"
+          : "step_2_answer_synthesis.md";
   const base = readPrompt(answerPromptFile, options);
   const composed = [base, workflowGuidelines].filter(Boolean).join("\n\n");
   const historyBlock = readPrompt("conversation_history.md", options);
   const historySection = conversationHistory && String(conversationHistory).trim() ? historyBlock : "";
+  // Summary mode tells the model its citation cap is a ceiling, not a target —
+  // see getWorkflowSummaryMaxReferences and step_2_answer_synthesis_summary.md.
+  const summaryMaxReferences = isSummary ? getWorkflowSummaryMaxReferences(workflowName, modelId) ?? 8 : undefined;
   return [
     composed
       .replace("<QUESTION_HERE>", question)
       .replace("<CONTEXT_HERE>", context || "")
       .replace("<LANGUAGE_HERE>", language || "")
       .replace("<SCRIPT_HERE>", script || "")
+      .replace("<MAX_REFERENCES_HERE>", summaryMaxReferences != null ? String(summaryMaxReferences) : "")
       .trim(),
     historySection,
     historySection ? conversationHistory : "",

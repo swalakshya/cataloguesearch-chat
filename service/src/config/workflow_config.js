@@ -37,3 +37,14 @@ export function getWorkflowReferenceCount(workflowName, modelId) {
   const config = getWorkflowConfig(modelId);
   return config[configKey]?.referenceCount;
 }
+
+// Ceiling on distinct sources a "summary" response may cite — configurable per
+// workflow (and per model, via workflowOverrides), independent of the
+// structured/combined referenceCount above. The model is told this is a
+// ceiling, not a target; it should cite fewer when fewer genuinely apply.
+export function getWorkflowSummaryMaxReferences(workflowName, modelId) {
+  const configKey = WORKFLOW_CONFIG_KEY_MAP[workflowName];
+  if (!configKey) return undefined;
+  const config = getWorkflowConfig(modelId);
+  return config[configKey]?.summaryMaxReferences;
+}

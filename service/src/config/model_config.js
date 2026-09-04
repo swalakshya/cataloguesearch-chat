@@ -22,6 +22,7 @@ export const MODEL_ROUTING_CONFIG = {
       page_size: 15,
       rerank: true,
       referenceCount: 2,
+      summaryMaxReferences: 8,
     },
     followup: {
       page: 1,
@@ -31,18 +32,21 @@ export const MODEL_ROUTING_CONFIG = {
       navigate_direction: "both",
       expand_limit: 10,
       referenceCount: 5,
+      summaryMaxReferences: 8,
     },
     advanced_distinct: {
       page: 1,
       page_size: 10,
       rerank: true,
       referenceCount: 5,
+      summaryMaxReferences: 8,
     },
     advanced_nested: {
       page: 1,
       page_size: 10,
       rerank: true,
       referenceCount: 5,
+      summaryMaxReferences: 8,
     },
   },
   models: [

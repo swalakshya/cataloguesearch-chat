@@ -25,6 +25,7 @@ import {
 } from "./orchestrator/history_summary.js";
 import {
   buildStructuredReferencesFromMetadata,
+  buildOrderedReferencesFromMetadata,
   buildChunkCitationMap,
   expandChunkCitations,
   appendReferencesSection,
@@ -32,7 +33,9 @@ import {
   sanitizeCitations,
   sanitizeFollowUpQuestions,
   sanitizeReferences,
+  sanitizeSummaryAnswerMarkers,
   stripCitations,
+  stripStrayBlockquotes,
   normalizeAnswerTextForParsing,
   normalizeAnswerTextForOutput,
   cleanAnswerText,
@@ -45,7 +48,7 @@ import { buildScoredChunks } from "./utils/scoring.js";
 import { estimateTokens, shouldRejectForTokenLimit, getSessionTokenLimit } from "./utils/token.js";
 import { log } from "./utils/log.js";
 import { MODEL_ROUTING_CONFIG } from "./config/model_config.js";
-import { getWorkflowReferenceCount } from "./config/workflow_config.js";
+import { getWorkflowReferenceCount, getWorkflowSummaryMaxReferences } from "./config/workflow_config.js";
 import { getOrderedModels } from "./routing/model_registry.js";
 import { ModelAvailabilityTracker } from "./routing/model_availability.js";
 import { ModelRouter } from "./routing/model_router.js";
@@ -405,7 +408,7 @@ export function createServer(options = {}) {
 
   app.post("/v1/chat/sessions/:sessionId/messages/stream", async (req, res) => {
     const responseFormat = normalizeResponseFormat(req.body?.response_format);
-    if (responseFormat !== "structured") {
+    if (responseFormat !== "structured" && responseFormat !== "summary") {
       return res.status(400).json({ detail: "invalid_response_format" });
     }
 
@@ -1003,7 +1006,15 @@ export function createServer(options = {}) {
     });
 
     const answerStatusRaw = String(answerPayload?.answer_status || "").trim().toLowerCase();
-    const answerRaw = String(answerPayload?.answer || "");
+    // Summary mode's schema declares `answer` as an array of paragraph strings
+    // (see SUMMARY_ANSWER_SCHEMA) so the array shape itself, not a style
+    // instruction, is what keeps answers from collapsing into one wall of
+    // text. structured/combined still declare `answer` as a plain string, so
+    // this is a no-op for them — Array.isArray is always false there, and
+    // they hit the exact same String(...) branch as before this change.
+    const answerRaw = Array.isArray(answerPayload?.answer)
+      ? answerPayload.answer.map((p) => String(p ?? "").trim()).filter(Boolean).join("\n\n")
+      : String(answerPayload?.answer || "");
     const isLegacyNoAnswer = answerRaw.trim() === "NO_ANSWER";
     const isNoAnswer = answerStatusRaw === "no_answer" || isLegacyNoAnswer;
     // Preserve model-authored no-answer explanations when provided. Only synthesize
@@ -1047,15 +1058,16 @@ export function createServer(options = {}) {
     let safeCitations = [];
 
     const referenceCount = getWorkflowReferenceCount(workflowName, model.id);
-    const structured = isNoAnswer
-      ? { references: [], citations: [] }
-      : buildStructuredReferencesFromMetadata({
-          scoredChunks,
-          maxReferences: referenceCount,
-          hashToRealId: session.chunkIdMap,
-          metadataByRealId,
-          language: keywordResult.language,
-        });
+    const structured =
+      isNoAnswer || responseFormat === "summary"
+        ? { references: [], citations: [] }
+        : buildStructuredReferencesFromMetadata({
+            scoredChunks,
+            maxReferences: referenceCount,
+            hashToRealId: session.chunkIdMap,
+            metadataByRealId,
+            language: keywordResult.language,
+          });
 
     if (responseFormat === "structured") {
       const { answer: answerWithoutFollowUps, followUpQuestions: extractedFollowUps } = extractFollowUpQuestionsFromAnswer(cleaned);
@@ -1063,6 +1075,33 @@ export function createServer(options = {}) {
       safeReferences = sanitizeReferences(structured.references);
       safeCitations = sanitizeCitations(structured.citations);
       answerForOutput = normalizeAnswerTextForOutput(answerWithoutFollowUps);
+    } else if (responseFormat === "summary") {
+      // Unlike structured, the same source can be cited multiple times here,
+      // and the model itself declares the citation order via
+      // answerPayload.citation_order — (@@_N) markers already in the answer
+      // text refer to positions in that array, so it's passed straight
+      // through rather than rewritten. See buildOrderedReferencesFromMetadata.
+      // follow_up_questions is a dedicated schema field for summary mode (see
+      // SUMMARY_ANSWER_SCHEMA), not a header phrase embedded in the answer
+      // text to regex back out — that's what structured/combined still do,
+      // and it's exactly what broke when the model's Hindi wording varied.
+      followUpQuestions = isNoAnswer ? [] : sanitizeFollowUpQuestions(answerPayload?.follow_up_questions);
+      const summaryMaxReferences = getWorkflowSummaryMaxReferences(workflowName, model.id) ?? 8;
+      const ordered = isNoAnswer
+        ? { references: [], citations: [] }
+        : buildOrderedReferencesFromMetadata({
+            citationOrder: Array.isArray(answerPayload?.citation_order) ? answerPayload.citation_order : [],
+            maxReferences: summaryMaxReferences,
+            hashToRealId: session.chunkIdMap,
+            metadataByRealId,
+            language: keywordResult.language,
+          });
+      safeReferences = ordered.references;
+      safeCitations = ordered.citations;
+      const guardedAnswer = isNoAnswer ? cleaned : stripStrayBlockquotes(cleaned);
+      answerForOutput = normalizeAnswerTextForOutput(
+        sanitizeSummaryAnswerMarkers(guardedAnswer, safeCitations.length)
+      );
     } else {
       // combined: append service-built references at the end of the answer
       const answerBody = isNoAnswer
@@ -1379,6 +1418,7 @@ function normalizeResponseFormat(value, { fallback = null } = {}) {
   const raw = value === undefined || value === null || String(value).trim() === "" ? fallback : value;
   const normalized = String(raw || "").trim().toLowerCase();
   if (normalized === "structured") return "structured";
+  if (normalized === "summary") return "summary";
   if (normalized === "combined" || normalized === "compact") return "combined";
   return null;
 }
@@ -1399,7 +1439,7 @@ function buildResponsePayload({
     tool_trace_id: requestId,
     warnings,
   };
-  if (responseFormat === "structured") {
+  if (responseFormat === "structured" || responseFormat === "summary") {
     payload.follow_up_questions = Array.isArray(followUpQuestions) ? followUpQuestions : [];
     payload.references = references;
     payload.citations = citations;

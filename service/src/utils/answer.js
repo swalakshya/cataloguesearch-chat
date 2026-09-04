@@ -259,6 +259,90 @@ export function buildStructuredReferencesFromMetadata({
   return { references, citations };
 }
 
+const DEFAULT_SUMMARY_MAX_REFERENCES = 8;
+const SUMMARY_MARKER_PATTERN = /\(@@_(\d+)\)/g;
+
+// Summary mode: the model declares its own citation order (citation_order),
+// and (@@_N) markers already embedded in its answer text refer to positions
+// in that array. Unlike buildStructuredReferencesFromMetadata (used by
+// structured/combined), this must NOT re-sort by score and must NOT drop
+// entries on failure/duplication — either would desync array indices from
+// markers the model already wrote into the text. Only the array's total
+// length may shrink, and only by trimming from the end (over-the-cap
+// entries), since nothing earlier in the array can have shifted.
+export function buildOrderedReferencesFromMetadata({
+  citationOrder,
+  maxReferences,
+  hashToRealId,
+  metadataByRealId,
+  language = "",
+} = {}) {
+  const hashMap = hashToRealId && typeof hashToRealId === "object" ? hashToRealId : {};
+  const metadataMap = metadataByRealId && typeof metadataByRealId === "object" ? metadataByRealId : {};
+  const order = Array.isArray(citationOrder) ? citationOrder : [];
+  const cap = resolveSummaryReferenceCap(maxReferences, order.length);
+  const trimmed = order.slice(0, cap);
+
+  const references = [];
+  const citations = [];
+  for (const rawId of trimmed) {
+    const hash = String(rawId || "").trim();
+    const realId = hash ? hashMap[hash] || hash : "";
+    const metadata = realId ? metadataMap[realId] : null;
+    const reference = metadata ? formatReferenceFromMetadata(metadata, { language }) : "";
+    const citation = metadata ? buildCitationFromMetadata(metadata, reference) : null;
+    if (!reference || !citation?.file_url) {
+      // Preserve the slot rather than dropping it — a dropped entry would
+      // shift every later index out from under the (@@_N) markers already
+      // written into the answer text.
+      references.push(null);
+      citations.push(null);
+      continue;
+    }
+    references.push(reference);
+    citations.push(citation);
+  }
+  return { references, citations };
+}
+
+function resolveSummaryReferenceCap(maxReferences, orderLength) {
+  const parsed =
+    maxReferences === undefined || maxReferences === null || maxReferences === ""
+      ? undefined
+      : Number(maxReferences);
+  const cap = Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : DEFAULT_SUMMARY_MAX_REFERENCES;
+  return Math.max(0, Math.min(MAX_REFERENCES, Math.min(cap, Number(orderLength) || 0)));
+}
+
+// Drops any (@@_N) marker that doesn't point at a real slot in the final
+// references/citations arrays (e.g. the model exceeded the cap and its tail
+// got trimmed). Markers pointing at a preserved-but-null slot are left
+// alone — that's a resolution failure for the frontend to render gracefully,
+// not a dangling reference.
+export function sanitizeSummaryAnswerMarkers(text, referenceCount) {
+  if (!text) return "";
+  const count = Number(referenceCount) || 0;
+  return String(text).replace(SUMMARY_MARKER_PATTERN, (match, indexStr) => {
+    const index = Number(indexStr);
+    if (!Number.isInteger(index) || index < 1 || index > count) return "";
+    return match;
+  });
+}
+
+// Defensive guardrail: summary mode's prompt forbids "> " blockquote
+// excerpts, but LLM instruction-following isn't guaranteed — this is a
+// scripture-verification product, so raw quoted text slipping through
+// unvetted isn't something to rely on a prompt alone to prevent.
+export function stripStrayBlockquotes(text) {
+  if (!text) return "";
+  return String(text)
+    .split("\n")
+    .filter((line) => !/^\s*>/.test(line))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function extractReferences(text) {
   const lines = text.split(/\r?\n/).map((line) => line.trim());
   let inRefs = false;

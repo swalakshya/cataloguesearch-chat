@@ -36,6 +36,40 @@ test("SessionRegistry create/get/close persists and deletes", () => {
   assert.deepEqual(deletes, ["s1"]);
 });
 
+test("SessionRegistry reassignUser updates live sessions and delegates to the store", () => {
+  const storeCalls = [];
+  const store = {
+    upsert() {},
+    restore() {
+      return null;
+    },
+    reassignUser(fromUserId, toUserId) {
+      storeCalls.push([fromUserId, toUserId]);
+      return 2;
+    },
+  };
+  const registry = new SessionRegistry(1_000_000, store);
+  clearInterval(registry.timer);
+
+  registry.create({ sessionId: "s1", userId: "anon-1", lastActivityAt: Date.now() });
+  registry.create({ sessionId: "s2", userId: "someone-else", lastActivityAt: Date.now() });
+
+  const merged = registry.reassignUser("anon-1", "real-user-1");
+
+  assert.equal(merged, 2);
+  assert.deepEqual(storeCalls, [["anon-1", "real-user-1"]]);
+  assert.equal(registry.get("s1").userId, "real-user-1");
+  assert.equal(registry.get("s2").userId, "someone-else");
+});
+
+test("SessionRegistry reassignUser with no backing store just returns 0", () => {
+  const registry = new SessionRegistry(1_000_000, null);
+  clearInterval(registry.timer);
+  registry.create({ sessionId: "s1", userId: "anon-1", lastActivityAt: Date.now() });
+  assert.equal(registry.reassignUser("anon-1", "real-user-1"), 0);
+  assert.equal(registry.get("s1").userId, "real-user-1");
+});
+
 test("SessionRegistry restores from store on miss", () => {
   let restoreCalls = 0;
   const store = {
@@ -138,4 +172,30 @@ test("SessionRegistry restore from store preserves userId for sessions with and 
   const r2 = new SessionRegistry(1_000_000, makeRestoreStore(null));
   clearInterval(r2.timer);
   assert.equal(r2.get("s1").userId, null);
+});
+
+test("SessionRegistry reassignUser marks live sessions claimed and skips already-claimed ones", () => {
+  const store = {
+    upsert() {},
+    restore() {
+      return null;
+    },
+    reassignUser(fromUserId, toUserId) {
+      return fromUserId === "anon-1" ? 1 : 0;
+    },
+  };
+  const registry = new SessionRegistry(1_000_000, store);
+  clearInterval(registry.timer);
+
+  registry.create({ sessionId: "s1", userId: "anon-1", claimed: false, lastActivityAt: Date.now() });
+  // Already claimed under "anon-1" somehow (shouldn't normally happen) -- must not be touched.
+  registry.create({ sessionId: "s2", userId: "anon-1", claimed: true, lastActivityAt: Date.now() });
+
+  registry.reassignUser("anon-1", "real-user-1");
+
+  assert.equal(registry.get("s1").userId, "real-user-1");
+  assert.equal(registry.get("s1").claimed, true);
+
+  assert.equal(registry.get("s2").userId, "anon-1");
+  assert.equal(registry.get("s2").claimed, true);
 });

@@ -134,10 +134,13 @@ docker compose up
 | `LOG_LEVEL` | `info` | Console log level (`info`, `verbose`, `debug`) |
 | `LOGS_DIR` | — | When set, writes JSON lines to `info.log` and `verbose.log` |
 | `CHAT_DB_PATH` | — | When set, enables SQLite-backed session persistence, feedback storage, and request logs |
+| `JWT_SECRET` | — | Verifies the login session cookie set by `cataloguesearch`'s `/api/auth/google` — must be the exact same value in both repos' `.env.local`. See `cataloguesearch/ONBOARDING.md` for how to generate it and set up the Google OAuth client. |
+| `CORS_ALLOWED_ORIGINS` | `https://swalakshya.me,https://chat.swalakshya.me,http://localhost:3000` | CSV of browser origins allowed to send the login cookie cross-origin |
 
 ## Session Persistence
 - SQLite-backed storage is optional and enabled only when `CHAT_DB_PATH` is set.
 - The Docker compose setup mounts `/app/data` and sets `CHAT_DB_PATH=/app/data/cataloguesearch-chat.db`.
+- **Required for chat history**: without `CHAT_DB_PATH` set, `GET /v1/users/:userId/sessions` returns `session_persistence_not_enabled` and the frontend's History panel shows "Could not load history." — a common local-dev gap, since nothing else depends on this being set.
 - The shared SQLite file stores `sessions`, `feedback`, and `request_logs`.
 - Live sessions stay in memory while active; SQLite is used for restore after eviction or restart.
 

@@ -35,6 +35,24 @@ export class SessionRegistry {
     this.store.upsert(session);
   }
 
+  // Moves every live UNCLAIMED session owned by fromUserId onto toUserId
+  // (in-memory, so an anonymous chat that's still open at login-time doesn't
+  // lag behind the DB until it's evicted/restored), then delegates the
+  // persisted rows to the store. Skips already-claimed sessions even if
+  // userId happens to match, mirroring the store's own claimed=0 guard --
+  // defense in depth against reassignUser being used to steal a real
+  // account's history. Returns the store's count -- the DB is the source of
+  // truth for how many sessions actually existed under the old id.
+  reassignUser(fromUserId, toUserId) {
+    for (const session of this.sessions.values()) {
+      if (session.userId === fromUserId && !session.claimed) {
+        session.userId = toUserId;
+        session.claimed = true;
+      }
+    }
+    return this.store?.reassignUser(fromUserId, toUserId) ?? 0;
+  }
+
   listSessionIds() {
     return Array.from(this.sessions.keys());
   }

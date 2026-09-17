@@ -61,6 +61,7 @@ import {
 } from "./testing/test_provider_factory.js";
 import { buildTestExternalApiClient } from "./testing/test_external_api.js";
 import { getPromptRootForTest, resetPromptRootsForTest } from "./testing/test_prompt_roots.js";
+import { verifyAuth } from "./auth/verify_jwt.js";
 
 export function createServer(options = {}) {
   const configuredPort = Number(options.port ?? process.env.LLM_SERVICE_PORT ?? 8012);
@@ -78,12 +79,28 @@ export function createServer(options = {}) {
   );
   const chatDbPath = String(options.chatDbPath ?? process.env.CHAT_DB_PATH ?? "").trim();
   const adminApiKey = String(options.adminApiKey ?? process.env.ADMIN_KEY ?? "").trim();
+  const jwtSecret = String(options.jwtSecret ?? process.env.JWT_SECRET ?? "").trim();
   const defaultResponseFormat =
     normalizeResponseFormat(options.defaultResponseFormat ?? process.env.DEFAULT_ANSWER_FORMAT, { fallback: "combined" });
 
+  // Same allow-list as cataloguesearch's search_api.py -- both services need
+  // an explicit origin list (not "*") now that requests carry the session
+  // cookie cross-origin between the frontend and this service.
+  // `||` (not `??`) matters here: docker-compose always sets this env var,
+  // even to an explicit empty string when the deploy's own env file leaves
+  // it unset, and `??` only falls back on null/undefined -- it would have
+  // silently resolved to "" and blocked every browser request, no origin
+  // allowed at all.
+  const defaultCorsOrigins = "https://swalakshya.me,https://chat.swalakshya.me,http://localhost:3000";
+  const corsOrigins = String(options.corsAllowedOrigins || process.env.CORS_ALLOWED_ORIGINS || defaultCorsOrigins)
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
   const app = express();
-  app.use(cors());
+  app.use(cors({ origin: corsOrigins, credentials: true }));
   app.use(express.json({ limit: "1mb" }));
+  app.use(verifyAuth({ jwtSecret }));
 
   const models = getOrderedModels();
   const availability = new ModelAvailabilityTracker({
@@ -222,7 +239,8 @@ export function createServer(options = {}) {
       const sessionId = crypto.randomUUID();
       const session = {
         sessionId,
-        userId: user_id ? String(user_id).trim() : null,
+        userId: req.userId || (user_id ? String(user_id).trim() : null),
+        claimed: Boolean(req.userId),
         app: normalizeAppId(appId),
         provider: "auto",
         providerSessionId: null,
@@ -268,6 +286,7 @@ export function createServer(options = {}) {
     // Synchronous pre-validation (before creating any job)
     const session = registry.get(sessionId);
     if (!session) return res.status(404).json({ detail: "session_not_found" });
+    if (forbidsAccess(session, req)) return res.status(403).json({ detail: "forbidden" });
     if (role !== "user" || !content) return res.status(400).json({ detail: "invalid_message" });
 
     const messageId = rawClientId ? String(rawClientId).trim() : crypto.randomUUID();
@@ -328,6 +347,7 @@ export function createServer(options = {}) {
   app.get("/v1/chat/sessions/:sessionId/messages/:messageId/result", (req, res) => {
     const session = registry.get(req.params.sessionId);
     if (!session) return res.status(404).json({ detail: "session_not_found" });
+    if (forbidsAccess(session, req)) return res.status(403).json({ detail: "forbidden" });
 
     const job = messageJobStore.get(req.params.messageId);
     if (!job) return res.status(404).json({ detail: "message_not_found" });
@@ -351,6 +371,7 @@ export function createServer(options = {}) {
 
     const session = registry.get(sessionId);
     if (!session) return res.status(404).json({ detail: "session_not_found" });
+    if (forbidsAccess(session, req)) return res.status(403).json({ detail: "forbidden" });
 
     // Determine replay cursor from Last-Event-ID header (browser auto-reconnect)
     // or ?last_event_id query param (app-driven reconnect after mobile wake-up).
@@ -415,6 +436,7 @@ export function createServer(options = {}) {
     // Pre-flight busy check before entering SSE mode so errors can be JSON
     const streamSession = registry.get(req.params.sessionId);
     if (!streamSession) return res.status(404).json({ detail: "session_not_found" });
+    if (forbidsAccess(streamSession, req)) return res.status(403).json({ detail: "forbidden" });
     if (streamSession.busy) return res.status(409).json({ detail: "session_busy" });
 
     streamSession.busy = true;
@@ -453,10 +475,27 @@ export function createServer(options = {}) {
     }
   });
 
+  // A session with no owner, or one never tied to a real logged-in account
+  // (claimed=false -- an anonymous chat), stays reachable by anyone who
+  // knows its unguessable id -- unchanged from before login existed. Once a
+  // session is claimed (see POST /v1/chat/sessions and reassignUser), it
+  // requires the caller's own matching auth cookie for every access,
+  // including simply not sending a cookie at all -- omitting the cookie
+  // must NOT be treated as "anonymous access to someone else's session";
+  // checking Boolean(req.userId) here (as an earlier version of this did)
+  // let an attacker bypass ownership entirely just by dropping the cookie.
+  function forbidsAccess(session, req) {
+    if (!session.userId || !session.claimed) return false;
+    return session.userId !== req.userId;
+  }
+
   app.get("/v1/chat/sessions/:sessionId", (req, res) => {
     const session = registry.get(req.params.sessionId);
     if (!session) {
       return res.status(404).json({ detail: "session_not_found" });
+    }
+    if (forbidsAccess(session, req)) {
+      return res.status(403).json({ detail: "forbidden" });
     }
     res.json({
       session_id: session.sessionId,
@@ -470,6 +509,10 @@ export function createServer(options = {}) {
   });
 
   app.delete("/v1/chat/sessions/:sessionId", (req, res) => {
+    const session = registry.get(req.params.sessionId);
+    if (session && forbidsAccess(session, req)) {
+      return res.status(403).json({ detail: "forbidden" });
+    }
     registry.close(req.params.sessionId);
     res.json({ status: "closed" });
   });
@@ -478,12 +521,37 @@ export function createServer(options = {}) {
     if (!sessionStore) {
       return res.status(404).json({ detail: "session_persistence_not_enabled" });
     }
+    if (!req.userId) {
+      return res.status(401).json({ detail: "not_authenticated" });
+    }
     const userId = String(req.params.userId || "").trim();
     if (!userId) {
       return res.status(400).json({ detail: "user_id_required" });
     }
+    if (userId !== req.userId) {
+      return res.status(403).json({ detail: "forbidden" });
+    }
     const sessions = sessionStore.listByUser(userId);
     res.json({ sessions });
+  });
+
+  app.post("/v1/users/merge", (req, res) => {
+    if (!sessionStore) {
+      return res.status(404).json({ detail: "session_persistence_not_enabled" });
+    }
+    if (!req.userId) {
+      return res.status(401).json({ detail: "not_authenticated" });
+    }
+    const fromAnonymousId = String(req.body?.from_anonymous_id || "").trim();
+    if (!fromAnonymousId) {
+      return res.status(400).json({ detail: "from_anonymous_id_required" });
+    }
+    if (fromAnonymousId === req.userId) {
+      return res.json({ merged: 0 });
+    }
+    const merged = registry.reassignUser(fromAnonymousId, req.userId);
+    log.info("user_sessions_merged", { fromAnonymousId, userId: req.userId, merged });
+    res.json({ merged });
   });
 
   async function start({ port = configuredPort, host = configuredHost } = {}) {
@@ -601,7 +669,7 @@ export function createServer(options = {}) {
       }
 
       session.lastActivityAt = Date.now();
-      session.messages.push({ role: "user", content });
+      session.messages.push({ role: "user", content, response_format: responseFormat });
       session.tokenCount = (session.tokenCount || 0) + estimateTokens(content);
       session.questionCount = (session.questionCount || 0) + 1;
 
@@ -807,7 +875,15 @@ export function createServer(options = {}) {
         },
       ];
 
-      session.messages.push({ role: "assistant", content: greeting });
+      session.messages.push(
+        buildAssistantMessage({
+          content: greeting,
+          responseFormat,
+          followUpQuestions: sanitizeFollowUpQuestions(greetingFollowUps),
+          requestId,
+          question: content,
+        })
+      );
       session.tokenCount = (session.tokenCount || 0) + estimateTokens(greeting);
       session.lastActivityAt = Date.now();
       session.conversationHistory = updatedHistory;
@@ -940,7 +1016,14 @@ export function createServer(options = {}) {
         },
       ];
 
-      session.messages.push({ role: "assistant", content: answerForOutput });
+      session.messages.push(
+        buildAssistantMessage({
+          content: answerForOutput,
+          responseFormat,
+          requestId,
+          question: content,
+        })
+      );
       session.tokenCount = (session.tokenCount || 0) + estimateTokens(answerForOutput);
       session.lastActivityAt = Date.now();
       session.conversationHistory = updatedHistory;
@@ -1133,7 +1216,17 @@ export function createServer(options = {}) {
       },
     ];
 
-    session.messages.push({ role: "assistant", content: answerForOutput });
+    session.messages.push(
+      buildAssistantMessage({
+        content: answerForOutput,
+        responseFormat,
+        followUpQuestions,
+        references: safeReferences,
+        citations: safeCitations,
+        requestId,
+        question: content,
+      })
+    );
     session.tokenCount = (session.tokenCount || 0) + estimateTokens(answerForOutput);
     session.lastActivityAt = Date.now();
     session.conversationHistory = updatedHistory;
@@ -1421,6 +1514,31 @@ function normalizeResponseFormat(value, { fallback = null } = {}) {
   if (normalized === "summary") return "summary";
   if (normalized === "combined" || normalized === "compact") return "combined";
   return null;
+}
+
+// Shared shape for a persisted assistant message -- used at all three
+// answer paths (greeting, no-context fallback, normal answer) so a future
+// field addition/fix can't land in two of the three and drift from the
+// third.
+function buildAssistantMessage({
+  content,
+  responseFormat,
+  followUpQuestions = [],
+  references = [],
+  citations = [],
+  requestId,
+  question,
+}) {
+  return {
+    role: "assistant",
+    content,
+    response_format: responseFormat,
+    follow_up_questions: followUpQuestions,
+    references,
+    citations,
+    tool_trace_id: requestId,
+    question,
+  };
 }
 
 function buildResponsePayload({

@@ -6,6 +6,7 @@ import Database from "better-sqlite3";
 import { log } from "../utils/log.js";
 
 const SESSION_SCHEMA_VERSION = 1;
+const TITLE_MAX_LENGTH = 120;
 
 export class SessionStore {
   constructor(dbPath) {
@@ -36,6 +37,26 @@ export class SessionStore {
         ON sessions(user_id);
     `);
 
+    // `title` was added after the table already shipped -- back-fill it on
+    // any DB file created before this column existed, rather than relying on
+    // CREATE TABLE IF NOT EXISTS (which is a no-op against an existing table).
+    const existingColumns = this.db.prepare("PRAGMA table_info(sessions)").all().map((c) => c.name);
+    if (!existingColumns.includes("title")) {
+      this.db.exec("ALTER TABLE sessions ADD COLUMN title TEXT");
+    }
+    // `claimed` marks a session as owned by a real authenticated account
+    // (set at creation when the request carried a valid login cookie, or by
+    // reassignUser on merge) -- as opposed to a userId that's just an
+    // anonymous browser-generated id. This is what lets forbidsAccess (see
+    // server.js) tell "anonymous session, permissively accessible" apart
+    // from "a real account's session, an unauthenticated caller must not
+    // read this just by omitting their cookie". Also restricts reassignUser
+    // to genuinely-unclaimed sessions, so merge can't be used to steal
+    // another real account's already-claimed history.
+    if (!existingColumns.includes("claimed")) {
+      this.db.exec("ALTER TABLE sessions ADD COLUMN claimed INTEGER NOT NULL DEFAULT 0");
+    }
+
     this.upsertStmt = this.db.prepare(`
       INSERT INTO sessions (
         session_id,
@@ -44,6 +65,8 @@ export class SessionStore {
         message_count,
         created_at,
         last_activity_at,
+        title,
+        claimed,
         data
       ) VALUES (
         @session_id,
@@ -52,6 +75,8 @@ export class SessionStore {
         @message_count,
         @created_at,
         @last_activity_at,
+        @title,
+        @claimed,
         @data
       )
       ON CONFLICT(session_id) DO UPDATE SET
@@ -60,17 +85,23 @@ export class SessionStore {
         message_count = excluded.message_count,
         created_at = excluded.created_at,
         last_activity_at = excluded.last_activity_at,
+        title = excluded.title,
+        claimed = excluded.claimed,
         data = excluded.data
     `);
     this.restoreStmt = this.db.prepare(`
-      SELECT session_id, user_id, message_count, created_at, last_activity_at, data
+      SELECT session_id, user_id, message_count, created_at, last_activity_at, claimed, data
       FROM sessions
       WHERE session_id = ?
     `);
+    // claimed = 1 only: an unclaimed session under this user_id was never
+    // tied to a real login here (see POST /v1/chat/sessions) -- it can only
+    // be a coincidence or a "planted" session from a caller who guessed/knew
+    // this id, and must never be conflated with the account's real history.
     this.listByUserStmt = this.db.prepare(`
-      SELECT session_id, language, message_count, last_activity_at
+      SELECT session_id, language, message_count, last_activity_at, title
       FROM sessions
-      WHERE user_id = ?
+      WHERE user_id = ? AND claimed = 1
       ORDER BY last_activity_at DESC
     `);
     this.deleteStmt = this.db.prepare(`
@@ -80,11 +111,26 @@ export class SessionStore {
     this.clearStmt = this.db.prepare(`
       DELETE FROM sessions
     `);
+    this.selectUnclaimedByUserStmt = this.db.prepare(`
+      SELECT session_id, data FROM sessions WHERE user_id = ? AND claimed = 0
+    `);
+    this.reassignRowStmt = this.db.prepare(`
+      UPDATE sessions SET user_id = ?, claimed = 1, data = ? WHERE session_id = ?
+    `);
   }
 
   upsert(session) {
     if (!session?.sessionId) return;
     const record = toPersistedRecord(session);
+    // The title is fixed by the first user message and never changes again,
+    // so cache it on the live session object instead of re-scanning
+    // session.messages on every single turn for the rest of the
+    // conversation's life. Only cache once it's actually non-null -- the
+    // very first upsert (session just created, no user message yet) must
+    // keep recomputing until there's a real title to lock in.
+    if (!session._cachedTitle) {
+      session._cachedTitle = deriveTitle(record.messages);
+    }
     this.upsertStmt.run({
       session_id: session.sessionId,
       user_id: record.userId,
@@ -92,6 +138,8 @@ export class SessionStore {
       message_count: Array.isArray(record.messages) ? record.messages.length : 0,
       created_at: Number(record.createdAt) || Date.now(),
       last_activity_at: Number(record.lastActivityAt) || Date.now(),
+      title: session._cachedTitle,
+      claimed: record.claimed ? 1 : 0,
       data: JSON.stringify(record),
     });
     log.info("session_persisted", {
@@ -128,7 +176,42 @@ export class SessionStore {
       language: row.language,
       message_count: row.message_count,
       last_activity_at: row.last_activity_at,
+      title: row.title ?? null,
     }));
+  }
+
+  // Reassigns every UNCLAIMED session owned by fromUserId (typically the
+  // browser's anonymous id) to toUserId (a freshly logged-in account) --
+  // called once, right after first login. Only touches claimed=0 rows, so
+  // this can never be used to steal another real account's already-claimed
+  // history even if fromUserId happens to collide with one. Updates both the
+  // user_id/claimed columns AND the embedded data JSON in the same
+  // transaction -- restore()'s fromPersistedRecord prefers data.userId over
+  // the row's own user_id column, so a column-only update would silently
+  // revert on the next eviction+restore. Returns how many rows moved.
+  reassignUser(fromUserId, toUserId) {
+    if (!fromUserId || !toUserId) return 0;
+    const rows = this.selectUnclaimedByUserStmt.all(fromUserId);
+    if (rows.length === 0) return 0;
+
+    const reassign = this.db.transaction((toMove) => {
+      let moved = 0;
+      for (const row of toMove) {
+        let data;
+        try {
+          data = JSON.parse(row.data);
+        } catch {
+          continue; // corrupt row -- skip rather than fail the whole merge
+        }
+        data.userId = toUserId;
+        data.claimed = true;
+        this.reassignRowStmt.run(toUserId, JSON.stringify(data), row.session_id);
+        moved += 1;
+      }
+      return moved;
+    });
+
+    return reassign(rows);
   }
 
   delete(sessionId) {
@@ -157,6 +240,7 @@ function toPersistedRecord(session) {
     schemaVersion: SESSION_SCHEMA_VERSION,
     sessionId: session.sessionId,
     userId: session.userId ?? null,
+    claimed: Boolean(session.claimed),
     provider: normalizeProvider(session.provider),
     model: session.model ?? null,
     language: session.language || "hi",
@@ -178,6 +262,7 @@ function fromPersistedRecord(row, data) {
   return {
     sessionId: row.session_id,
     userId: data?.userId ?? row.user_id ?? null,
+    claimed: Boolean(data?.claimed ?? row.claimed),
     provider: typeof data?.provider === "string" ? data.provider : "auto",
     providerSessionId: null,
     language: typeof data?.language === "string" && data.language ? data.language : "hi",
@@ -205,4 +290,15 @@ function normalizeProvider(provider) {
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function deriveTitle(messages) {
+  if (!Array.isArray(messages)) return null;
+  const firstUserMessage = messages.find(
+    (m) => m?.role === "user" && typeof m.content === "string" && m.content.trim()
+  );
+  if (!firstUserMessage) return null;
+  const content = firstUserMessage.content.trim();
+  if (content.length <= TITLE_MAX_LENGTH) return content;
+  return `${content.slice(0, TITLE_MAX_LENGTH)}…`;
 }

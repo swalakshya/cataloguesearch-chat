@@ -57,6 +57,33 @@ export class SessionStore {
       this.db.exec("ALTER TABLE sessions ADD COLUMN claimed INTEGER NOT NULL DEFAULT 0");
     }
 
+    // One-time backfill: any row saved before per-message title derivation
+    // existed (or reassigned by an older reassignUser that didn't set title)
+    // has title = NULL forever otherwise -- listByUser still returns it, and
+    // the frontend's `session.title || 'New conversation'` fallback then
+    // shows every single one of these as an indistinguishable "New
+    // conversation", even though `data` still has the real messages to
+    // derive a title from. Runs once per process start; once backfilled
+    // there are no more NULL-title rows, so later restarts are a fast no-op.
+    const rowsMissingTitle = this.db.prepare("SELECT session_id, data FROM sessions WHERE title IS NULL").all();
+    if (rowsMissingTitle.length > 0) {
+      const backfillTitleStmt = this.db.prepare("UPDATE sessions SET title = ? WHERE session_id = ?");
+      const backfillTitles = this.db.transaction((rows) => {
+        for (const row of rows) {
+          let data;
+          try {
+            data = JSON.parse(row.data);
+          } catch {
+            continue; // corrupt row -- skip rather than fail startup
+          }
+          const title = deriveTitle(data?.messages);
+          if (title) backfillTitleStmt.run(title, row.session_id);
+        }
+      });
+      backfillTitles(rowsMissingTitle);
+      log.info("session_title_backfill", { rowsScanned: rowsMissingTitle.length });
+    }
+
     this.upsertStmt = this.db.prepare(`
       INSERT INTO sessions (
         session_id,
@@ -112,10 +139,10 @@ export class SessionStore {
       DELETE FROM sessions
     `);
     this.selectUnclaimedByUserStmt = this.db.prepare(`
-      SELECT session_id, data FROM sessions WHERE user_id = ? AND claimed = 0
+      SELECT session_id, title, data FROM sessions WHERE user_id = ? AND claimed = 0
     `);
     this.reassignRowStmt = this.db.prepare(`
-      UPDATE sessions SET user_id = ?, claimed = 1, data = ? WHERE session_id = ?
+      UPDATE sessions SET user_id = ?, claimed = 1, title = ?, data = ? WHERE session_id = ?
     `);
   }
 
@@ -205,7 +232,8 @@ export class SessionStore {
         }
         data.userId = toUserId;
         data.claimed = true;
-        this.reassignRowStmt.run(toUserId, JSON.stringify(data), row.session_id);
+        const title = row.title ?? deriveTitle(data.messages);
+        this.reassignRowStmt.run(toUserId, title, JSON.stringify(data), row.session_id);
         moved += 1;
       }
       return moved;

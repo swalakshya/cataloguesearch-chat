@@ -357,6 +357,58 @@ test("SessionStore claimed column survives a store re-open against a pre-existin
   store2.close();
 });
 
+// --- title backfill (a row that predates per-message title derivation, or
+// was reassigned by an older reassignUser that didn't set title, otherwise
+// has title = NULL forever -- the frontend's `session.title || 'New
+// conversation'` fallback then shows every one of these as a generic "New
+// conversation" even though the row's `data` blob still has the real
+// messages to derive a title from) ---
+
+test("SessionStore reassignUser backfills a missing title from the persisted messages", () => {
+  const dbPath = makeTmpDb("reassign-title-backfill");
+  const store = new SessionStore(dbPath);
+
+  store.upsert(
+    makeSession({
+      sessionId: "s1",
+      userId: "anon-1",
+      claimed: false,
+      messages: [{ role: "user", content: "Old anon question" }],
+    })
+  );
+  // Simulate a legacy row saved before title derivation existed.
+  store.db.prepare("UPDATE sessions SET title = NULL WHERE session_id = ?").run("s1");
+
+  store.reassignUser("anon-1", "real-user-1");
+
+  const [session] = store.listByUser("real-user-1");
+  assert.equal(session.title, "Old anon question");
+
+  store.close();
+});
+
+test("SessionStore backfills legacy NULL titles from persisted data on construction", () => {
+  const dbPath = makeTmpDb("startup-title-backfill");
+  const store1 = new SessionStore(dbPath);
+  store1.upsert(
+    makeSession({
+      sessionId: "s1",
+      userId: "user-1",
+      claimed: true,
+      messages: [{ role: "user", content: "Question from before title existed" }],
+    })
+  );
+  store1.db.prepare("UPDATE sessions SET title = NULL WHERE session_id = ?").run("s1");
+  store1.close();
+
+  // Re-opening simulates the next deploy/restart picking up this fix against
+  // a DB that already has legacy NULL-title rows in it.
+  const store2 = new SessionStore(dbPath);
+  const [session] = store2.listByUser("user-1");
+  assert.equal(session.title, "Question from before title existed");
+  store2.close();
+});
+
 test("SessionStore listByUser excludes unclaimed sessions planted under a real user's id", () => {
   const dbPath = makeTmpDb("listbyuser-claimed-only");
   const store = new SessionStore(dbPath);

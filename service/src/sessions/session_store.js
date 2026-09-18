@@ -6,7 +6,29 @@ import Database from "better-sqlite3";
 import { log } from "../utils/log.js";
 
 const SESSION_SCHEMA_VERSION = 1;
-const TITLE_MAX_LENGTH = 120;
+// A history row renders this as one unbroken (no-wrap) line -- 120 chars of
+// mixed Devanagari/Latin text needs ~900px to fit on one line, which is what
+// was blowing the sidebar out past its intended width. 60 keeps a real
+// single-line row comfortably inside a normal sidebar. Note this is also
+// the only copy of the title that's ever persisted -- the source message
+// text isn't kept anywhere longer, so there's no "full" title left to
+// reveal anywhere (e.g. on hover) once this truncation has happened.
+export const TITLE_MAX_LENGTH = 60;
+
+// Grapheme-aware (not a raw string.slice, which counts UTF-16 code units and
+// can split a surrogate-pair emoji in half, or separate a Devanagari base
+// character from its own combining matra/virama right at the boundary).
+// Intl.Segmenter is available in Node 16+; the fallback below is still
+// code-point-aware (correct for surrogate pairs, just not for combining
+// marks) for any environment where it's somehow missing.
+export function truncateTitle(text) {
+  if (typeof text !== "string" || !text) return text;
+  const graphemes = typeof Intl !== "undefined" && typeof Intl.Segmenter === "function"
+    ? Array.from(new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text), (s) => s.segment)
+    : Array.from(text);
+  if (graphemes.length <= TITLE_MAX_LENGTH) return text;
+  return `${graphemes.slice(0, TITLE_MAX_LENGTH).join("")}…`;
+}
 
 export class SessionStore {
   constructor(dbPath) {
@@ -55,6 +77,13 @@ export class SessionStore {
     // another real account's already-claimed history.
     if (!existingColumns.includes("claimed")) {
       this.db.exec("ALTER TABLE sessions ADD COLUMN claimed INTEGER NOT NULL DEFAULT 0");
+    }
+    // `deleted` is a soft-delete: "Delete chat" in the sidebar hides a
+    // session from listByUser without touching the row (or `claimed`) at
+    // all -- the transcript, and anything that already has this session_id,
+    // keeps working exactly as before. Only listByUser checks it.
+    if (!existingColumns.includes("deleted")) {
+      this.db.exec("ALTER TABLE sessions ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0");
     }
 
     // One-time backfill: any row saved before per-message title derivation
@@ -117,7 +146,7 @@ export class SessionStore {
         data = excluded.data
     `);
     this.restoreStmt = this.db.prepare(`
-      SELECT session_id, user_id, message_count, created_at, last_activity_at, claimed, data
+      SELECT session_id, user_id, message_count, created_at, last_activity_at, claimed, title, data
       FROM sessions
       WHERE session_id = ?
     `);
@@ -125,11 +154,29 @@ export class SessionStore {
     // tied to a real login here (see POST /v1/chat/sessions) -- it can only
     // be a coincidence or a "planted" session from a caller who guessed/knew
     // this id, and must never be conflated with the account's real history.
+    // deleted = 0: "Delete chat" (see setSessionDeleted) hides a session
+    // from this list without removing the row itself.
     this.listByUserStmt = this.db.prepare(`
       SELECT session_id, language, message_count, last_activity_at, title
       FROM sessions
-      WHERE user_id = ? AND claimed = 1
+      WHERE user_id = ? AND claimed = 1 AND deleted = 0
       ORDER BY last_activity_at DESC
+    `);
+    // Scoped by user_id AND claimed = 1, same defense-in-depth as
+    // reassignUser -- a caller can only rename/soft-delete a session that's
+    // both theirs and a real claimed account session, never an anonymous or
+    // someone-else's session, even if the route's own ownership check were
+    // ever bypassed.
+    this.setDeletedStmt = this.db.prepare(`
+      UPDATE sessions SET deleted = ? WHERE session_id = ? AND user_id = ? AND claimed = 1
+    `);
+    // Deliberately a scoped column update, not a full upsert() -- a rename
+    // used to go through the same path as a live chat turn's own full-record
+    // persist (messages/data included), which could race an in-flight
+    // message and have whichever write landed last silently clobber the
+    // other's columns. This only ever touches title/last_activity_at.
+    this.renameStmt = this.db.prepare(`
+      UPDATE sessions SET title = ?, last_activity_at = ? WHERE session_id = ? AND user_id = ? AND claimed = 1
     `);
     this.deleteStmt = this.db.prepare(`
       DELETE FROM sessions
@@ -242,6 +289,30 @@ export class SessionStore {
     return reassign(rows);
   }
 
+  // Soft delete: hides the session from listByUser (see setDeletedStmt above)
+  // without removing the row. Returns whether a row actually matched --
+  // false covers "wrong owner", "not claimed" and "doesn't exist" alike, so
+  // the route can 403/404 without a separate lookup.
+  setSessionDeleted(sessionId, userId, deleted) {
+    if (!sessionId || !userId) return false;
+    const result = this.setDeletedStmt.run(deleted ? 1 : 0, sessionId, userId);
+    return Number(result?.changes || 0) > 0;
+  }
+
+  // Renames a session by title alone -- see renameStmt above for why this
+  // is a scoped update rather than routing through upsert(). Also bumps
+  // last_activity_at so a renamed chat surfaces near the top of
+  // listByUser's last_activity_at DESC ordering, the same way touching any
+  // other item in a history list usually does. Returns whether a row
+  // actually matched, same false-covers-"wrong owner"/"unclaimed"/"missing"
+  // contract as setSessionDeleted.
+  renameSession(sessionId, userId, title) {
+    if (!sessionId || !userId) return false;
+    const truncated = truncateTitle(title);
+    const result = this.renameStmt.run(truncated, Date.now(), sessionId, userId);
+    return Number(result?.changes || 0) > 0;
+  }
+
   delete(sessionId) {
     if (!sessionId) return;
     const result = this.deleteStmt.run(sessionId);
@@ -291,6 +362,12 @@ function fromPersistedRecord(row, data) {
     sessionId: row.session_id,
     userId: data?.userId ?? row.user_id ?? null,
     claimed: Boolean(data?.claimed ?? row.claimed),
+    // Carries the persisted title forward so upsert()'s `if
+    // (!session._cachedTitle)` check treats it as already-set -- otherwise
+    // a restored session (evicted then resumed, or a rename target fetched
+    // via registry.get()) would re-derive from messages on its next upsert
+    // and silently revert a rename back to the auto-derived title.
+    _cachedTitle: row.title ?? null,
     provider: typeof data?.provider === "string" ? data.provider : "auto",
     providerSessionId: null,
     language: typeof data?.language === "string" && data.language ? data.language : "hi",
@@ -326,7 +403,5 @@ function deriveTitle(messages) {
     (m) => m?.role === "user" && typeof m.content === "string" && m.content.trim()
   );
   if (!firstUserMessage) return null;
-  const content = firstUserMessage.content.trim();
-  if (content.length <= TITLE_MAX_LENGTH) return content;
-  return `${content.slice(0, TITLE_MAX_LENGTH)}…`;
+  return truncateTitle(firstUserMessage.content.trim());
 }

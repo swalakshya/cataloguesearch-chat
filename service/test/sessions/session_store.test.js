@@ -181,7 +181,7 @@ test("SessionStore listByUser truncates a long first message for the title", () 
   );
 
   const [session] = store.listByUser(userId);
-  assert.equal(session.title.length, 121); // 120 chars + ellipsis
+  assert.equal(session.title.length, 61); // 60 chars + ellipsis
   assert.ok(session.title.endsWith("…"));
 
   store.close();
@@ -422,6 +422,259 @@ test("SessionStore listByUser excludes unclaimed sessions planted under a real u
 
   const sessions = store.listByUser(userId);
   assert.deepEqual(sessions.map((s) => s.session_id), ["real-session"]);
+
+  store.close();
+});
+
+// --- restore() carries the persisted title into _cachedTitle (a rename
+// durability fix: upsert() only re-derives a title when _cachedTitle is
+// unset, so without this, a renamed session that gets evicted and restored
+// -- e.g. across a server restart, or simply idle-evicted -- would have its
+// custom title silently overwritten back to the auto-derived one on its
+// next message) ---
+
+test("SessionStore restore carries the persisted title into _cachedTitle", () => {
+  const dbPath = makeTmpDb("restore-cached-title");
+  const store = new SessionStore(dbPath);
+  store.upsert(
+    makeSession({ sessionId: "s1", userId: "user-1", claimed: true, messages: [{ role: "user", content: "hello" }] })
+  );
+
+  const restored = store.restore("s1");
+  assert.equal(restored._cachedTitle, "hello");
+
+  store.close();
+});
+
+test("SessionStore restore then upsert again does not revert a renamed title", () => {
+  const dbPath = makeTmpDb("restore-rename-durability");
+  const store = new SessionStore(dbPath);
+  store.upsert(
+    makeSession({ sessionId: "s1", userId: "user-1", claimed: true, messages: [{ role: "user", content: "hello" }] })
+  );
+
+  // Simulate a rename (see server.js's PATCH route): mutate _cachedTitle on
+  // the live/restored object and upsert it, exactly like eviction+restore
+  // would hand back to a later request.
+  const restored = store.restore("s1");
+  restored._cachedTitle = "My renamed chat";
+  store.upsert(restored);
+
+  // Simulate another turn happening later: restore again (as if evicted in
+  // between) and upsert once more -- the rename must survive this, not
+  // revert to the auto-derived "hello".
+  const restoredAgain = store.restore("s1");
+  assert.equal(restoredAgain._cachedTitle, "My renamed chat");
+  store.upsert(restoredAgain);
+
+  const [session] = store.listByUser("user-1");
+  assert.equal(session.title, "My renamed chat");
+
+  store.close();
+});
+
+// --- deleted flag (soft delete: hides a session from listByUser without
+// touching the row, so nothing already tied to the session_id breaks) ---
+
+test("SessionStore setSessionDeleted hides an owned, claimed session from listByUser", () => {
+  const dbPath = makeTmpDb("soft-delete");
+  const store = new SessionStore(dbPath);
+  store.upsert(makeSession({ sessionId: "s1", userId: "user-1", claimed: true }));
+
+  const changed = store.setSessionDeleted("s1", "user-1", true);
+  assert.equal(changed, true);
+
+  assert.deepEqual(store.listByUser("user-1"), []);
+  store.close();
+});
+
+test("SessionStore setSessionDeleted does not remove the row -- restore() still finds it", () => {
+  const dbPath = makeTmpDb("soft-delete-row-survives");
+  const store = new SessionStore(dbPath);
+  store.upsert(makeSession({ sessionId: "s1", userId: "user-1", claimed: true }));
+
+  store.setSessionDeleted("s1", "user-1", true);
+
+  const restored = store.restore("s1");
+  assert.ok(restored, "the row must still exist after a soft delete");
+  assert.equal(restored.sessionId, "s1");
+
+  store.close();
+});
+
+test("SessionStore setSessionDeleted false un-hides a session", () => {
+  const dbPath = makeTmpDb("soft-delete-undo");
+  const store = new SessionStore(dbPath);
+  store.upsert(makeSession({ sessionId: "s1", userId: "user-1", claimed: true }));
+
+  store.setSessionDeleted("s1", "user-1", true);
+  assert.deepEqual(store.listByUser("user-1"), []);
+
+  store.setSessionDeleted("s1", "user-1", false);
+  const sessions = store.listByUser("user-1");
+  assert.deepEqual(sessions.map((s) => s.session_id), ["s1"]);
+
+  store.close();
+});
+
+test("SessionStore setSessionDeleted refuses a different user's session and leaves it visible", () => {
+  const dbPath = makeTmpDb("soft-delete-wrong-owner");
+  const store = new SessionStore(dbPath);
+  store.upsert(makeSession({ sessionId: "s1", userId: "victim", claimed: true }));
+
+  const changed = store.setSessionDeleted("s1", "attacker", true);
+  assert.equal(changed, false);
+
+  const sessions = store.listByUser("victim");
+  assert.deepEqual(sessions.map((s) => s.session_id), ["s1"]);
+
+  store.close();
+});
+
+test("SessionStore setSessionDeleted refuses an unclaimed (anonymous) session", () => {
+  const dbPath = makeTmpDb("soft-delete-unclaimed");
+  const store = new SessionStore(dbPath);
+  store.upsert(makeSession({ sessionId: "s1", userId: "anon-1", claimed: false }));
+
+  const changed = store.setSessionDeleted("s1", "anon-1", true);
+  assert.equal(changed, false);
+
+  store.close();
+});
+
+test("SessionStore deleted column survives a store re-open against a pre-existing DB file (migration path)", () => {
+  const dbPath = makeTmpDb("deleted-migration");
+  const store1 = new SessionStore(dbPath);
+  store1.upsert(makeSession({ sessionId: "s1", userId: "user-1", claimed: true }));
+  store1.close();
+
+  const store2 = new SessionStore(dbPath);
+  const changed = store2.setSessionDeleted("s1", "user-1", true);
+  assert.equal(changed, true);
+  assert.deepEqual(store2.listByUser("user-1"), []);
+  store2.close();
+});
+
+// --- renameSession (a scoped title+last_activity_at update, deliberately
+// NOT a full-record upsert -- see server.js's PATCH route, which used to
+// rewrite the entire session row, including messages/data, just to change a
+// title, racing an in-flight message turn's own full-record persist) ---
+
+test("SessionStore renameSession updates the title and bumps last_activity_at for an owned, claimed session", () => {
+  const dbPath = makeTmpDb("rename-basic");
+  const store = new SessionStore(dbPath);
+  store.upsert(makeSession({ sessionId: "s1", userId: "user-1", claimed: true, lastActivityAt: 1_000 }));
+
+  const before = Date.now();
+  const changed = store.renameSession("s1", "user-1", "My renamed chat");
+  assert.equal(changed, true);
+
+  const [session] = store.listByUser("user-1");
+  assert.equal(session.title, "My renamed chat");
+  assert.ok(session.last_activity_at >= before);
+
+  store.close();
+});
+
+test("SessionStore renameSession does not touch the persisted messages/data blob", () => {
+  const dbPath = makeTmpDb("rename-scoped");
+  const store = new SessionStore(dbPath);
+  store.upsert(
+    makeSession({
+      sessionId: "s1",
+      userId: "user-1",
+      claimed: true,
+      messages: [{ role: "user", content: "original question" }],
+      conversationHistory: [{ id: "set_1", question: "original question", answer: "original answer" }],
+    })
+  );
+
+  store.renameSession("s1", "user-1", "A new title");
+
+  const restored = store.restore("s1");
+  assert.deepEqual(restored.messages, [{ role: "user", content: "original question" }]);
+  assert.deepEqual(restored.conversationHistory, [
+    { id: "set_1", question: "original question", answer: "original answer" },
+  ]);
+  assert.equal(restored._cachedTitle, "A new title");
+
+  store.close();
+});
+
+test("SessionStore renameSession refuses a different user's session and leaves it unchanged", () => {
+  const dbPath = makeTmpDb("rename-wrong-owner");
+  const store = new SessionStore(dbPath);
+  store.upsert(makeSession({ sessionId: "s1", userId: "victim", claimed: true, messages: [{ role: "user", content: "hello" }] }));
+
+  const changed = store.renameSession("s1", "attacker", "Hijacked title");
+  assert.equal(changed, false);
+
+  const [session] = store.listByUser("victim");
+  assert.equal(session.title, "hello");
+
+  store.close();
+});
+
+test("SessionStore renameSession refuses an unclaimed (anonymous) session", () => {
+  const dbPath = makeTmpDb("rename-unclaimed");
+  const store = new SessionStore(dbPath);
+  store.upsert(makeSession({ sessionId: "s1", userId: "anon-1", claimed: false }));
+
+  const changed = store.renameSession("s1", "anon-1", "New title");
+  assert.equal(changed, false);
+
+  store.close();
+});
+
+test("SessionStore renameSession truncates an overlong title with an ellipsis", () => {
+  const dbPath = makeTmpDb("rename-truncate");
+  const store = new SessionStore(dbPath);
+  store.upsert(makeSession({ sessionId: "s1", userId: "user-1", claimed: true }));
+
+  store.renameSession("s1", "user-1", "a".repeat(200));
+
+  const [session] = store.listByUser("user-1");
+  assert.equal(session.title.length, 61);
+  assert.ok(session.title.endsWith("…"));
+
+  store.close();
+});
+
+// --- title truncation is grapheme-aware, not a raw UTF-16 code-unit slice
+// (a plain .slice(0, N) can split a surrogate pair, or separate a
+// Devanagari base character from its combining matra/virama, right at the
+// truncation boundary) ---
+
+test("deriveTitle (via upsert) does not split a surrogate-pair emoji at the truncation boundary", () => {
+  const dbPath = makeTmpDb("title-emoji-boundary");
+  const store = new SessionStore(dbPath);
+  // 59 "a"s + an emoji (a surrogate pair, 2 UTF-16 code units) straddling
+  // the old TITLE_MAX_LENGTH=60 boundary -- a raw .slice(0, 60) would keep
+  // only the emoji's lone lead surrogate, producing an unpaired/invalid
+  // code unit right before the appended ellipsis.
+  const content = `${"a".repeat(59)}😀${"b".repeat(20)}`;
+  store.upsert(makeSession({ sessionId: "s1", userId: "user-1", claimed: true, messages: [{ role: "user", content }] }));
+
+  const [session] = store.listByUser("user-1");
+  assert.ok(!session.title.includes("�"), "must not contain the unicode replacement character");
+  // eslint-disable-next-line no-misleading-character-class
+  assert.equal([...session.title.replace(/…$/, "")].length, 60);
+  assert.equal(session.title, `${"a".repeat(59)}😀…`);
+
+  store.close();
+});
+
+test("SessionStore renameSession does not split a surrogate-pair emoji at the truncation boundary", () => {
+  const dbPath = makeTmpDb("rename-emoji-boundary");
+  const store = new SessionStore(dbPath);
+  store.upsert(makeSession({ sessionId: "s1", userId: "user-1", claimed: true }));
+
+  const content = `${"a".repeat(59)}😀${"b".repeat(20)}`;
+  store.renameSession("s1", "user-1", content);
+
+  const [session] = store.listByUser("user-1");
+  assert.ok(!session.title.includes("�"));
+  assert.equal([...session.title.replace(/…$/, "")].length, 60);
 
   store.close();
 });

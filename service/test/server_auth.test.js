@@ -7,6 +7,7 @@ import fs from "node:fs";
 import jwt from "jsonwebtoken";
 
 import { createServer } from "../src/server.js";
+import { TITLE_MAX_LENGTH } from "../src/sessions/session_store.js";
 
 const JWT_SECRET = "test-jwt-secret";
 
@@ -70,6 +71,17 @@ async function deleteJson(baseUrl, route, headers = {}) {
   const res = await fetch(`${baseUrl}${route}`, {
     method: "DELETE",
     headers,
+    signal: AbortSignal.timeout(10_000),
+  });
+  const json = await res.json();
+  return { res, json };
+}
+
+async function patchJson(baseUrl, route, body, headers = {}) {
+  const res = await fetch(`${baseUrl}${route}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...headers },
+    body: JSON.stringify(body || {}),
     signal: AbortSignal.timeout(10_000),
   });
   const json = await res.json();
@@ -407,4 +419,170 @@ test("CORS: an empty-string CORS_ALLOWED_ORIGINS (as docker-compose passes when 
     },
     { corsAllowedOrigins: "" }
   );
+});
+
+// --- PATCH /v1/chat/sessions/:id (rename + soft delete) ---
+
+test("PATCH /v1/chat/sessions/:id: the owner can rename their own session", async () => {
+  await withServer(async (baseUrl) => {
+    const created = await postJson(baseUrl, "/v1/chat/sessions", {}, cookieHeader("real-user-1"));
+    const { res, json } = await patchJson(
+      baseUrl,
+      `/v1/chat/sessions/${created.json.session_id}`,
+      { title: "My renamed chat" },
+      cookieHeader("real-user-1")
+    );
+    assert.equal(res.status, 200);
+    assert.equal(json.title, "My renamed chat");
+
+    const list = await getJson(baseUrl, "/v1/users/real-user-1/sessions", cookieHeader("real-user-1"));
+    assert.equal(list.json.sessions[0].title, "My renamed chat");
+  });
+});
+
+test("PATCH /v1/chat/sessions/:id: a different logged-in user cannot rename someone else's session", async () => {
+  await withServer(async (baseUrl) => {
+    const created = await postJson(baseUrl, "/v1/chat/sessions", {}, cookieHeader("real-user-1"));
+    const { res } = await patchJson(
+      baseUrl,
+      `/v1/chat/sessions/${created.json.session_id}`,
+      { title: "Hijacked title" },
+      cookieHeader("real-user-2")
+    );
+    assert.equal(res.status, 403);
+
+    const list = await getJson(baseUrl, "/v1/users/real-user-1/sessions", cookieHeader("real-user-1"));
+    assert.equal(list.json.sessions[0].title, null);
+  });
+});
+
+test("PATCH /v1/chat/sessions/:id: requires authentication", async () => {
+  await withServer(async (baseUrl) => {
+    const created = await postJson(baseUrl, "/v1/chat/sessions", { user_id: "anon-1" });
+    const { res } = await patchJson(baseUrl, `/v1/chat/sessions/${created.json.session_id}`, { title: "x" });
+    assert.equal(res.status, 401);
+  });
+});
+
+test("PATCH /v1/chat/sessions/:id: cannot rename an anonymous (unclaimed) session", async () => {
+  await withServer(async (baseUrl) => {
+    const created = await postJson(baseUrl, "/v1/chat/sessions", { user_id: "anon-1" });
+    const { res } = await patchJson(
+      baseUrl,
+      `/v1/chat/sessions/${created.json.session_id}`,
+      { title: "x" },
+      cookieHeader("real-user-1")
+    );
+    assert.equal(res.status, 403);
+  });
+});
+
+test("PATCH /v1/chat/sessions/:id: an empty title is rejected", async () => {
+  await withServer(async (baseUrl) => {
+    const created = await postJson(baseUrl, "/v1/chat/sessions", {}, cookieHeader("real-user-1"));
+    const { res } = await patchJson(
+      baseUrl,
+      `/v1/chat/sessions/${created.json.session_id}`,
+      { title: "   " },
+      cookieHeader("real-user-1")
+    );
+    assert.equal(res.status, 400);
+  });
+});
+
+test("PATCH /v1/chat/sessions/:id: an overlong title is capped with an ellipsis", async () => {
+  await withServer(async (baseUrl) => {
+    const created = await postJson(baseUrl, "/v1/chat/sessions", {}, cookieHeader("real-user-1"));
+    const longTitle = "a".repeat(200);
+    const { json } = await patchJson(
+      baseUrl,
+      `/v1/chat/sessions/${created.json.session_id}`,
+      { title: longTitle },
+      cookieHeader("real-user-1")
+    );
+    assert.equal(json.title.length, TITLE_MAX_LENGTH + 1);
+    assert.ok(json.title.endsWith("…"));
+  });
+});
+
+test("PATCH /v1/chat/sessions/:id: an unknown session id is 404", async () => {
+  await withServer(async (baseUrl) => {
+    const { res } = await patchJson(baseUrl, "/v1/chat/sessions/does-not-exist", { title: "x" }, cookieHeader("real-user-1"));
+    assert.equal(res.status, 404);
+  });
+});
+
+test("PATCH /v1/chat/sessions/:id: an empty body is rejected", async () => {
+  await withServer(async (baseUrl) => {
+    const created = await postJson(baseUrl, "/v1/chat/sessions", {}, cookieHeader("real-user-1"));
+    const { res } = await patchJson(
+      baseUrl,
+      `/v1/chat/sessions/${created.json.session_id}`,
+      {},
+      cookieHeader("real-user-1")
+    );
+    assert.equal(res.status, 400);
+  });
+});
+
+test("PATCH /v1/chat/sessions/:id: the owner can soft-delete their own session", async () => {
+  await withServer(async (baseUrl) => {
+    const created = await postJson(baseUrl, "/v1/chat/sessions", {}, cookieHeader("real-user-1"));
+    const { res, json } = await patchJson(
+      baseUrl,
+      `/v1/chat/sessions/${created.json.session_id}`,
+      { deleted: true },
+      cookieHeader("real-user-1")
+    );
+    assert.equal(res.status, 200);
+    assert.equal(json.deleted, true);
+
+    const list = await getJson(baseUrl, "/v1/users/real-user-1/sessions", cookieHeader("real-user-1"));
+    assert.deepEqual(list.json.sessions, []);
+
+    // The row survives -- it's still directly fetchable by id.
+    const detail = await getJson(
+      baseUrl,
+      `/v1/chat/sessions/${created.json.session_id}`,
+      cookieHeader("real-user-1")
+    );
+    assert.equal(detail.res.status, 200);
+  });
+});
+
+test("PATCH /v1/chat/sessions/:id: a different logged-in user cannot delete someone else's session", async () => {
+  await withServer(async (baseUrl) => {
+    const created = await postJson(baseUrl, "/v1/chat/sessions", {}, cookieHeader("real-user-1"));
+    const { res } = await patchJson(
+      baseUrl,
+      `/v1/chat/sessions/${created.json.session_id}`,
+      { deleted: true },
+      cookieHeader("real-user-2")
+    );
+    assert.equal(res.status, 403);
+
+    const list = await getJson(baseUrl, "/v1/users/real-user-1/sessions", cookieHeader("real-user-1"));
+    assert.equal(list.json.sessions.length, 1);
+  });
+});
+
+test("PATCH /v1/chat/sessions/:id: deleted:false un-hides a previously deleted session", async () => {
+  await withServer(async (baseUrl) => {
+    const created = await postJson(baseUrl, "/v1/chat/sessions", {}, cookieHeader("real-user-1"));
+    await patchJson(
+      baseUrl,
+      `/v1/chat/sessions/${created.json.session_id}`,
+      { deleted: true },
+      cookieHeader("real-user-1")
+    );
+    await patchJson(
+      baseUrl,
+      `/v1/chat/sessions/${created.json.session_id}`,
+      { deleted: false },
+      cookieHeader("real-user-1")
+    );
+
+    const list = await getJson(baseUrl, "/v1/users/real-user-1/sessions", cookieHeader("real-user-1"));
+    assert.equal(list.json.sessions.length, 1);
+  });
 });

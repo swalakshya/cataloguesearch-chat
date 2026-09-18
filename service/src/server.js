@@ -5,7 +5,7 @@ import cors from "cors";
 import crypto from "crypto";
 
 import { SessionRegistry } from "./sessions/registry.js";
-import { SessionStore } from "./sessions/session_store.js";
+import { SessionStore, truncateTitle } from "./sessions/session_store.js";
 import { MessageJobStore, MemoryMessageJobStore } from "./sessions/message_job_store.js";
 import { FeedbackStore } from "./feedback/feedback_store.js";
 import { registerFeedbackRoutes } from "./feedback/feedback_routes.js";
@@ -515,6 +515,73 @@ export function createServer(options = {}) {
     }
     registry.close(req.params.sessionId);
     res.json({ status: "closed" });
+  });
+
+  // Rename and/or soft-delete a claimed session from the History sidebar.
+  // Deliberately separate from the hard-delete DELETE route above: "Delete
+  // chat" here only ever sets the `deleted` flag (see setSessionDeleted) --
+  // the row, and the transcript inside it, are never actually removed.
+  // Scoped tighter than the ownership check on the other session routes:
+  // forbidsAccess alone is permissive for an unclaimed (anonymous) session,
+  // but rename/delete only make sense for a real claimed account's own
+  // history, so this requires claimed and owned outright.
+  app.patch("/v1/chat/sessions/:sessionId", (req, res) => {
+    if (!sessionStore) {
+      return res.status(404).json({ detail: "session_persistence_not_enabled" });
+    }
+    if (!req.userId) {
+      return res.status(401).json({ detail: "not_authenticated" });
+    }
+    const sessionId = req.params.sessionId;
+    const session = registry.get(sessionId);
+    if (!session) {
+      return res.status(404).json({ detail: "session_not_found" });
+    }
+    if (!session.claimed || session.userId !== req.userId) {
+      return res.status(403).json({ detail: "forbidden" });
+    }
+
+    const hasTitle = typeof req.body?.title === "string";
+    const hasDeleted = typeof req.body?.deleted === "boolean";
+    if (!hasTitle && !hasDeleted) {
+      return res.status(400).json({ detail: "title_or_deleted_required" });
+    }
+
+    if (hasTitle) {
+      const trimmed = req.body.title.trim();
+      if (!trimmed) {
+        return res.status(400).json({ detail: "title_required" });
+      }
+      const renamed = sessionStore.renameSession(sessionId, req.userId, trimmed);
+      if (!renamed) {
+        return res.status(404).json({ detail: "session_not_found" });
+      }
+      // Keep the live (or just-restored, now-live) in-memory object in sync
+      // so a later organic upsert() from an in-flight/future chat turn
+      // doesn't clobber the DB's title back to the old one via its own
+      // _cachedTitle -- renameStmt above already persisted the truncated
+      // title directly, this just mirrors it onto the object for the rest
+      // of its life in memory.
+      session._cachedTitle = truncateTitle(trimmed);
+      session.lastActivityAt = Date.now();
+      log.info("session_renamed", { sessionId, userId: req.userId });
+    }
+
+    let deleted;
+    if (hasDeleted) {
+      deleted = req.body.deleted;
+      const changed = sessionStore.setSessionDeleted(sessionId, req.userId, deleted);
+      if (!changed) {
+        return res.status(404).json({ detail: "session_not_found" });
+      }
+      log.info("session_deleted_flag_set", { sessionId, userId: req.userId, deleted });
+    }
+
+    res.json({
+      session_id: sessionId,
+      title: session._cachedTitle ?? null,
+      deleted: hasDeleted ? deleted : undefined,
+    });
   });
 
   app.get("/v1/users/:userId/sessions", (req, res) => {

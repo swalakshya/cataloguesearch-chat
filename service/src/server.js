@@ -7,6 +7,7 @@ import crypto from "crypto";
 import { SessionRegistry } from "./sessions/registry.js";
 import { SessionStore, truncateTitle } from "./sessions/session_store.js";
 import { MessageJobStore, MemoryMessageJobStore } from "./sessions/message_job_store.js";
+import { DbManager } from "./db/db_manager.js";
 import { FeedbackStore } from "./feedback/feedback_store.js";
 import { registerFeedbackRoutes } from "./feedback/feedback_routes.js";
 import { RequestLogStore } from "./request_logs/request_log_store.js";
@@ -127,6 +128,21 @@ export function createServer(options = {}) {
   const requestLogStore = chatDbPath ? new RequestLogStore(chatDbPath) : null;
   const messageJobStore = chatDbPath ? new MessageJobStore(chatDbPath) : new MemoryMessageJobStore();
   const registry = new SessionRegistry(sessionIdleMs, sessionStore);
+
+  const dbManager = chatDbPath ? new DbManager({ dbPath: chatDbPath }) : null;
+  if (dbManager) {
+    dbManager.registerJob({
+      name: "pruneExpiredMessageJobs",
+      cadence: "daily",
+      run: () => messageJobStore.pruneExpired(),
+    });
+    dbManager.registerJob({
+      name: "vacuumChatDb",
+      cadence: "weekly",
+      lowTrafficWindowOnly: true,
+      run: () => dbManager.vacuum(),
+    });
+  }
   const sessionTokenLimit = resolveSessionTokenLimit({
     explicitLimit: options.sessionTokenLimit,
     defaultProvider,
@@ -634,6 +650,7 @@ export function createServer(options = {}) {
       });
       server.once("error", reject);
     });
+    dbManager?.start();
     return httpServer;
   }
 
@@ -651,6 +668,7 @@ export function createServer(options = {}) {
       });
     }
     registry.shutdown();
+    dbManager?.shutdown();
     sessionStore?.close();
     feedbackStore?.close();
     requestLogStore?.close();

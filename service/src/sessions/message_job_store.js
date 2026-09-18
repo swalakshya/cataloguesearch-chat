@@ -52,6 +52,7 @@ export class MessageJobStore {
       WHERE message_id = @message_id
     `);
     this.clearStmt = this.db.prepare(`DELETE FROM message_jobs`);
+    this.pruneExpiredStmt = this.db.prepare(`DELETE FROM message_jobs WHERE expires_at < ?`);
   }
 
   create({ messageId, sessionId, requestHash }) {
@@ -103,6 +104,12 @@ export class MessageJobStore {
 
   clear() {
     this.clearStmt.run();
+  }
+
+  pruneExpired(now = Date.now()) {
+    const info = this.pruneExpiredStmt.run(now);
+    log.info("message_jobs_pruned", { deleted: info.changes });
+    return info.changes;
   }
 
   close() {
@@ -164,6 +171,17 @@ export class MemoryMessageJobStore {
 
   clear() {
     this.jobs.clear();
+  }
+
+  pruneExpired(now = Date.now()) {
+    let deleted = 0;
+    for (const [messageId, job] of this.jobs.entries()) {
+      if (job.expires_at < now) {
+        this.jobs.delete(messageId);
+        deleted += 1;
+      }
+    }
+    return deleted;
   }
 
   close() {}

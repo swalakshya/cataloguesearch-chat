@@ -12,3 +12,5 @@ dev_docs
 .windsurfrules
 .claude/
 /service/logs/
+/service/data/
+*.db

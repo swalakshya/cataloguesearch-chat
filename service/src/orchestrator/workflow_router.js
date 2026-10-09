@@ -21,14 +21,14 @@ export class ToolBudget {
   }
 }
 
-export async function runWorkflow({ externalApi, keywordResult, requestId, provider = null, modelId = null, gujChunks = false, llmCallsCollector }) {
+export async function runWorkflow({ externalApi, keywordResult, requestId, provider = null, modelId = null, gujChunks = false, accuracyMode = false, llmCallsCollector }) {
   const workflowName = keywordResult.workflow || "basic_question_v1";
   const runner = workflowRegistry[workflowName];
   if (!runner) {
     throw new Error(`Unknown workflow: ${workflowName}`);
   }
 
-  log.info("workflow_start", { requestId, workflow: workflowName });
+  log.info("workflow_start", { requestId, workflow: workflowName, accuracyMode });
 
   const isMetadataWorkflow = workflowName === "metadata_question_v1";
   const resolvedFilters = isMetadataWorkflow
@@ -48,6 +48,7 @@ export async function runWorkflow({ externalApi, keywordResult, requestId, provi
     ...keywordResult,
     filters: resolvedFilters,
     gujChunks,
+    accuracyMode,
   };
 
   // When gujChunks is active each workflow fires parallel Hindi + Gujarati

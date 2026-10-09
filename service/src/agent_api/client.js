@@ -34,7 +34,10 @@ export class ExternalApiClient {
     const url = `${this.baseUrl}${path}`;
     const normalizedPayload = normalizeLanguage(payload);
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    // Accuracy reranking can use 60 seconds plus embedding/retrieval time.
+    const timeoutMs = path === "/api/agent/search" && normalizedPayload?.accuracy_mode === true
+      ? Math.max(this.timeoutMs, 90_000) : this.timeoutMs;
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const startedAt = Date.now();
       log.verbose("external_api_request", { requestId, path, payload: normalizedPayload });

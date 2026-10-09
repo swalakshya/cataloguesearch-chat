@@ -10,6 +10,7 @@ export async function retryWorkflowOnEmptyChunks({
   externalApi,
   modelId,
   gujChunks = false,
+  accuracyMode = false,
   llmCallsCollector,
   runWorkflowFn = runWorkflow,
   runKeywordFixFn = runKeywordFix,
@@ -23,6 +24,7 @@ export async function retryWorkflowOnEmptyChunks({
     provider,
     modelId,
     gujChunks,
+    accuracyMode,
     llmCallsCollector,
   });
   const initialChunks = Array.isArray(first.chunks) ? first.chunks : [];
@@ -58,6 +60,7 @@ export async function retryWorkflowOnEmptyChunks({
     provider,
     modelId,
     gujChunks,
+    accuracyMode,
     llmCallsCollector,
   });
   return {

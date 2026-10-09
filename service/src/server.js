@@ -17,7 +17,7 @@ import { runKeywordExtraction } from "./orchestrator/keyword_extract.js";
 import { getPromptRootForModel } from "./orchestrator/prompts.js";
 import { retryWorkflowOnEmptyChunks } from "./orchestrator/keyword_fix_retry.js";
 import { runAnswerSynthesis } from "./orchestrator/answer_synthesis.js";
-import { buildContext, buildMultiLangContext, cleanChunks, extractChunkIds } from "./utils/chunk.js";
+import { buildContext, buildMultiLangContext, cleanChunks, extractChunkIds, expandChunkContexts } from "./utils/chunk.js";
 import {
   buildSummaryPrompt,
   compactHistoryIfNeeded,
@@ -304,11 +304,14 @@ export function createServer(options = {}) {
     if (!session) return res.status(404).json({ detail: "session_not_found" });
     if (forbidsAccess(session, req)) return res.status(403).json({ detail: "forbidden" });
     if (role !== "user" || !content) return res.status(400).json({ detail: "invalid_message" });
+    if (body.accuracy_mode != null && typeof body.accuracy_mode !== "boolean") {
+      return res.status(400).json({ detail: "invalid_accuracy_mode" });
+    }
 
     const messageId = rawClientId ? String(rawClientId).trim() : crypto.randomUUID();
     if (!messageId) return res.status(400).json({ detail: "invalid_client_message_id" });
 
-    const requestHash = hashRequestPayload({ sessionId, content, filters: body.filters });
+    const requestHash = hashRequestPayload({ sessionId, content, filters: body.filters, accuracyMode: body.accuracy_mode });
 
     // Idempotency: check if this client_message_id was already submitted
     const existingJob = messageJobStore.get(messageId);
@@ -717,6 +720,13 @@ export function createServer(options = {}) {
       const responseFormat = normalizeResponseFormat(body?.response_format, { fallback: defaultResponseFormat });
       const fullCitationsParam = body?.full_citations;
       const enableGujChunksParam = body?.enable_guj_chunks;
+      const accuracyMode = body?.accuracy_mode === true;
+      if (body?.accuracy_mode != null && typeof body.accuracy_mode !== "boolean") {
+        const err = new Error("invalid_accuracy_mode");
+        err.status = 400;
+        err.detail = "invalid_accuracy_mode";
+        throw err;
+      }
       if (role !== "user" || !content) {
         log.warn("message_invalid", { sessionId });
         const err = new Error("invalid_message");
@@ -809,6 +819,7 @@ export function createServer(options = {}) {
             responseFormat,
             fullCitationsParam,
             enableGujChunksParam,
+            accuracyMode,
             requestId,
             onStage: stageEmitter,
             requestLogContext,
@@ -880,6 +891,7 @@ export function createServer(options = {}) {
     responseFormat,
     fullCitationsParam,
     enableGujChunksParam,
+    accuracyMode,
     requestId,
     onStage,
     requestLogContext,
@@ -998,6 +1010,7 @@ export function createServer(options = {}) {
       externalApi,
       modelId: model.id,
       gujChunks,
+      accuracyMode,
       llmCallsCollector: requestLogContext.llmCalls,
       prepareKeywordResult: (result) => {
         const prepared = { ...result };
@@ -1035,13 +1048,14 @@ export function createServer(options = {}) {
       requestLogContext.contentType;
 
     const isMetadataWorkflow = workflowName === "metadata_question_v1";
-    const metadataByRealId = isMetadataWorkflow ? {} : buildChunkMetadataMap(chunks);
+    const evidenceChunks = isMetadataWorkflow ? chunks : expandChunkContexts(chunks);
+    const metadataByRealId = isMetadataWorkflow ? {} : buildChunkMetadataMap(evidenceChunks);
 
     // When gujChunks is active, split raw chunks by language tag before cleaning
     // so that deduplication is per-language and context sections stay separate.
     const useGujContext = gujChunks && !isMetadataWorkflow;
-    const rawHindiChunks = useGujContext ? chunks.filter((c) => c._lang !== "gu") : chunks;
-    const rawGujChunks = useGujContext ? chunks.filter((c) => c._lang === "gu") : [];
+    const rawHindiChunks = useGujContext ? evidenceChunks.filter((c) => c._lang !== "gu") : evidenceChunks;
+    const rawGujChunks = useGujContext ? evidenceChunks.filter((c) => c._lang === "gu") : [];
 
     const cleanedHindi = isMetadataWorkflow
       ? (Array.isArray(chunks) ? chunks : [])
@@ -1703,8 +1717,10 @@ function readBooleanEnv(name) {
   return String(process.env[name] || "").toLowerCase() === "true";
 }
 
-function hashRequestPayload({ sessionId, content, filters }) {
-  const raw = JSON.stringify({ sessionId, content, filters: filters || null });
+function hashRequestPayload({ sessionId, content, filters, accuracyMode }) {
+  const raw = JSON.stringify({ sessionId, content, filters: filters || null,
+    ...(accuracyMode === true ? { accuracy_mode: true } : {}),
+  });
   return crypto.createHash("sha256").update(raw).digest("hex");
 }
 

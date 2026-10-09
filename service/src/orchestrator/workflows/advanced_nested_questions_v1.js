@@ -23,6 +23,7 @@ export async function runAdvancedNestedQuestions({ externalApi, params, requestI
     contributor: filters.contributor || null,
     page: nestedConfig.page,
     rerank: nestedConfig.rerank,
+    accuracy_mode: params.accuracyMode === true,
   };
 
   // Budget: main (1 or 2) + each sub (1 or 2)

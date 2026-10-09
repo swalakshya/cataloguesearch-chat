@@ -1,3 +1,30 @@
+// Neighbours have independent source IDs/pages, so citing their evidence never
+// attributes it to the central paragraph. Prefer complete direct results when
+// another result also includes them as cropped context.
+export function expandChunkContexts(chunks) {
+  if (!Array.isArray(chunks)) return [];
+  if (!chunks.some(c => c?.rerank_context)) return chunks;
+  const sourceKey = (id, lang) => JSON.stringify([id, lang || ""]);
+  const direct = new Map();
+  for (const chunk of chunks) {
+    const key = sourceKey(chunk?.chunk_id, chunk?._lang);
+    if (chunk?.chunk_id && !direct.has(key)) direct.set(key, chunk);
+  }
+  const expanded = [];
+  const seen = new Set();
+  for (const chunk of chunks) {
+    for (const source of [chunk, chunk?.rerank_context?.previous, chunk?.rerank_context?.next]) {
+      if (!source) continue;
+      const key = sourceKey(source.chunk_id, chunk?._lang);
+      const resolved = direct.get(key) || { ...source, _lang: chunk?._lang };
+      if (resolved.chunk_id && seen.has(key)) continue;
+      if (resolved.chunk_id) seen.add(key);
+      expanded.push(resolved);
+    }
+  }
+  return expanded;
+}
+
 export function cleanChunk(raw) {
   if (!raw || typeof raw !== "object") return null;
   return {

@@ -25,6 +25,7 @@ export async function runAdvancedDistinctQuestions({ externalApi, params, reques
     contributor: filters.contributor || null,
     page: distConfig.page,
     rerank: distConfig.rerank,
+    accuracy_mode: params.accuracyMode === true,
   };
 
   for (const query of queries) {

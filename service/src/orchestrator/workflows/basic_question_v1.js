@@ -16,6 +16,7 @@ export async function runBasicQuestion({ externalApi, params, requestId, toolBud
     contributor: params.filters?.contributor || null,
     page: basicConfig.page,
     rerank: basicConfig.rerank,
+    accuracy_mode: params.accuracyMode === true,
   };
 
   const hindiPayload = {

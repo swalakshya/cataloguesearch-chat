@@ -20,6 +20,54 @@ This document proposes a non‑agentic service that calls LLM providers **direct
 ## Key References
 - Workflow implementation guidelines: `docs/workflow_implementation_guidelines.md`
 
+## Search Effort (Implemented)
+
+The chat message API accepts an optional boolean `accuracy_mode` (default `false`). The frontend reuses one compact Low/High selector inside both chat composers and the Khoj search box. Clicking it opens a popup headed Search effort, with a two-position slider. Low is the default (40 candidates); High searches 100 candidates. Settings retains Low/High radio buttons for the chat default. It saves that default under `chatAccuracyMode` in the existing account settings JSON, or in local storage for anonymous users. Changing the composer selection applies to subsequent messages without changing the saved default. New Chat restores the saved default.
+
+When High effort is selected, the CatalogueSearch backend searches 100 candidates instead of the configured Low pool (currently 40), then reranks them before selecting the existing number of results. This is a request option; it never changes shared configuration. Khoj has the same selector, and its PDF export forwards the selected mode. High effort leaves lexical search unchanged. For RRF, the candidate count applies to each retrieval leg, as it does in Low mode.
+
+All four retrieval workflows forward the selection to every Hindi/Gujarati search, including main/sub-queries, keyword-fix retries, and model failover. The selection comes from the user request rather than LLM extraction. Greeting, metadata, and neighbour navigation retain their existing behavior. Idempotency distinguishes a High effort request from a Low request with the same message ID.
+
+High effort allows 60 seconds for each backend reranking operation and at least 90 seconds for its chat-service HTTP request. Low retains its existing 40-second reranking and configured transport timeout. Partial reranking preserves unscored candidates in retrieval order after scored candidates. These limits apply per retrieval operation; a multi-query chat can take longer overall. The UI describes High effort as slower, without promising a fixed response time.
+
+Review corrections: Khoj now paginates its candidate pool even when reranking is disabled or the model is unavailable. Both frontend nginx configurations allow 120 seconds between upstream API reads so retrieval and PDF rendering have headroom beyond the 60-second reranking budget. This proxy limit applies to all `/api/` requests; it does not increase Low's model timeout.
+
+### Verification
+
+- Backend: from `cataloguesearch`, run `PYTHONPATH=. <python-with-project-dependencies> -m pytest tests/accuracy/test_accuracy_mode.py --confcutdir=tests/accuracy -q`.
+- Frontend: from `cataloguesearch/frontend`, run `REACT_APP_EVAL_API_BASE_URL= npm test` (the empty override prevents local dev routing from changing unrelated endpoint assertions), then `npm run build`.
+- Chat service: from `cataloguesearch-chat/service`, run `sh scripts/run-tests-docker.sh`.
+
+After restarting/rebuilding the backend, chat service, and frontend:
+
+1. In Khoj, select High and submit a semantic query. Check that `/api/search` sends `accuracy_mode: true` and the backend log reports `candidates=100`. Switch to Low and repeat; the configured pool remains 40.
+2. In Default settings, set the chat search effort to High and save. Reload and open chat; High should be selected. Verify both an anonymous browser and a signed-in account.
+3. Send a chat question and inspect its message request for `accuracy_mode: true`. Backend agent search logs should carry `accuracy_mode: true`; each semantic retrieval should fetch 100 candidates. Change the composer to Low and send a follow-up; that message should send `false` without ending the conversation.
+4. Start New Chat. The composer should return to the saved default. Open settings, change its draft selection, and cancel; the saved default should remain unchanged.
+5. With High selected in Khoj, export search results as PDF and verify `/api/export-pdf` carries the same flag. Result page/context limits remain the existing values in both modes.
+
+## Context Reranking (Implemented, Disabled by Default)
+
+The backend admin Search Config exposes `context_reranking` (default `false`), labeled **Rerank with surrounding context**. It applies to Khoj and chat, in both Low and High effort mode, whenever vector/RRF reranking runs. It does not force a lexical request into semantic retrieval or change the number of candidates. There is no per-user setting or model/index migration.
+
+With the flag on, every candidate is considered for previous/next paragraph context before scoring. Candidates already in the retrieval pool supply their neighbour text directly. Remaining `(document_id, paragraph_id)` neighbours are deduplicated and fetched in one filtered OpenSearch search per retrieval. Khoj RRF first recovers original central sources in one bulk `mget`, since its fused results hold extracted snippets. Lookups omit vector embeddings, have bounded timeouts, and fall back to available text if neighbours are missing or lookup fails. Document/language filters and checks for differing known lecture/date/section metadata prevent unrelated context from being attached.
+
+Each scoring window uses up to the final 350 characters of the previous paragraph, up to the existing first 1,000 characters of the central paragraph, and up to the first 350 characters of the next paragraph. Token counts come from the loaded tokenizer. Neighbour text is reduced first to keep the central passage's token budget intact; long central text is trimmed only when it alone exceeds the budget. The query is bounded to 128 tokens (less for a smaller configured limit). The complete query/passage pair is capped at the lower of the configured limit, tokenizer limit, and the deployed BGE-base graph's 512-token limit. Consequently, a long central paragraph can consume the whole budget and leave no neighbour text. There is no guarantee that every retrieved candidate has both neighbours available.
+
+Returned central paragraph IDs, page references, and primary text remain intact. The API optionally includes `rerank_context.previous/next`, containing exactly the cropped neighbour excerpts used for scoring, with their own IDs and page metadata. Khoj shows these under **Surrounding context**, with links to each neighbour's PDF page. Chat expands those excerpts into independently citable LLM sources before cleaning, ID hashing, and citation construction. Overlapping direct results take priority over cropped neighbour excerpts; deduplication preserves separate Hindi/Gujarati versions. With no returned context, chat retains the original chunk inputs unchanged.
+
+The flag is independent of the existing empty-retrieval retry and model failover: all resulting backend searches use the current admin setting. Metadata, greeting, lexical-only search, and requests without reranking retain their existing behavior. Context adds text and CPU work; the existing Low/High effort reranking deadlines still apply, so resource contention can produce partial scoring.
+
+### Validation and rollout
+
+- Backend: run `PYTHONPATH=. <python-with-project-dependencies> -m pytest tests/accuracy --confcutdir=tests/accuracy -q`. Tests cover flag on/off for all four vector/RRF entry points, batched lookups, token limits, long queries, language aliases, missing data, boundaries, fallback, and admin persistence/reset.
+- Frontend: run `REACT_APP_EVAL_API_BASE_URL= npm test` and `npm run build`. Context display tests verify that neighbour PDF links use their own PDF page numbers.
+- Chat: run `sh scripts/run-tests-docker.sh`. Tests cover neighbour source/citation identity, overlapping results, flag-off inputs, and bilingual deduplication.
+- After deploying/restarting all three applications, open **Admin → Search Config**, set **Rerank with surrounding context** to `true`, and Save. For `विकल्प और विचार में क्या अन्तर है?`, inspect the results and open **Surrounding context**. Backend logs should report `Context reranking: candidates=… expanded=… neighbour_lookups=… token_limit=…`.
+- In chat, verify that the answer's cited neighbour excerpts open the correct source page. Check a follow-up and Gujarati search as well. Set the admin flag to `false` or reset it to return to paragraph-only reranking without reindexing.
+
+An isolated read-only local benchmark of the implemented vector path on that question used 100 Hindi Pravachan candidates and four ONNX threads. Retrieval plus reranking took 14.75 seconds with the flag off and 26.90 seconds with it on, excluding embedding/model startup. 92 candidates had usable context after boundary/budget checks, fetched with one neighbour search. The three reported fragments moved from ranks 7, 8, and 11 to outside the top 20. Other rankings changed substantially as well; this is a single-query diagnostic, not an overall relevance or production latency guarantee. The RRF bulk source/context lookup was also verified against five live records. Live service settings were not enabled by these tests.
+
 ---
 
 ## High‑Level Architecture

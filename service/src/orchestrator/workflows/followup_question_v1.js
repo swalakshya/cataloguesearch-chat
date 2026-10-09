@@ -20,6 +20,7 @@ export async function runFollowupQuestion({ externalApi, params, requestId, tool
     contributor: filters.contributor || null,
     page: followupConfig.page,
     rerank: followupConfig.rerank,
+    accuracy_mode: params.accuracyMode === true,
   };
 
   const hindiPayload = (keywords) => ({

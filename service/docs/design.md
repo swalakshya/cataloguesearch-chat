@@ -591,3 +591,9 @@ Each workflow fires **parallel** Hindi + Gujarati searches per logical query uni
 
 - If `keywords_guj` is absent/empty for a query → skip Gujarati search for that query; Hindi proceeds normally.
 - If Gujarati external API call fails → log warning; Hindi chunks proceed to synthesis unaffected.
+
+### Response operation timings
+
+Each successful chat job includes `timings: {total_ms, operations, search_work}` and saves the same object on its assistant message in the existing session JSON. No schema migration is required. The monotonic collector measures understanding, source search, and answer preparation across retries. Optional `X-Search-Timings` headers from agent search provide retrieval, surrounding-context, and reranking work; missing or malformed metadata leaves chat behavior unchanged. These nested work durations can overlap across parallel searches and must not be added to the total service execution duration. A request-local AsyncLocalStorage scope keeps concurrent chats separate. SSE stages include `started_at` for reconnecting the live elapsed timer.
+
+Manual checks: send a question, expand the small completed timing row, reopen the session from History, and confirm the same durations. Retry/failover should accumulate repeated phases, and older messages without timing data should remain unchanged. Tests run against mocked providers and temporary SQLite databases; `node --test test/server_timings.test.js test/utils/operation_timings.test.js` checks measurement and history persistence.

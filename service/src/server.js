@@ -1,3 +1,4 @@
+import { OperationTimings, timingContext } from "./utils/operation_timings.js";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import express from "express";
@@ -685,7 +686,24 @@ export function createServer(options = {}) {
     return `http://${host}:${address.port}`;
   }
 
-  async function executeMessageRequest({ sessionId, body, onStage } = {}) {
+  async function executeMessageRequest(options = {}) {
+    const timings = new OperationTimings();
+    const startedAt = Date.now();
+    return timingContext.run(timings, async () => {
+      const response = await executeMessageRequestUntimed({ ...options, onStage: event => {
+        timings.stage(event.stage);
+        options.onStage?.({ ...event, started_at: startedAt });
+      } });
+      response.timings = timings.finish();
+      const session = registry.get(options.sessionId);
+      const message = session?.messages.findLast(item => item.role === 'assistant' && item.tool_trace_id === response.tool_trace_id);
+      if (message) { message.timings = response.timings; persistSession(session); }
+      log.info('message_timings', { requestId: response.tool_trace_id, ...response.timings });
+      return response;
+    });
+  }
+
+  async function executeMessageRequestUntimed({ sessionId, body, onStage } = {}) {
     const requestId = crypto.randomUUID();
     const requestStartedAt = Date.now();
     const { role, content, filters: uiFilters } = body || {};
@@ -1529,11 +1547,11 @@ function resolveSessionTokenLimit({ explicitLimit, defaultProvider, defaultModel
 
 function createStageEmitter(onStage) {
   if (typeof onStage !== "function") return null;
-  const emitted = new Set();
+  let lastStage = null;
   return (stage) => {
     const key = String(stage || "").trim();
-    if (!key || emitted.has(key) || !({ understanding: 1, searching: 1, preparing: 1 }[key])) return;
-    emitted.add(key);
+    if (!key || key === lastStage || !({ understanding: 1, searching: 1, preparing: 1 }[key])) return;
+    lastStage = key;
     onStage({ stage: key, label: { understanding: "Understanding your question", searching: "Searching through our scriptures", preparing: "Preparing answer" }[key] });
   };
 }

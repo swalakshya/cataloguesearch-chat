@@ -1,3 +1,4 @@
+import { timingContext } from "../utils/operation_timings.js";
 import { log, summarize } from "../utils/log.js";
 
 export class ExternalApiClient {
@@ -63,6 +64,10 @@ export class ExternalApiClient {
       if (!text) return [];
       try {
         const parsed = JSON.parse(text);
+        if (path === "/api/agent/search") {
+          try { timingContext.getStore()?.search(JSON.parse(res.headers.get("X-Search-Timings") || "null")); }
+          catch { /* Timing metadata is optional and must not fail a search. */ }
+        }
         log.info("external_api_response", {
           requestId,
           path,

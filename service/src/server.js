@@ -6,6 +6,7 @@ import cors from "cors";
 import crypto from "crypto";
 
 import { SessionRegistry } from "./sessions/registry.js";
+import { isSessionInactive, SESSION_INACTIVITY_MS } from "./sessions/inactivity.js";
 import { SessionStore, truncateTitle } from "./sessions/session_store.js";
 import { MessageJobStore, MemoryMessageJobStore } from "./sessions/message_job_store.js";
 import { DbManager } from "./db/db_manager.js";
@@ -331,6 +332,10 @@ export function createServer(options = {}) {
     }
 
     if (session.busy) return res.status(409).json({ detail: "session_busy" });
+    if (isSessionInactive(session)) {
+      log.info("session_inactive_new_chat_required", { sessionId, userId: req.userId });
+      return res.status(409).json({ detail: "session_inactive" });
+    }
 
     // Register the job and start background processing
     messageJobStore.create({ messageId, sessionId, requestHash });
@@ -458,6 +463,10 @@ export function createServer(options = {}) {
     if (!streamSession) return res.status(404).json({ detail: "session_not_found" });
     if (forbidsAccess(streamSession, req)) return res.status(403).json({ detail: "forbidden" });
     if (streamSession.busy) return res.status(409).json({ detail: "session_busy" });
+    if (isSessionInactive(streamSession)) {
+      log.info("session_inactive_new_chat_required", { sessionId: streamSession.sessionId, userId: req.userId });
+      return res.status(409).json({ detail: "session_inactive" });
+    }
 
     streamSession.busy = true;
 
@@ -523,6 +532,9 @@ export function createServer(options = {}) {
       language: session.language,
       created_at: session.createdAt / 1000,
       last_activity_at: session.lastActivityAt / 1000,
+      read_only: isSessionInactive(session),
+      inactivity_remaining_ms: session.claimed
+        ? Math.max(0, session.lastActivityAt + SESSION_INACTIVITY_MS - Date.now()) : null,
       messages: session.messages,
       busy: session.busy === true,
     });
@@ -583,7 +595,6 @@ export function createServer(options = {}) {
       // title directly, this just mirrors it onto the object for the rest
       // of its life in memory.
       session._cachedTitle = truncateTitle(trimmed);
-      session.lastActivityAt = Date.now();
       log.info("session_renamed", { sessionId, userId: req.userId });
     }
 

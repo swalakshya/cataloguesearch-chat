@@ -100,7 +100,7 @@ export class SessionRegistry {
   evictIdle() {
     const now = Date.now();
     for (const [sessionId, session] of this.sessions.entries()) {
-      if (now - session.lastActivityAt > this.idleMs) {
+      if (!session.busy && now - session.lastActivityAt > this.idleMs) {
         log.info("session_idle_evicting", {
           sessionId,
           idleForMs: now - session.lastActivityAt,

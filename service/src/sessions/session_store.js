@@ -174,9 +174,9 @@ export class SessionStore {
     // used to go through the same path as a live chat turn's own full-record
     // persist (messages/data included), which could race an in-flight
     // message and have whichever write landed last silently clobber the
-    // other's columns. This only ever touches title/last_activity_at.
+    // other's columns. This only ever touches the title.
     this.renameStmt = this.db.prepare(`
-      UPDATE sessions SET title = ?, last_activity_at = ? WHERE session_id = ? AND user_id = ? AND claimed = 1
+      UPDATE sessions SET title = ? WHERE session_id = ? AND user_id = ? AND claimed = 1
     `);
     this.deleteStmt = this.db.prepare(`
       DELETE FROM sessions
@@ -299,17 +299,12 @@ export class SessionStore {
     return Number(result?.changes || 0) > 0;
   }
 
-  // Renames a session by title alone -- see renameStmt above for why this
-  // is a scoped update rather than routing through upsert(). Also bumps
-  // last_activity_at so a renamed chat surfaces near the top of
-  // listByUser's last_activity_at DESC ordering, the same way touching any
-  // other item in a history list usually does. Returns whether a row
-  // actually matched, same false-covers-"wrong owner"/"unclaimed"/"missing"
-  // contract as setSessionDeleted.
+  // Rename only the title; reading and organizing History must not renew
+  // the 48-hour conversation lifetime or change its activity ordering.
   renameSession(sessionId, userId, title) {
     if (!sessionId || !userId) return false;
     const truncated = truncateTitle(title);
-    const result = this.renameStmt.run(truncated, Date.now(), sessionId, userId);
+    const result = this.renameStmt.run(truncated, sessionId, userId);
     return Number(result?.changes || 0) > 0;
   }
 

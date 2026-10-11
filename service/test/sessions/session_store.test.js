@@ -555,23 +555,22 @@ test("SessionStore deleted column survives a store re-open against a pre-existin
   store2.close();
 });
 
-// --- renameSession (a scoped title+last_activity_at update, deliberately
+// --- renameSession (a scoped title update, deliberately
 // NOT a full-record upsert -- see server.js's PATCH route, which used to
 // rewrite the entire session row, including messages/data, just to change a
 // title, racing an in-flight message turn's own full-record persist) ---
 
-test("SessionStore renameSession updates the title and bumps last_activity_at for an owned, claimed session", () => {
+test("SessionStore renameSession updates the title without changing conversation activity for an owned, claimed session", () => {
   const dbPath = makeTmpDb("rename-basic");
   const store = new SessionStore(dbPath);
   store.upsert(makeSession({ sessionId: "s1", userId: "user-1", claimed: true, lastActivityAt: 1_000 }));
 
-  const before = Date.now();
   const changed = store.renameSession("s1", "user-1", "My renamed chat");
   assert.equal(changed, true);
 
   const [session] = store.listByUser("user-1");
   assert.equal(session.title, "My renamed chat");
-  assert.ok(session.last_activity_at >= before);
+  assert.equal(session.last_activity_at, 1_000);
 
   store.close();
 });
@@ -676,5 +675,15 @@ test("SessionStore renameSession does not split a surrogate-pair emoji at the tr
   assert.ok(!session.title.includes("�"));
   assert.equal([...session.title.replace(/…$/, "")].length, 60);
 
+  store.close();
+});
+
+
+test("History remains sorted by conversation activity after renaming an older chat", () => {
+  const store = new SessionStore(makeTmpDb("rename-history-order"));
+  store.upsert(makeSession({ sessionId: "old", userId: "owner", claimed: true, lastActivityAt: 1000 }));
+  store.upsert(makeSession({ sessionId: "recent", userId: "owner", claimed: true, lastActivityAt: 2000 }));
+  store.renameSession("old", "owner", "New title");
+  assert.deepEqual(store.listByUser("owner").map(s => s.session_id), ["recent", "old"]);
   store.close();
 });

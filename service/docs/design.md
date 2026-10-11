@@ -261,6 +261,27 @@ Session‑only (drop‑in for existing FE). Same as `llm_service_node`:
 - Provider session is created on `POST /v1/chat/sessions` and **reused** for all messages until idle expiry or explicit delete.
 - Idle expiry closes the provider session and releases resources.
 
+### Account conversation inactivity — implementation notes
+
+Claimed account sessions become read-only after 48 hours without a question or
+answer. Anonymous sessions keep their existing behavior. This is independent of
+memory eviction: SQLite preserves old conversations and GET still returns their
+messages. GET also returns `read_only` and `inactivity_remaining_ms` so clients can
+check on entry, visibility changes, and at the deadline without relying on the
+browser clock. Busy sessions are exempt and cannot be evicted mid-answer.
+
+POSTing a new turn to an inactive session returns HTTP 409 with
+`detail: "session_inactive"` before creating a job. Existing job recovery and
+idempotent retries remain available. Clients start a new session and submit the
+question there without carrying over old history. History stays ordered by
+`last_activity_at DESC`; opening or renaming a conversation does not update it.
+No schema or authentication changes are required.
+
+Manual verification: log in, open a chat whose last exchange is over 48 hours old,
+verify its messages remain readable in History, then send a question and verify
+it appears in a new conversation. Rename the old chat and confirm its History
+position does not change. Anonymous chats should retain their previous behavior.
+
 ### Conversation History Trimming (Step1)
 The conversation history used for step1 follows a reset-on-non-followup rule:
 - Step1 receives the current `session.conversationHistory` (may be empty).

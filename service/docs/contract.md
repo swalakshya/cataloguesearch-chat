@@ -95,6 +95,8 @@ Response:
   "language": "hi|gu|en",
   "created_at": 1710000000,
   "last_activity_at": 1710000123,
+  "read_only": false,
+  "inactivity_remaining_ms": 172800000,
   "messages": [
     { "role": "user", "content": "string" },
     { "role": "assistant", "content": "string" }
@@ -116,6 +118,7 @@ Response:
 | 400 | `invalid_message` | Message payload is invalid (missing role/content or role not `user`). |
 | 404 | `session_not_found` | Session ID does not exist. |
 | 409 | `session_busy` | Session is already processing another request. |
+| 409 | `session_inactive` | Account chat has been inactive for 48 hours; create a new session. |
 | 429 | `Token Limit Exhausted for the session. Please initiate a new session.` | Session token limit threshold reached. |
 | 429 | `tool_call_budget_exceeded` | Workflow exceeded tool-call budget. |
 | 500 | `session_create_failed` | Session creation failed. |
@@ -130,3 +133,13 @@ Response:
 - Workflow prompts live under `service/prompts_sets/`.
 - External API schemas live under `tools/external_api_openapi.*`.
 - This service uses deterministic retrieval workflows defined in `llm_direct_service/docs/workflow_implementation_details.md`.
+
+### Account-session inactivity
+
+GET `/v1/chat/sessions/{id}` includes `read_only` (boolean) and
+`inactivity_remaining_ms` (milliseconds, null for anonymous sessions). Claimed
+sessions are read-only after 48 hours without a conversation exchange, except
+while processing an answer. POSTing a new message then returns HTTP 409 with
+`{"detail":"session_inactive"}`; the client must create a fresh session. Reads,
+History, existing job recovery and renames remain available. Renaming does not
+change `last_activity_at` or History ordering.

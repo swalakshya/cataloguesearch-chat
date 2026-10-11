@@ -199,3 +199,13 @@ test("SessionRegistry reassignUser marks live sessions claimed and skips already
   assert.equal(registry.get("s2").userId, "anon-1");
   assert.equal(registry.get("s2").claimed, true);
 });
+
+
+test("SessionRegistry never evicts a session while an answer is processing", () => {
+  const registry = new SessionRegistry(10);
+  clearInterval(registry.timer);
+  registry.create({ sessionId: "busy", busy: true, lastActivityAt: 1 });
+  registry.evictIdle();
+  assert.ok(registry.get("busy"));
+  registry.shutdown();
+});

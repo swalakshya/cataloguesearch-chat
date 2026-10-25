@@ -15,6 +15,29 @@ import {
   normalizeReferencesInAnswer,
 } from "../../src/utils/answer.js";
 
+test("magazine references distinguish issues and retain the physical PDF page", () => {
+  const { references, citations } = buildStructuredReferencesFromMetadata({
+    scoredChunks: [{ chunk_id: 'c1', score: 90 }], maxReferences: 1,
+    hashToRealId: { c1: 'real-1' }, language: 'en',
+    metadataByRealId: { 'real-1': { category: 'Magazine', granth: 'Atmadharma',
+      issue_number: '42', date: '1977-06', page_number: 15, pdf_page_number: 16,
+      file_url: 'https://example.com/issue.pdf' } },
+  });
+  assert.match(references[0], /Issue 42/);
+  assert.match(references[0], /1977-06/);
+  assert.match(references[0], /issue\.pdf\/16/);
+  assert.equal(citations[0].issue_number, '42');
+});
+
+test('magazine inline citations carry physical PDF pages and issue identifiers', () => {
+  const map = buildChunkCitationMap([{ id: 'c1', t: 'Evidence', p: 15, pp: 16 }], { c1: 'real-1' },
+    { 'real-1': { category: 'Magazine', granth: 'Atmadharma', issue_number: '12', magazine_year: '32' } });
+  const text = expandChunkCitations('{c1}', map);
+  assert.match(text, /pdf_page_number="16"/);
+  assert.match(text, /issue_number="12"/);
+  assert.match(text, /magazine_year="32"/);
+});
+
 test("stripCitations removes citation markers", () => {
   const text = "Hello citeturn1search0 world";
   assert.equal(stripCitations(text), "Hello  world");

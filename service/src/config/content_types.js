@@ -1,6 +1,6 @@
 import { log } from "../utils/log.js";
 
-const FALLBACK_CONTENT_TYPES = ["Granth", "Books"];
+const FALLBACK_CONTENT_TYPES = ["Pravachan", "Granth", "Books", "Magazine"];
 
 export function parseContentTypes(value) {
   if (Array.isArray(value)) {

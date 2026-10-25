@@ -34,6 +34,7 @@ export function cleanChunk(raw) {
     g: raw.granth || "",
     a: raw.author || "",
     t: raw.text_content || "",
+    ...(raw.category === 'Magazine' ? { category: 'Magazine', issue_number: raw.issue_number || null, magazine_year: raw.magazine_year || null, date: raw.date || null } : {}),
   };
 }
 

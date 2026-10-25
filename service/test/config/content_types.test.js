@@ -10,6 +10,12 @@ import {
   sanitizeAllowedContentTypes,
 } from "../../src/config/content_types.js";
 
+test("Magazine is allowed and selected by default without environment overrides", () => {
+  assert.deepEqual(getDefaultContentTypes({}), ["Pravachan", "Granth", "Books", "Magazine"]);
+  assert.ok(getAllowedContentTypes({}).includes("Magazine"));
+  assert.deepEqual(sanitizeAllowedContentTypes(["Magazine"], { env: {} }), ["Magazine"]);
+});
+
 test("parseContentTypes trims and dedupes comma-separated strings", () => {
   assert.deepEqual(parseContentTypes("Pravachan, Granth, Pravachan"), ["Pravachan", "Granth"]);
 });
@@ -61,7 +67,7 @@ test("getDefaultContentTypes warns on invalid configured env value", () => {
 
   try {
     const contentTypes = getDefaultContentTypes({ LLM_DEFAULT_CONTENT_TYPES: " , , " });
-    assert.deepEqual(contentTypes, ["Granth", "Books"]);
+    assert.deepEqual(contentTypes, ["Pravachan", "Granth", "Books", "Magazine"]);
   } finally {
     console.log = originalLog;
   }

@@ -68,7 +68,7 @@ Data reference (approx):
   Anuyog classifications include: Dravyanuyog, Charananuyog
 - Books: languages: Hindi (hi)
 
-content_type filter accepts a list, e.g. ["Granth", "Books"] or ["Pravachan"]. Default is ["Granth", "Books"].
+content_type filter accepts a list, e.g. ["Pravachan", "Granth", "Books", "Magazine"] or ["Pravachan"]. Default is ["Pravachan", "Granth", "Books", "Magazine"].
 
 Chunk ID structure:
 - {uuid}_p{page}_para{paragraph_id}
@@ -105,7 +105,7 @@ For semantic queries, the backend fetches top candidates via KNN, optionally re-
 Inputs:
 - query (required): Search text (Hindi or Gujarati).
 - language (required): "hi" | "gu".
-- content_type (default ["Granth", "Books"]): list of "Granth" | "Books" | "Pravachan".
+- content_type (default ["Pravachan", "Granth", "Books", "Magazine"]): list of "Granth" | "Books" | "Pravachan" | "Magazine".
 - anuyog (optional): e.g. "Dravyanuyog", "Charananuyog".
 - granth (optional): e.g. "Samaysaar", "Niyamsaar".
 - contributor (optional): Matches against ANY contributor role (Author OR Tikakaar OR Bhasha Vachanika).
@@ -128,8 +128,8 @@ chunk_id, text_content, category, granth, anuyog, language, date, pravachan_numb
                 "language": {"type": "string", "enum": ["hi", "gu"], "description": "Script language."},
                 "content_type": {
                     "type": "array",
-                    "items": {"type": "string", "enum": ["Pravachan", "Granth", "Books"]},
-                    "default": ["Granth", "Books"],
+                    "items": {"type": "string", "enum": ["Pravachan", "Granth", "Books", "Magazine"]},
+                    "default": ["Pravachan", "Granth", "Books", "Magazine"],
                     "description": "Filter by content categories (pass one or more values).",
                 },
                 "anuyog": {"type": "string", "description": 'Optional Anuyog filter (e.g. "Dravyanuyog").'},
@@ -227,7 +227,7 @@ Returns:
                 "language": {"type": "string", "enum": ["hi", "gu"], "description": "Language context."},
                 "content_type": {
                     "type": "string",
-                    "enum": ["Pravachan", "Granth", "Books"],
+                    "enum": ["Pravachan", "Granth", "Books", "Magazine"],
                     "description": "Category context for filter options.",
                 },
             },
@@ -426,7 +426,7 @@ class MCPServer:
 
     def _call_external_api(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
         if tool_name == "agent_search":
-            arguments = {**arguments, "content_type": ["Books", "Granth"]}
+            arguments = {**arguments, "content_type": ["Pravachan", "Granth", "Books", "Magazine"]}
             response = self.client.post("/api/agent/search", arguments)
         elif tool_name == "agent_navigate":
             response = self.client.post("/api/agent/navigate", arguments)

@@ -102,6 +102,9 @@ export function getKeywordPrompt(question, conversationHistory, options = {}) {
   const historyBlock = readPrompt("conversation_history.md", options);
   return [
     template.replace("<QUESTION_HERE>", question).trim(),
+    getAllowedContentTypes(options.env || process.env).includes('Magazine')
+      ? 'Magazine refers to periodical issues such as Atmadharma, distinct from Books. Use the magazine title as the granth filter when explicitly requested. Respect the provided content-type selection.'
+      : '',
     historyBlock,
     conversationHistory || "[]",
   ]

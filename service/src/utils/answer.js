@@ -21,6 +21,7 @@ export function buildChunkCitationMap(hashedChunks, hashToRealId, metadataByReal
       series_number: String(metadata.series_number || "").trim() || null,
       pravachan_number: String(metadata.pravachan_number || "").trim() || null,
       date: String(metadata.date || "").trim() || null,
+      ...(metadata.category === "Magazine" ? { issue_number: String(metadata.issue_number || "").trim() || null, magazine_year: metadata.magazine_year || null } : {}),
       gatha: String(metadata.gatha || "").trim() || null,
       kalash: String(metadata.kalash || "").trim() || null,
       shlok: String(metadata.shlok || "").trim() || null,
@@ -48,11 +49,14 @@ function buildCitationAttrs(entry) {
   if (entry.granth) parts.push(`granth="${esc(entry.granth)}"`);
   if (entry.category) parts.push(`category="${esc(entry.category)}"`);
   if (entry.pageNumber != null) parts.push(`page="${entry.pageNumber}"`);
+  if (entry.category === 'Magazine' && entry.pdfPageNumber != null) parts.push(`pdf_page_number="${entry.pdfPageNumber}"`);
   if (entry.volume != null) parts.push(`volume="${entry.volume}"`);
   if (entry.series) parts.push(`series="${esc(entry.series)}"`);
   if (entry.series_number) parts.push(`series_number="${esc(entry.series_number)}"`);
   if (entry.pravachan_number) parts.push(`pravachan_number="${esc(entry.pravachan_number)}"`);
   if (entry.pravachankar) parts.push(`pravachankar="${esc(entry.pravachankar)}"`);
+  if (entry.magazine_year) parts.push(`magazine_year="${esc(entry.magazine_year)}"`);
+  if (entry.issue_number) parts.push(`issue_number="${esc(entry.issue_number)}"`);
   if (entry.date) parts.push(`date="${esc(entry.date)}"`);
   if (entry.gatha) parts.push(`gatha="${esc(entry.gatha)}"`);
   if (entry.kalash) parts.push(`kalash="${esc(entry.kalash)}"`);
@@ -508,6 +512,15 @@ function formatReferenceFromMetadata(metadata, { language = "" } = {}) {
   if (category === "Pravachan") {
     return formatPravachanReference(metadata, { language });
   }
+  if (category === "Magazine") {
+    const isHindi = String(language).toLowerCase() === "hi";
+    const segments = [String(metadata.granth || ""),
+      formatLabeledValue({ labelHi: "वर्ष", labelEn: "Year", value: metadata.magazine_year, isHindi }),
+      formatLabeledValue({ labelHi: "अंक", labelEn: "Issue", value: metadata.issue_number, isHindi }),
+      formatLabeledValue({ labelHi: "दिनांक", labelEn: "Date", value: formatDateValue(metadata.date), isHindi }),
+      formatLabeledValue({ labelHi: "पृष्ठ", labelEn: "Page", value: metadata.page_number, isHindi })];
+    return [...segments.filter(Boolean), withPageSuffix(metadata.file_url, metadata.pdf_page_number, metadata.page_number)].filter(Boolean).join(", ");
+  }
   return formatGranthReference(metadata, { language });
 }
 
@@ -586,6 +599,7 @@ function buildCitationFromMetadata(metadata, reference) {
     granth: String(metadata.granth || "").trim() || extractGranth(String(reference || "").trim()),
     author: String(metadata.author || "").trim() || undefined,
     category: String(metadata.category || "").trim() || undefined,
+    ...(metadata.category === "Magazine" ? { issue_number: metadata.issue_number, magazine_year: metadata.magazine_year } : {}),
     page_number: toPositiveNumber(metadata.page_number),
     pdf_page_number: toPositiveNumber(metadata.pdf_page_number),
     file_url: String(metadata.file_url || "").trim() || undefined,
